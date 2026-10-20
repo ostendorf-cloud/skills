@@ -2,8 +2,10 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 """PreToolUse hook on Bash. Denies repository, organisation, label, ruleset or secret
-changes made through `gh` or the API, and `gh release` where release-please owns
-releases.
+changes made through `gh` or the API, a pull request write through the API, a GraphQL
+mutation through `gh api graphql`, `gh release` where release-please owns releases, and
+`gh repo rename`, `gh repo set-default`, `gh alias` or `gh extension`, which run
+arbitrary code or point the CLI somewhere else entirely.
 """
 
 import os
@@ -17,12 +19,16 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-GH_REPO = re.compile(r"^gh\s+repo\s+(edit|delete|create)\b")
+GH_REPO = re.compile(r"^gh\s+repo\s+(edit|delete|create|rename|set-default)\b")
 GH_LABEL = re.compile(r"^gh\s+label\s+(create|edit|delete|clone)\b")
 GH_SECRET = re.compile(r"^gh\s+secret\s+(set|delete|remove)\b")
 GH_VARIABLE = re.compile(r"^gh\s+variable\s+(set|delete)\b")
 GH_RELEASE = re.compile(r"^gh\s+release\s+(create|delete|edit|upload)\b")
+GH_ALIAS = re.compile(r"^gh\s+alias\s+(set|delete|import)\b")
+GH_EXTENSION = re.compile(r"^gh\s+extension\s+(install|exec|upgrade|remove)\b")
 GH_API = re.compile(r"^gh\s+api\b")
+GH_API_GRAPHQL = re.compile(r"^gh\s+api\s+graphql\b")
+GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
 
 API_VALUE_FLAGS = {
     "-X",
@@ -47,6 +53,7 @@ API_WRITE_PATH = re.compile(
     r"^(/)?(repos/[^/]+/[^/]+(/labels|/rulesets|/branches/.*/protection|"
     r"/actions/secrets|/actions/variables|$)|orgs/[^/]+|user/repos)"
 )
+PULLS_WRITE_PATH = re.compile(r"^(/)?repos/[^/]+/[^/]+/pulls(/.*)?$")
 
 IAC_REASON = (
     "Repository and organisation settings, labels, rulesets and secrets are "
@@ -56,6 +63,19 @@ IAC_REASON = (
 RELEASE_REASON = (
     "release-please owns releases here. The release pull request cuts the release; do "
     "not run gh release directly."
+)
+PULLS_REASON = (
+    "This changes a pull request directly through the API, routing around gh pr "
+    "merge and its merge prompts. Use gh pr merge, gh pr edit or gh pr review instead."
+)
+GRAPHQL_REASON = (
+    "This runs a GraphQL mutation through gh api, which can merge a pull request or "
+    "change other state while routing around the normal merge prompts. Use the "
+    "dedicated gh command instead."
+)
+ALIAS_EXTENSION_REASON = (
+    "gh alias and gh extension can point the CLI at arbitrary, unsandboxed code. "
+    "Run the underlying command directly instead."
 )
 
 
@@ -96,8 +116,19 @@ def gh_api_violation(part: str) -> Optional[str]:
         return None
 
     path = gh_api_path(rest)
+    if PULLS_WRITE_PATH.match(path):
+        return f"gh api {method} {path} changes a pull request. {PULLS_REASON}"
     if API_WRITE_PATH.match(path):
         return f"gh api {method} {path} changes a repository or org setting. {IAC_REASON}"
+    return None
+
+
+def graphql_violation(part: str) -> Optional[str]:
+    """The deny reason for a `gh api graphql` part whose body runs a mutation."""
+    if not GH_API_GRAPHQL.match(part):
+        return None
+    if GRAPHQL_MUTATION.search(part):
+        return GRAPHQL_REASON
     return None
 
 
@@ -132,7 +163,10 @@ def main() -> int:
         ):
             return _common.deny(EVENT, IAC_REASON)
 
-        reason = gh_api_violation(part) or release_violation(part, root)
+        if GH_ALIAS.match(part) or GH_EXTENSION.match(part):
+            return _common.deny(EVENT, ALIAS_EXTENSION_REASON)
+
+        reason = graphql_violation(part) or gh_api_violation(part) or release_violation(part, root)
         if reason:
             return _common.deny(EVENT, reason)
 
@@ -140,4 +174,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

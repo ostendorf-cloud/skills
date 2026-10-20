@@ -42,6 +42,15 @@ TRIGGERS = (
     ("handoff", r"\b(handoff|hand off|(ü|ue)bergeben)\b"),
     ("tldr", r"\b(tl;?dr|tldr|kurzzusammenfassung|short summary)\b"),
     ("propose-rule", r"\b(baseline|propose a rule|regel vorschlagen|guardrail|hook)\b"),
+    ("git-conventions", r"\b(branch|rebase|merge strategy|branch anlegen)\b"),
+    (
+        "repo-conventions",
+        r"\b(new repository|agents\.md|repository layout|repo anlegen)\b",
+    ),
+    ("writing-style", r"\b(rewrite|house style|umschreiben)\b"),
+    ("ci-conventions", r"\b(github actions|workflow|pipeline)\b"),
+    ("release-conventions", r"\b(versioning|semver|changelog)\b"),
+    ("tofu-module", r"\b(tofu module|write a (tofu )?module|module structure|modul schreiben)\b"),
     ("tofu-plan", r"\b(tofu plan|plan reading|blast radius)\b"),
     ("opentofu-conventions", r"\b(tofu|opentofu|terraform)\b"),
     ("helm-chart", r"\b(helm chart|chart template|helm-unittest)\b"),
@@ -79,4 +88,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

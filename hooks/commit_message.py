@@ -38,8 +38,23 @@ FORMAT_HINT = (
 )
 
 
+def extract_messages(command: str) -> list[str]:
+    """Every -m/--message value in command, in the order they appear."""
+    matches: list[tuple[int, str]] = []
+    for match in MESSAGE_FLAG.finditer(command):
+        matches.append((match.start(), match.group(2)))
+    for match in MESSAGE_FLAG_BARE.finditer(command):
+        matches.append((match.start(), match.group(1)))
+    matches.sort(key=lambda item: item[0])
+    return [value for _, value in matches]
+
+
 def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
-    """The commit message the command would write, or None when it carries none."""
+    """The commit message the command would write, or None when it carries none.
+
+    Every -m/--message value is concatenated in order: the first is the subject, the
+    rest become the body, the same way git itself joins multiple -m flags.
+    """
     heredoc = HEREDOC_MESSAGE.search(command)
     if heredoc:
         return heredoc.group(2)
@@ -56,15 +71,10 @@ def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
         except OSError:
             return None
 
-    flag = MESSAGE_FLAG.search(command)
-    if flag:
-        return flag.group(2)
-
-    bare = MESSAGE_FLAG_BARE.search(command)
-    if bare:
-        return bare.group(1)
-
-    return None
+    values = extract_messages(command)
+    if not values:
+        return None
+    return "\n\n".join(values)
 
 
 def message_violation(message: str) -> Optional[str]:
@@ -91,18 +101,25 @@ def message_violation(message: str) -> Optional[str]:
 def main() -> int:
     payload = _common.read_payload()
     command = (payload.get("tool_input") or {}).get("command") or ""
+    cwd = payload.get("cwd") or os.getcwd()
 
-    if not any(
-        part.startswith("git commit") or part == "git commit"
-        for part in (_common.strip_env_prefix(p) for p in _common.command_parts(command))
-    ):
+    git_path: Optional[str] = None
+    is_commit = False
+    for raw_part in _common.command_parts(command):
+        part = _common.strip_env_prefix(raw_part)
+        normalized, path = _common.strip_global_git_options(part)
+        if normalized.startswith("git commit") or normalized == "git commit":
+            is_commit = True
+            git_path = path
+            break
+
+    if not is_commit:
         return _common.emit_empty()
 
     if "--amend" in command and not MESSAGE_SOURCE.search(command):
         return _common.emit_empty()
 
-    cwd = payload.get("cwd") or os.getcwd()
-    message = extract_message(command, cwd)
+    message = extract_message(command, git_path or cwd)
     if message is None:
         return _common.emit_empty()
 
@@ -114,4 +131,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

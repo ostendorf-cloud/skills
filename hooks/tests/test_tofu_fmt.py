@@ -18,12 +18,21 @@ def write(content: str, suffix: str) -> str:
 
 
 class TofuFmtTest(unittest.TestCase):
-    def test_reports_a_file_tofu_fmt_rewrites(self):
-        path = write('resource "null_resource" "x" {\n  count=1\n}\n', ".tf")
+    def test_reports_a_file_tofu_fmt_would_change(self):
+        content = 'resource "null_resource" "x" {\n  count=1\n}\n'
+        path = write(content, ".tf")
         self.addCleanup(os.unlink, path)
         message = context(run_hook("tofu_fmt.py", write_payload(path)))
-        self.assertIn("tofu fmt rewrote", message)
+        self.assertIn("tofu fmt would change", message)
         self.assertIn(path, message)
+
+    def test_never_rewrites_the_file(self):
+        content = 'resource "null_resource" "x" {\n  count=1\n}\n'
+        path = write(content, ".tf")
+        self.addCleanup(os.unlink, path)
+        run_hook("tofu_fmt.py", write_payload(path))
+        with open(path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), content)
 
     def test_quiet_on_an_already_formatted_file(self):
         path = write('resource "null_resource" "x" {\n  count = 1\n}\n', ".tf")

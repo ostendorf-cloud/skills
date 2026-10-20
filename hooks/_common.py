@@ -82,6 +82,28 @@ def command_parts(command: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
+def mask_quoted(command: str) -> str:
+    """Returns command with the interior of every quoted span replaced by "x".
+
+    Quote delimiters themselves are kept in place, so the result has the same length
+    and the same indices as command. Used to scan for a shell operator such as a
+    redirect or a heredoc marker without matching one that only appears inside a
+    string. Uses the same quote tracking as command_parts.
+    """
+    chars = list(command)
+    quote = ""
+    for index, char in enumerate(command):
+        if quote:
+            if char == quote and (index == 0 or command[index - 1] != "\\"):
+                quote = ""
+            else:
+                chars[index] = "x"
+            continue
+        if char in ("'", '"'):
+            quote = char
+    return "".join(chars)
+
+
 def strip_env_prefix(part: str) -> str:
     """Removes leading environment assignments ("VAR=value") from a command part."""
     tokens = part.split()
@@ -99,6 +121,46 @@ def _looks_like_assignment(token: str) -> bool:
         and (name[0].isalpha() or name[0] == "_")
         and all(char.isalnum() or char == "_" for char in name)
     )
+
+
+def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:
+    """Normalises global git options out of a command part that starts with "git".
+
+    Strips `-C <path>`, `--git-dir=<x>`, `--git-dir <x>`, `--work-tree=<x>`,
+    `--work-tree <x>` and `-c <key>=<value>`, so `git -C /path push origin main` becomes
+    `git push origin main`. Returns the normalised text and the `-C` path, when one was
+    given, so repository dependent checks can run against that path instead of cwd.
+    """
+    tokens = part.split()
+    if not tokens or tokens[0] != "git":
+        return part, None
+
+    path: Optional[str] = None
+    kept: list[str] = [tokens[0]]
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+
+        if token == "-C":
+            if index + 1 < len(tokens):
+                path = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("-C") and len(token) > 2:
+            path = token[2:]
+            index += 1
+            continue
+        if token in ("--git-dir", "--work-tree", "-c"):
+            index += 2
+            continue
+        if token.startswith("--git-dir=") or token.startswith("--work-tree="):
+            index += 1
+            continue
+
+        kept.append(token)
+        index += 1
+
+    return " ".join(kept), path
 
 
 def run_git(args: list[str], cwd: Optional[str]) -> Optional[str]:
@@ -152,6 +214,15 @@ def default_branch(cwd: Optional[str]) -> str:
         if candidate in names:
             return candidate
     return "main"
+
+
+def run_main(main_func: Any) -> int:
+    """Runs main_func. Prints {} and returns 0 on any unexpected exception, so a hook
+    never blocks by accident on malformed input or a bug."""
+    try:
+        return main_func()
+    except Exception:
+        return emit_empty()
 
 
 def emit(payload: dict[str, Any]) -> int:

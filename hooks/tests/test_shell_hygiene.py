@@ -18,6 +18,9 @@ class ShellHygieneTest(unittest.TestCase):
             "echo done > /tmp/out.txt",
             "python3 -c 'print(1)'",
             "git commit -m \"$(cat <<'EOF'\nfeat: add thing\nEOF\n)\"",
+            'git commit -m "feat: handle a > b"',
+            'gh pr comment 1 --body "latency 10 -> 5"',
+            'jq ".a > 1" x.json',
         ]:
             self.assertIsNone(
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), command
@@ -29,6 +32,7 @@ class ShellHygieneTest(unittest.TestCase):
             "printf 'x' > config.json",
             "cat input.txt > output.txt",
             "cat input | tee out.json",
+            "echo x > file.txt",
         ]:
             self.assertEqual(
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command

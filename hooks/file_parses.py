@@ -39,9 +39,12 @@ def validate_yaml(path: str) -> Optional[str]:
     """None when path parses as YAML, else the parser's complaint or NO_PARSER."""
     yq = shutil.which("yq")
     if yq:
-        result = subprocess.run(
-            [yq, "--exit-status", ".", path], capture_output=True, text=True, timeout=15
-        )
+        try:
+            result = subprocess.run(
+                [yq, "--exit-status", ".", path], capture_output=True, text=True, timeout=15
+            )
+        except Exception as error:
+            return first_line(str(error))
         return None if result.returncode == 0 else first_line(result.stderr or result.stdout)
 
     try:
@@ -114,4 +117,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

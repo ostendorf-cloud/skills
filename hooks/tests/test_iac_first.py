@@ -68,6 +68,51 @@ class IacFirstTest(unittest.TestCase):
                 decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_gh_api_writes_to_pull_request_paths(self):
+        for command in [
+            "gh api -X PUT repos/ostendorf-cloud/skills/pulls/42/merge",
+            "gh api --method POST repos/ostendorf-cloud/skills/pulls/42/reviews",
+            "gh api -X PATCH repos/ostendorf-cloud/skills/pulls/42",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_gh_api_graphql_mutation(self):
+        command = (
+            "gh api graphql -f query='mutation { mergePullRequest(input: {}) { "
+            "clientMutationId } }'"
+        )
+        self.assertEqual(decision(run_hook("iac_first.py", bash_payload(command))), "deny")
+
+    def test_allows_gh_api_graphql_query(self):
+        command = "gh api graphql -f query='query { viewer { login } }'"
+        self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))))
+
+    def test_denies_gh_repo_rename_and_set_default(self):
+        for command in [
+            "gh repo rename new-name",
+            "gh repo set-default ostendorf-cloud/skills",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_gh_alias_and_extension_writes(self):
+        for command in [
+            "gh alias set co 'pr checkout'",
+            "gh alias delete co",
+            "gh extension install owner/gh-extension",
+            "gh extension exec my-extension",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_alias_and_extension_reads(self):
+        for command in ["gh alias list", "gh extension list"]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
+
     def test_allows_gh_api_delete_to_an_unprotected_path(self):
         self.assertIsNone(
             decision(

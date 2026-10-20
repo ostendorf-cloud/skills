@@ -49,9 +49,17 @@ def is_allowed_target(target: str) -> bool:
 
 
 def offending_redirect(command: str) -> Optional[str]:
-    """The first write-redirect target in command that is not an allowed destination."""
-    for match in WRITE_REDIRECT.finditer(command):
-        target = match.group("target")
+    """The first write-redirect target in command that is not an allowed destination.
+
+    The operator itself is matched against a quote-masked copy of command, so a `>`
+    that only appears inside a single or double quoted string, such as a commit
+    message or a jq filter, is not mistaken for a redirect. The target text is then
+    read back from the real command at the same position, so a genuinely quoted
+    target such as "$GITHUB_OUTPUT" still reads correctly.
+    """
+    for match in WRITE_REDIRECT.finditer(_common.mask_quoted(command)):
+        start, end = match.span("target")
+        target = command[start:end]
         if not is_allowed_target(target):
             return target.strip("'\"")
     return None
@@ -93,7 +101,7 @@ def main() -> int:
 
     redirect = offending_redirect(command)
     if redirect:
-        if HEREDOC.search(command):
+        if HEREDOC.search(_common.mask_quoted(command)):
             return _common.deny(
                 EVENT,
                 f"This writes {redirect} from a heredoc, which is file authoring "
@@ -115,4 +123,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

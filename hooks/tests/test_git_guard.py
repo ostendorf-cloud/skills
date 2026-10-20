@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
-from helper import bash_payload, decision, run_hook
+from helper import bash_payload, decision, reason, run_hook
 
 
 def git_repo() -> str:
@@ -139,8 +139,71 @@ class GitGuardTest(unittest.TestCase):
     def test_denies_deleting_the_default_branch_on_the_remote(self):
         repo = git_repo()
         checkout_feature(repo)
+        output = run_hook("git_guard.py", bash_payload("git push origin --delete main", repo))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("deletes", reason(output))
+
+    def test_denies_plus_prefixed_force_refspec_to_default_branch(self):
+        repo = git_repo()
+        checkout_feature(repo)
         self.assertEqual(
-            decision(run_hook("git_guard.py", bash_payload("git push origin --delete main", repo))),
+            decision(run_hook("git_guard.py", bash_payload("git push origin +main", repo))),
+            "deny",
+        )
+
+    def test_denies_plus_prefixed_force_refspec_on_feature_branch_without_lease(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        self.assertEqual(
+            decision(run_hook("git_guard.py", bash_payload("git push origin +feat/thing", repo))),
+            "deny",
+        )
+
+    def test_denies_bare_head_push_while_on_default_branch(self):
+        repo = git_repo()
+        self.assertEqual(
+            decision(run_hook("git_guard.py", bash_payload("git push origin HEAD", repo))), "deny"
+        )
+
+    def test_denies_at_push_while_on_default_branch(self):
+        repo = git_repo()
+        self.assertEqual(
+            decision(run_hook("git_guard.py", bash_payload("git push origin @", repo))), "deny"
+        )
+
+    def test_allows_head_push_from_feature_branch(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        self.assertIsNone(
+            decision(run_hook("git_guard.py", bash_payload("git push origin HEAD", repo)))
+        )
+
+    def test_denies_push_all_and_mirror(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in ["git push --all origin", "git push --mirror origin"]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_delete_reason_wins_over_target_reason(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        output = run_hook("git_guard.py", bash_payload("git push origin --delete main", repo))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("never deleted", reason(output))
+
+    def test_denies_push_to_default_branch_through_dash_c_path(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        other = tempfile.mkdtemp(prefix="git-guard-other-")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "git_guard.py",
+                    bash_payload(f"git -C {repo} push origin main", other),
+                )
+            ),
             "deny",
         )
 

@@ -67,6 +67,23 @@ class CommitMessageTest(unittest.TestCase):
             decision(run_hook("commit_message.py", bash_payload("git commit --amend")))
         )
 
+    def test_denies_attribution_in_the_second_dash_m_flag(self):
+        command = (
+            "git commit -m 'feat: add thing' -m 'Co-Authored-By: Claude <noreply@anthropic.com>'"
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_two_clean_dash_m_flags(self):
+        command = "git commit -m 'feat: add thing' -m 'longer body explaining why'"
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))), command)
+
+    def test_denies_commit_through_dash_c_path(self):
+        directory = tempfile.mkdtemp(prefix="commit-message-")
+        command = f"git -C {directory} commit -m 'added some stuff'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

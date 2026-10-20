@@ -40,17 +40,20 @@ KUBECTL_OUTPUT_FORMAT = re.compile(r"(-o|--output)[\s=]+([A-Za-z-]+)")
 FILE_READERS = {"cat", "head", "tail", "less", "grep"}
 SECRET_FILENAME = re.compile(
     r"^(\.env(\..+)?|.*\.pem|.*\.key|id_rsa|id_ed25519|kubeconfig|talosconfig|"
-    r".*\.tfstate(\..+)?|.*\.tfvars|secrets\.yaml|\.netrc)$"
+    r".*\.tfstate(\..+)?|.*\.tfvars|secrets\.ya?ml|\.netrc)$"
 )
 
 ECHO_LIKE = re.compile(r"^(echo|printf)\b")
 VAR_EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
-CRED_WORD = re.compile(r"\b(TOKEN|SECRET|PASSWORD|KEY)\b", re.IGNORECASE)
-# A variable name component: TOKEN, SECRET, PASSWORD or KEY set off by underscores or
-# the ends of the name, so GH_TOKEN and AWS_SECRET_ACCESS_KEY match but MONKEY does not.
-CRED_NAME_PART = re.compile(r"(?:^|_)(?:TOKEN|SECRET|PASSWORD|KEY)(?:_|$)", re.IGNORECASE)
+# A variable name component: TOKEN, SECRET, PASSWORD or KEY set off by a non letter or
+# digit (an underscore, a space, the ends of the string) on both sides, so GH_TOKEN,
+# "env | grep TOKEN" and AWS_SECRET_ACCESS_KEY match but MONKEY does not.
+CRED_NAME_PART = re.compile(
+    r"(?:^|[^A-Za-z0-9])(?:TOKEN|SECRET|PASSWORD|KEY)(?:[^A-Za-z0-9]|$)", re.IGNORECASE
+)
 
 ENV_DUMP_PIPE = re.compile(r"\b(?:printenv|env)\b[^\n;&|]*\|\s*(?:[\w./-]+\s+)*grep\b[^\n;&|]*")
+PRINTENV_NAME = re.compile(r"^printenv\s+([A-Za-z_][A-Za-z0-9_]*)\b")
 
 DIFF_FILE = re.compile(r"^\+\+\+ b/(.+)$")
 HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -131,8 +134,20 @@ def echoes_credential_var(part: str) -> Optional[str]:
 def env_dump_violation(command: str) -> Optional[str]:
     """The deny reason when the raw command pipes env or printenv into a credential grep."""
     match = ENV_DUMP_PIPE.search(command)
-    if match and CRED_WORD.search(match.group(0)):
+    if match and CRED_NAME_PART.search(match.group(0)):
         return f"This greps the environment for a credential pattern. {NEVER_PRINT}"
+    return None
+
+
+def printenv_violation(part: str) -> Optional[str]:
+    """The deny reason when part prints one named, credential looking environment
+    variable with printenv."""
+    match = PRINTENV_NAME.match(part)
+    if not match:
+        return None
+    name = match.group(1)
+    if CRED_NAME_PART.search(name):
+        return f"printenv {name} prints a credential looking variable. {NEVER_PRINT}"
     return None
 
 
@@ -283,6 +298,7 @@ def part_violation(part: str) -> Optional[str]:
         or kubectl_secret_violation(part)
         or secret_file_read_violation(part)
         or echoes_credential_var(part)
+        or printenv_violation(part)
     )
 
 
@@ -303,8 +319,17 @@ def main() -> int:
         if reason:
             return _common.deny(EVENT, reason)
 
-    if any(part.startswith("git commit") for part in parts):
-        cwd = payload.get("cwd") or os.getcwd()
+    commit_git_path: Optional[str] = None
+    is_commit = False
+    for part in parts:
+        normalized, git_path = _common.strip_global_git_options(part)
+        if normalized.startswith("git commit"):
+            is_commit = True
+            commit_git_path = git_path
+            break
+
+    if is_commit:
+        cwd = commit_git_path or payload.get("cwd") or os.getcwd()
         reason = commit_violation(cwd)
         if reason:
             return _common.deny(EVENT, reason)
@@ -313,4 +338,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_common.run_main(main))

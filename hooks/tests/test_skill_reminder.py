@@ -23,6 +23,12 @@ class SkillReminderTest(unittest.TestCase):
             ("the tofu plan looks wrong", "opentofu-conventions"),
             ("run a security review on this branch", "security-review"),
             ("any known cve in this dependency", "security-review"),
+            ("let's create a new tofu module for this", "tofu-module"),
+            ("I need to rebase this branch", "git-conventions"),
+            ("set up a new repository with AGENTS.md", "repo-conventions"),
+            ("please rewrite this in the house style", "writing-style"),
+            ("fix the github actions workflow", "ci-conventions"),
+            ("bump the version using semver", "release-conventions"),
         ]
         for prompt, skill in cases:
             self.assertIn(

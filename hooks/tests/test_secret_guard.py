@@ -120,10 +120,20 @@ class SecretGuardTest(unittest.TestCase):
         for command in [
             "env | grep TOKEN",
             "printenv | grep -i secret",
+            "env | grep GH_TOKEN",
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
+
+    def test_denies_printenv_of_a_credential_variable(self):
+        for command in ["printenv GH_TOKEN", "printenv AWS_SECRET_ACCESS_KEY"]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_printenv_of_an_ordinary_variable(self):
+        self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload("printenv PATH"))))
 
     def test_denies_staging_a_forbidden_file(self):
         repo = git_repo()
@@ -133,6 +143,35 @@ class SecretGuardTest(unittest.TestCase):
                 run_hook(
                     "secret_guard.py",
                     bash_payload("git commit -m 'chore: add config'", repo),
+                    env=no_gitleaks_env(),
+                )
+            ),
+            "deny",
+        )
+
+    def test_denies_staging_a_secrets_yml_file(self):
+        repo = git_repo()
+        stage(repo, "secrets.yml", "password: hunter2\n")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "secret_guard.py",
+                    bash_payload("git commit -m 'chore: add config'", repo),
+                    env=no_gitleaks_env(),
+                )
+            ),
+            "deny",
+        )
+
+    def test_denies_staging_a_forbidden_file_through_dash_c_path(self):
+        repo = git_repo()
+        stage(repo, ".env", "API_KEY=value\n")
+        other = tempfile.mkdtemp(prefix="secret-guard-other-")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "secret_guard.py",
+                    bash_payload(f"git -C {repo} commit -m 'chore: add config'", other),
                     env=no_gitleaks_env(),
                 )
             ),
@@ -169,13 +208,17 @@ class SecretGuardTest(unittest.TestCase):
         repo = git_repo()
         # A filename outside the secret file patterns, so the gitleaks content scan is
         # what catches this, not the filename check that runs before it.
+        # The header is assembled at run time so this source file itself never carries a
+        # key shaped line that a scanner of the repository would report.
+        header = "-----BEGIN " + "RSA PRIVATE KEY-----"
+        footer = "-----END " + "RSA PRIVATE KEY-----"
         stage(
             repo,
             "deploy-notes.md",
-            "-----BEGIN RSA PRIVATE KEY-----\n"
+            f"{header}\n"
             "MIIBogIBAAJBAKj34GkxFhD91assxmE1QHDAuyBbS4U8/03/vapEO9OCjF2gnXVE\n"
             "DdpnTGhNJ9KqaIaZImLjfDuxCz8xx1rhTQ0CAwEAAQ==\n"
-            "-----END RSA PRIVATE KEY-----\n",
+            f"{footer}\n",
         )
         output = run_hook(
             "secret_guard.py",
@@ -184,7 +227,7 @@ class SecretGuardTest(unittest.TestCase):
         )
         self.assertEqual(decision(output), "deny")
         self.assertIn("deploy-notes.md", reason(output))
-        self.assertNotIn("BEGIN RSA PRIVATE KEY", reason(output))
+        self.assertNotIn(header, reason(output))
 
 
 if __name__ == "__main__":
