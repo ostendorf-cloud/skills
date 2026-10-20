@@ -1,0 +1,57 @@
+---
+name: security-review
+description: Reviews a diff, branch or pull request for security problems and posts the findings as a GitHub review with severity, file and line. Covers injection, authentication, secrets, dependencies, workflows and infrastructure code. Use when the user asks for a security review, a security check of a pull request, "security review", "sicherheitscheck", "check this for vulnerabilities", or when the work loop reviews a change that touches authentication, secrets, network exposure or CI workflows.
+---
+
+# Security review
+
+Find security problems in a change and report them where the change lives.
+
+## When to use
+
+- A pull request touches authentication, authorization, input handling, secrets, CI workflows,
+  container images or infrastructure code.
+- The user asks for a security review or vulnerability check.
+- The work review found something that needs a second, security only pass.
+
+## Steps
+
+1. Determine the scope: a pull request number, a branch against its base, or the working tree.
+   Read the diff with `gh pr diff` or `git diff <base>...HEAD`.
+2. Run the harness security review when it is available (`/security-review` in Claude Code).
+   Treat its output as a candidate list, not as the result.
+3. Run the tools that exist in the repository or in `mise.toml`:
+   `gitleaks git --no-banner --redact` for secrets, `zizmor` for workflows when present,
+   `trivy fs .` or `grype dir:.` when present, `semgrep` when a config exists.
+   Never install a tool for this. Name the ones that were not available.
+4. Read the changed code for the classes a tool misses:
+   - input reaching a shell, SQL, template, path or URL without validation
+   - authentication and authorization checks that can be skipped
+   - secrets in code, config, logs, test fixtures or workflow files
+   - CI workflows: `pull_request_target`, unpinned actions, secrets in forks, script injection
+   - infrastructure code: public exposure, missing encryption, wide IAM, `prevent_destroy` missing
+   - dependencies: new packages, pinned versions, lockfile changes
+   - containers: root user, writable root filesystem, latest tags
+5. Verify every finding by reading the surrounding code. Drop what does not hold.
+6. Group findings by severity: critical, high, medium, low. Each with file, line, the problem in
+   one sentence and the fix in one sentence.
+7. Post the result:
+   - Pull request: `gh pr review` with `--request-changes` when critical or high exists,
+     `--comment` otherwise. Inline comments through the reviews API where lines are known.
+   - Branch or working tree: print the grouped list in the answer.
+8. Never fix as part of the review. Fixes are a separate change, after the user or the work loop
+   decided.
+
+## Guardrails
+
+- Never print a secret that was found. Name the file and line, redact the value.
+- Never approve. A security review requests changes or comments, approval belongs to the review
+  skill.
+- Never weaken a check to make a finding disappear.
+- No speculative findings. A finding without a code location is a question, not a finding.
+- In CI, post only through the review API. No labels, no pushes.
+
+## Config
+
+- `labels.needsHuman` (default `ai: needs human`): set on the issue when a critical finding
+  needs a human decision and the work loop is in use.

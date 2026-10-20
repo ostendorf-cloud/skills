@@ -18,7 +18,7 @@
     {
       "title": "Quality",
       "description": "Lint, test, CI and conformance checks.",
-      "skills": ["lint", "test", "fix-ci", "conformance-checks"]
+      "skills": ["lint", "test", "fix-ci", "conformance-checks", "security-review"]
     },
     {
       "title": "Docs",
