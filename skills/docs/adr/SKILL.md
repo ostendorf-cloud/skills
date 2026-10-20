@@ -53,5 +53,5 @@ Extend or supersede an existing ADR instead of writing a near duplicate.
 
 ## References
 
-- MADR: https://adr.github.io/madr/
+- MADR: <https://adr.github.io/madr/>
 - `concept-doc` for the design that precedes a decision.

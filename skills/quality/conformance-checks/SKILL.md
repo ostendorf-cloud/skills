@@ -54,6 +54,6 @@ Enforce a rule specific to this repository where no linter has an opinion.
 
 ## References
 
-- helm-unittest: https://github.com/helm-unittest/helm-unittest
-- conftest: https://www.conftest.dev/
+- helm-unittest: <https://github.com/helm-unittest/helm-unittest>
+- conftest: <https://www.conftest.dev/>
 - `lint` for linter owned rules.

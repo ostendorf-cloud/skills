@@ -1,0 +1,4 @@
+{
+  // One fact per line is the design of the rules file. A line is as long as the fact.
+  "MD013": false
+}

@@ -10,9 +10,12 @@ Date: 2026-10-20
 
 ## Decision
 
-- `ask` holds only what a human must confirm: `gh pr merge`, `gh release`, `tofu apply`, `tofu state`, `kubectl delete`, `helm uninstall`, Talos upgrades, `brew`.
-- Everything irreversible or secret revealing is `deny`. Everything else goes to the auto mode classifier.
-- Hooks inspect the full command text where a prefix rule cannot, for example `gh api` with a mutating method.
+- `ask` holds only what a human must confirm: `gh pr merge`, `gh release`, `tofu apply`,
+  `tofu state`, `kubectl delete`, `helm uninstall`, Talos upgrades, `brew`.
+- Everything irreversible or secret revealing is `deny`. Everything else goes to the auto mode
+  classifier.
+- Hooks inspect the full command text where a prefix rule cannot, for example `gh api` with a
+  mutating method.
 
 ## Consequences
 
