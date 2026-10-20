@@ -1,0 +1,57 @@
+---
+name: pr
+description: Opens or updates a pull request with a Conventional Commits title, a body in What,
+  Why, Verification and Risk, issue link and labels. Use when a branch is ready for review or an
+  existing pull request's description no longer matches the work. Trigger phrases: open a pull
+  request, update the pull request, PR erstellen, PR aktualisieren.
+---
+
+# Pull request
+
+Open a pull request a reviewer can judge without reading the whole diff first.
+
+## When to use
+
+- A branch is ready for review, or ready as a draft.
+- An existing pull request's description no longer matches the work.
+
+## Steps
+
+1. Read the state: current branch, upstream, `git log <base>..HEAD`, `git status`. Nothing
+   uncommitted stays behind unexplained.
+2. Push the branch if it is not yet on the remote.
+3. Run the repository's verify command and report the real result. Never claim a green check
+   that was not seen.
+4. Derive the title from the commits as one Conventional Commits line, because a squash merge
+   takes it as the commit message.
+5. Write the body in four sections: What, Why, Verification, Risk, each a short list of bullets.
+   Link an issue with `Closes #123`.
+6. Set labels: the type label matching the linked issue's type, and a stack label for every
+   config `stacks` glob the changed files match.
+7. Create it with `gh pr create`, or update an existing one with `gh pr edit`. Open as draft
+   unless config `pr.draft` is `false`. Request no human reviewer unless config says otherwise.
+8. Mark it ready only once the verify command is green and either the user asked for it or the
+   work loop calls for it.
+9. Report the URL, the merge strategy and what a reviewer should look at first.
+
+## Guardrails
+
+- The body never carries an attribution footer or a session link.
+- Never claim a check ran green without having seen it run.
+- A label missing on the tracker is reported, never created.
+- Opening a draft or ready pull request needs no confirmation. Merging it does, and belongs to
+  a different skill.
+
+## Config
+
+- `pr.base`: base branch. Default: the repository default branch.
+- `pr.draft`: open as draft. Default: `true`.
+- `stacks`: map of label to path globs, used to set a stack label. Default: none.
+- `types`: type labels an issue may carry, one of which is copied onto the pull request. Default:
+  `bug`, `feature`, `improvement`, `documentation`, `security`.
+- `verify`: command that proves the change is good. Default: `task lint && task test`.
+
+## References
+
+- `git-conventions` for title, body and draft conventions.
+- `review` for reviewing a pull request once it is open.
