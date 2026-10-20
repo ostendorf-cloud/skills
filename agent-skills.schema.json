@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ostendorf-cloud/skills/main/agent-skills.schema.json",
+  "title": "agent-skills",
+  "description": "Per repository configuration for the skills. Every key is optional. Absent means default.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "verify": {
+      "description": "Command that proves a change is good. Default: task lint && task test when a Taskfile exists, else detected.",
+      "type": "string"
+    },
+    "iac": {
+      "description": "Infrastructure as code tool of the repository.",
+      "type": "string",
+      "enum": ["opentofu", "terraform"],
+      "default": "opentofu"
+    },
+    "pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": { "description": "Base branch for pull requests. Default: the repository default branch.", "type": "string" },
+        "draft": { "description": "Open pull requests as draft.", "type": "boolean", "default": true },
+        "merge": { "type": "string", "enum": ["squash", "merge", "rebase"], "default": "squash" }
+      }
+    },
+    "labels": {
+      "description": "Label names of the work loop. A value of false disables that state.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ready": { "type": ["string", "boolean"], "default": "ai: ready" },
+        "working": { "type": ["string", "boolean"], "default": "ai: working" },
+        "reviewRequested": { "type": ["string", "boolean"], "default": "ai: review requested" },
+        "reviewing": { "type": ["string", "boolean"], "default": "ai: reviewing" },
+        "changesRequested": { "type": ["string", "boolean"], "default": "ai: changes requested" },
+        "needsHuman": { "type": ["string", "boolean"], "default": "ai: needs human" },
+        "done": { "type": ["string", "boolean"], "default": "ai: done" },
+        "blocked": { "type": ["string", "boolean"], "default": "ai: blocked" },
+        "needsTriage": { "type": ["string", "boolean"], "default": "needs triage" },
+        "dependencies": { "type": ["string", "boolean"], "default": "dependencies" }
+      }
+    },
+    "priority": {
+      "description": "Priority labels from highest to lowest.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["priority: urgent", "priority: high", "priority: medium", "priority: low"]
+    },
+    "types": {
+      "description": "Type labels an issue may carry. One per issue.",
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["bug", "feature", "improvement", "documentation", "security"]
+    },
+    "stacks": {
+      "description": "Map of stack label to path globs. The pr skill sets the label when a changed file matches.",
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+    "models": {
+      "description": "Model per role. The plan may override per task.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan": { "type": "string", "default": "opus" },
+        "implement": { "type": "string", "default": "sonnet" },
+        "review": { "type": "string", "default": "opus" }
+      }
+    },
+    "work": {
+      "description": "Work loop settings. false disables the work skills for the repository.",
+      "oneOf": [
+        { "type": "boolean", "const": false },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "description": "worktree: one branch and worktree per issue. branch:<name>: commit on that shared branch.",
+              "type": "string",
+              "default": "worktree"
+            },
+            "cap": { "description": "Maximum issues one queue run works.", "type": "integer", "minimum": 1, "default": 5 },
+            "reviewRounds": { "description": "Review rounds before an issue goes to needs human.", "type": "integer", "minimum": 1, "default": 2 }
+          }
+        }
+      ]
+    },
+    "release": {
+      "oneOf": [
+        { "type": "boolean", "const": false },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tool": { "type": "string", "enum": ["release-please"], "default": "release-please" }
+          }
+        }
+      ]
+    },
+    "docs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adr": { "type": "string", "default": "docs/adr" },
+        "concepts": { "type": "string", "default": "docs/concepts" }
+      }
+    }
+  }
+}

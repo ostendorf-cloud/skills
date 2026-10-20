@@ -1,0 +1,55 @@
+{
+  "groupings": [
+    {
+      "title": "Conventions",
+      "description": "Rules that apply to every repository.",
+      "skills": ["git-conventions", "repo-conventions", "secrets-handling", "writing-style"]
+    },
+    {
+      "title": "Repository",
+      "description": "Commits, pull requests, reviews, branches, dependencies, worktrees.",
+      "skills": ["commit", "pr", "review", "prune-branches", "deps", "worktree"]
+    },
+    {
+      "title": "Work",
+      "description": "Issues, plans and the label driven work loop.",
+      "skills": ["issue", "refine-issue", "plan", "implement", "work-review", "work-queue", "handoff", "tldr", "propose-rule"]
+    },
+    {
+      "title": "Quality",
+      "description": "Lint, test, CI and conformance checks.",
+      "skills": ["lint", "test", "fix-ci", "conformance-checks"]
+    },
+    {
+      "title": "Docs",
+      "description": "README, decision records and concept docs.",
+      "skills": ["readme", "adr", "concept-doc"]
+    },
+    {
+      "title": "Release",
+      "description": "Versioning and releases with release-please.",
+      "skills": ["release", "release-conventions"]
+    },
+    {
+      "title": "Infrastructure",
+      "description": "OpenTofu, Kubernetes, Helm and Talos.",
+      "skills": ["opentofu-conventions", "tofu-module", "tofu-plan", "kubernetes-conventions", "helm-chart", "k8s-debug", "talos-ops"]
+    },
+    {
+      "title": "Languages",
+      "description": "Language conventions.",
+      "skills": ["python-conventions"]
+    },
+    {
+      "title": "CI agents",
+      "description": "Running as an agent inside CI.",
+      "skills": ["ci-conventions", "ci-review"]
+    },
+    {
+      "title": "Meta",
+      "description": "Subagents, models and the skills configuration.",
+      "skills": ["agents", "skills-config"]
+    }
+  ],
+  "notGrouped": "bottom"
+}
