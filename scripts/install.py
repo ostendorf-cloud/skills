@@ -21,6 +21,7 @@ from typing import Any
 BACKUP_SUFFIX = ".before-agent-skills"
 MARKER_NAME = ".agent-skills-checksum"
 OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/")
+LEGACY_SKILL_MARKER = "/ai-setup/skills/"
 
 
 @dataclass
@@ -60,13 +61,21 @@ def tree_hash(path: Path) -> str:
 
 
 def inspect_target(target: Path, source: Path) -> str:
-    """Classify an installed skill entry: missing, stale, owned_link, owned_copy, conflict."""
+    """Classify an installed skill entry: missing, stale, owned_link, owned_copy,
+    legacy, conflict.
+
+    "legacy" is a symlink the previous installer created, pointing into a checkout
+    path that still contains "/ai-setup/skills/" rather than this installer's source.
+    """
     if target.is_symlink():
         if not target.exists():
             return "stale"
+        resolved = target.resolve()
         try:
-            target.resolve().relative_to(source.resolve())
+            resolved.relative_to(source.resolve())
         except ValueError:
+            if LEGACY_SKILL_MARKER in str(resolved):
+                return "legacy"
             return "conflict"
         return "owned_link"
     if not target.exists():
@@ -102,6 +111,12 @@ def sync_skill(skill: Skill, skills_dir: Path, source: Path, mode: str, dry_run:
             install_skill(skill, target, mode)
         return "installed"
 
+    if state == "legacy":
+        if not dry_run:
+            target.unlink()
+            install_skill(skill, target, mode)
+        return "replaced legacy link"
+
     if state == "owned_link":
         if mode == "link" and target.resolve() == skill.path.resolve():
             return "unchanged"
@@ -122,23 +137,30 @@ def sync_skill(skill: Skill, skills_dir: Path, source: Path, mode: str, dry_run:
     return "updated"
 
 
-def prune_skills(skills_dir: Path, keep: set[str], source: Path, dry_run: bool) -> list[str]:
-    """Remove managed skill entries that are no longer in the source."""
-    removed: list[str] = []
+def prune_skills(
+    skills_dir: Path, keep: set[str], source: Path, dry_run: bool
+) -> list[tuple[str, str]]:
+    """Remove managed skill entries that are no longer in the source.
+
+    Returns (name, status) pairs, status being "removed" or, for a legacy link with no
+    replacement among the current skills, "removed legacy link".
+    """
+    removed: list[tuple[str, str]] = []
     if not skills_dir.is_dir():
         return removed
     for entry in sorted(skills_dir.iterdir()):
         if entry.name in keep or entry.name.startswith("."):
             continue
         state = inspect_target(entry, source)
-        if state not in ("owned_link", "owned_copy", "stale"):
+        if state not in ("owned_link", "owned_copy", "stale", "legacy"):
             continue
         if not dry_run:
             if entry.is_symlink() or entry.is_file():
                 entry.unlink()
             else:
                 shutil.rmtree(entry)
-        removed.append(entry.name)
+        status = "removed legacy link" if state == "legacy" else "removed"
+        removed.append((entry.name, status))
     return removed
 
 
@@ -253,9 +275,37 @@ def block_is_own(block: dict[str, Any]) -> bool:
     return False
 
 
+def strip_own_hooks(data: dict[str, Any]) -> bool:
+    """Removes own hook blocks from data's "hooks" object in place. Returns whether
+    anything was removed, so the caller can tell a genuine change from a no-op."""
+    hooks_obj = data.get("hooks")
+    changed = False
+    if isinstance(hooks_obj, dict):
+        for event in list(hooks_obj.keys()):
+            kept = [block for block in hooks_obj[event] if not block_is_own(block)]
+            if len(kept) != len(hooks_obj[event]):
+                changed = True
+            if kept:
+                hooks_obj[event] = kept
+            else:
+                del hooks_obj[event]
+        if not hooks_obj:
+            data.pop("hooks", None)
+    return changed
+
+
 def merge_hooks(existing_hooks: dict[str, Any], composed_hooks: dict[str, Any]) -> dict[str, Any]:
+    """Merges composed_hooks into existing_hooks, keeping foreign blocks.
+
+    Emits events in the existing file's order, then any event only composed_hooks has,
+    in manifest order, the same order a first install writes. Sorting the keys instead
+    would make every status check after the first install report drift for no reason.
+    """
+    order = list(existing_hooks)
+    order += [event for event in composed_hooks if event not in existing_hooks]
+
     result: dict[str, Any] = {}
-    for event in sorted(set(existing_hooks) | set(composed_hooks)):
+    for event in order:
         kept = [block for block in existing_hooks.get(event, []) if not block_is_own(block)]
         result[event] = kept + composed_hooks.get(event, [])
     return result
@@ -306,8 +356,12 @@ def install_settings(
     if new_content == existing_raw:
         return "unchanged", None, len(composed), len(hooks)
 
+    existing_has_own_hooks = any(
+        block_is_own(block) for blocks in existing.get("hooks", {}).values() for block in blocks
+    )
+
     backed_up = None
-    if not backup.is_file():
+    if not backup.is_file() and not existing_has_own_hooks:
         backed_up = str(backup)
         if not dry_run:
             backup.write_text(existing_raw)
@@ -369,8 +423,9 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
         else:
             installed_names.add(skill.name)
 
-    for name in prune_skills(skills_dir, {s.name for s in skills}, args.source, args.dry_run):
-        lines.append(f"skill   {name} removed")
+    keep = {s.name for s in skills}
+    for name, status in prune_skills(skills_dir, keep, args.source, args.dry_run):
+        lines.append(f"skill   {name} {status}")
 
     rules_action, rules_backup = install_rules(args.source, args.home, args.dry_run)
     lines.append(f"rules   {rules_action}")
@@ -466,16 +521,22 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
     settings_ok = False
     commands_present = not hooks
     if settings_path.is_file():
-        raw = settings_path.read_text()
         try:
-            json.loads(raw)
+            settings_data = json.loads(settings_path.read_text())
             settings_ok = True
         except json.JSONDecodeError:
             settings_ok = False
+            settings_data = {}
         if settings_ok and hooks:
             hook_blocks = build_hook_blocks(hooks, args.source)
+            installed_commands = {
+                handler.get("command")
+                for blocks in settings_data.get("hooks", {}).values()
+                for block in blocks
+                for handler in block.get("hooks", [])
+            }
             commands_present = all(
-                handler["command"] in raw
+                handler["command"] in installed_commands
                 for blocks in hook_blocks.values()
                 for block in blocks
                 for handler in block["hooks"]
@@ -542,27 +603,27 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
     settings_path = home / ".claude" / "settings.json"
     settings_backup = Path(str(settings_path) + BACKUP_SUFFIX)
     if settings_backup.is_file():
+        # A stale backup can itself carry own hook blocks, when an earlier install run
+        # mistook its own output for the user's original file. Strip them on restore
+        # regardless, so uninstall never leaves the hooks wired.
+        try:
+            backup_data = json.loads(settings_backup.read_text())
+        except json.JSONDecodeError:
+            backup_data = None
         lines.append("settings restored from backup")
-        if not args.dry_run:
+        if isinstance(backup_data, dict):
+            strip_own_hooks(backup_data)
+            if not args.dry_run:
+                settings_path.write_text(json.dumps(backup_data, indent=2) + "\n")
+                settings_backup.unlink()
+        elif not args.dry_run:
             shutil.move(str(settings_backup), str(settings_path))
     elif settings_path.is_file():
         try:
             data = json.loads(settings_path.read_text())
         except json.JSONDecodeError:
             data = {}
-        hooks_obj = data.get("hooks")
-        changed = False
-        if isinstance(hooks_obj, dict):
-            for event in list(hooks_obj.keys()):
-                kept = [b for b in hooks_obj[event] if not block_is_own(b)]
-                if len(kept) != len(hooks_obj[event]):
-                    changed = True
-                if kept:
-                    hooks_obj[event] = kept
-                else:
-                    del hooks_obj[event]
-            if not hooks_obj:
-                data.pop("hooks", None)
+        changed = strip_own_hooks(data)
         if changed:
             lines.append("settings hooks removed, rest kept")
             if not args.dry_run:

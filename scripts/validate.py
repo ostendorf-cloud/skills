@@ -33,7 +33,7 @@ KNOWN_EVENTS = {
     "PreCompact",
     "Notification",
 }
-KNOWN_DECISIONS = {"deny", "context", "ask"}
+KNOWN_DECISIONS = {"deny", "context"}
 
 FRONTMATTER_KEY = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
 ADR_NAME = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")

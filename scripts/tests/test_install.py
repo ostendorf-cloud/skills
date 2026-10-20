@@ -242,6 +242,93 @@ class InstallTestCase(unittest.TestCase):
         self.assertIn("fail", output)
         self.assertIn("test_hook.py", output)
 
+    def test_doctor_passes_after_a_clean_install(self) -> None:
+        self._install()
+        code, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0, output)
+        self.assertIn("ok  settings.json contains the hook commands", output)
+
+    def test_status_exits_zero_right_after_install(self) -> None:
+        # merge_hooks must emit events in manifest order, the same order a first
+        # install writes, or the very next status call reports drift for no reason.
+        self._install()
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0, output)
+
+    def test_merge_hooks_preserves_manifest_order_over_alphabetical(self) -> None:
+        existing = {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "a"}]}],
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "b"}]}],
+        }
+        composed = {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "a2"}]}],
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "b2"}]}],
+        }
+        merged = install.merge_hooks(existing, composed)
+        self.assertEqual(list(merged.keys()), ["SessionStart", "PreToolUse"])
+
+    def test_second_install_with_a_new_hook_does_not_backup_its_own_output(self) -> None:
+        self._install()
+        hooks_json = json.loads((self.source / "hooks" / "hooks.json").read_text())
+        hooks_json["hooks"].append(
+            {
+                "id": "second-hook",
+                "script": "second_hook.py",
+                "event": "PreToolUse",
+                "matcher": "Bash",
+                "timeout": 10,
+                "decision": "deny",
+                "description": "A second test hook.",
+            }
+        )
+        write(self.source / "hooks" / "hooks.json", json.dumps(hooks_json))
+        write(self.source / "hooks" / "second_hook.py", "#!/usr/bin/env python3\n")
+
+        self._install()
+        settings_path = self.home / ".claude" / "settings.json"
+        backup = Path(str(settings_path) + install.BACKUP_SUFFIX)
+        self.assertFalse(backup.exists())
+
+    def test_install_install_uninstall_leaves_no_hook_block(self) -> None:
+        self._install()
+        self._install()
+        run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        settings_path = self.home / ".claude" / "settings.json"
+        settings = json.loads(settings_path.read_text())
+        commands = [
+            handler.get("command", "")
+            for blocks in settings.get("hooks", {}).values()
+            for block in blocks
+            for handler in block.get("hooks", [])
+        ]
+        self.assertFalse(any(str(self.source) in command for command in commands))
+
+    def test_install_replaces_legacy_skill_symlink(self) -> None:
+        legacy_dir = Path(self.tmp.name) / "ai-setup" / "skills" / "testcat" / "test-skill"
+        write(legacy_dir / "SKILL.md", "---\nname: test-skill\ndescription: old\n---\nOld.\n")
+        target = self.home / ".claude" / "skills" / "test-skill"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(legacy_dir, target_is_directory=True)
+
+        code, output = self._install()
+        self.assertEqual(code, 0)
+        self.assertIn("test-skill replaced legacy link", output)
+        expected = (self.source / "skills" / "testcat" / "test-skill").resolve()
+        self.assertEqual(target.resolve(), expected)
+
+    def test_install_removes_legacy_skill_symlink_with_no_replacement(self) -> None:
+        legacy_dir = Path(self.tmp.name) / "ai-setup" / "skills" / "testcat" / "old-skill"
+        write(legacy_dir / "SKILL.md", "---\nname: old-skill\ndescription: old\n---\nOld.\n")
+        target = self.home / ".claude" / "skills" / "old-skill"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(legacy_dir, target_is_directory=True)
+
+        code, output = self._install()
+        self.assertEqual(code, 0)
+        self.assertIn("old-skill removed legacy link", output)
+        self.assertFalse(target.exists())
+        self.assertFalse(target.is_symlink())
+
 
 if __name__ == "__main__":
     unittest.main()

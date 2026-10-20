@@ -183,6 +183,30 @@ class ValidateTestCase(unittest.TestCase):
         self.assertIn("unknown event 'OnFullMoon'", output)
         self.assertIn("unknown decision 'veto'", output)
 
+    def test_detects_ask_as_an_unknown_decision(self) -> None:
+        write(self.root / "hooks" / "ask_hook.py", "# a hook\n")
+        write(self.root / "hooks" / "tests" / "test_ask_hook.py", "# a test\n")
+        write(
+            self.root / "hooks" / "hooks.json",
+            json.dumps(
+                {
+                    "version": 1,
+                    "hooks": [
+                        {
+                            "id": "ask-hook",
+                            "script": "ask_hook.py",
+                            "event": "PreToolUse",
+                            "matcher": "",
+                            "decision": "ask",
+                        }
+                    ],
+                }
+            ),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("unknown decision 'ask'", output)
+
     def test_detects_adr_numbering_gap(self) -> None:
         write(self.root / "docs" / "adr" / "0001-first.md", "# First\n")
         write(self.root / "docs" / "adr" / "0003-third.md", "# Third\n")
