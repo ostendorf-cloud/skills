@@ -1,0 +1,191 @@
+# Copyright 2026 Simon Ostendorf
+# SPDX-License-Identifier: Apache-2.0
+"""Tests for secret_guard.py."""
+
+import os
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+from helper import bash_payload, decision, reason, run_hook
+
+GITLEAKS_REAL_BINARY = shutil.which("gitleaks")
+NO_GITLEAKS_PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def git_repo() -> str:
+    """A temporary repository on branch main with one commit."""
+    path = tempfile.mkdtemp(prefix="secret-guard-")
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "dev@example.com"],
+        ["config", "user.name", "dev"],
+        ["config", "commit.gpgsign", "false"],
+    ):
+        subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
+    with open(os.path.join(path, "README.md"), "w", encoding="utf-8") as handle:
+        handle.write("init\n")
+    subprocess.run(["git", "add", "README.md"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "chore: init"], cwd=path, check=True, capture_output=True
+    )
+    return path
+
+
+def stage(repo: str, name: str, content: str) -> None:
+    with open(os.path.join(repo, name), "w", encoding="utf-8") as handle:
+        handle.write(content)
+    subprocess.run(["git", "add", name], cwd=repo, check=True, capture_output=True)
+
+
+def no_gitleaks_env() -> dict:
+    """An environment whose PATH cannot resolve gitleaks."""
+    env = dict(os.environ)
+    env["PATH"] = NO_GITLEAKS_PATH
+    return env
+
+
+def gitleaks_env() -> dict:
+    """An environment whose PATH resolves gitleaks to the real installed binary,
+    bypassing the mise shim so the test does not depend on a pinned version in cwd."""
+    shim_dir = tempfile.mkdtemp(prefix="gitleaks-shim-")
+    os.symlink(GITLEAKS_REAL_BINARY, os.path.join(shim_dir, "gitleaks"))
+    env = dict(os.environ)
+    env["PATH"] = shim_dir + ":" + env.get("PATH", "")
+    return env
+
+
+class SecretGuardTest(unittest.TestCase):
+    def test_allows_ordinary_commands(self):
+        repo = git_repo()
+        for command in [
+            "git status",
+            "echo hello",
+            "kubectl get secrets",
+            "kubectl get pods -o yaml",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("secret_guard.py", bash_payload(command, repo))), command
+            )
+
+    def test_denies_commands_that_print_secrets(self):
+        for command in [
+            "bao kv get secret/prod/app",
+            "vault read secret/data/app",
+            "bws secret get my-secret",
+            "bw get item my-item",
+            "gh auth token",
+            "tofu output database_password",
+            "tofu state show module.app.resource",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_kubectl_get_secret_with_structured_output(self):
+        for command in [
+            "kubectl get secret db-credentials -o yaml",
+            "kubectl get secrets -o json",
+            "kubectl get secret db-credentials -o jsonpath={.data.password}",
+            "kubectl get secret db-credentials --output=yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_reading_a_secret_file(self):
+        for command in [
+            "cat .env",
+            "head kubeconfig",
+            "tail -f talosconfig",
+            "less id_rsa",
+            "grep -r password .env.production",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_echoing_a_credential_variable(self):
+        for command in [
+            "echo $GH_TOKEN",
+            'echo "$VAULT_TOKEN"',
+            "printf '%s' ${AWS_SECRET_ACCESS_KEY}",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_grepping_the_environment_for_credentials(self):
+        for command in [
+            "env | grep TOKEN",
+            "printenv | grep -i secret",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_staging_a_forbidden_file(self):
+        repo = git_repo()
+        stage(repo, ".env", "API_KEY=value\n")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "secret_guard.py",
+                    bash_payload("git commit -m 'chore: add config'", repo),
+                    env=no_gitleaks_env(),
+                )
+            ),
+            "deny",
+        )
+
+    def test_allows_an_ordinary_commit(self):
+        repo = git_repo()
+        stage(repo, "notes.md", "nothing secret here\n")
+        self.assertIsNone(
+            decision(
+                run_hook(
+                    "secret_guard.py",
+                    bash_payload("git commit -m 'docs: add notes'", repo),
+                    env=no_gitleaks_env(),
+                )
+            )
+        )
+
+    def test_falls_back_to_regex_scan_without_gitleaks(self):
+        repo = git_repo()
+        stage(repo, "config.yaml", "token: ghp_" + "a" * 36 + "\n")
+        output = run_hook(
+            "secret_guard.py",
+            bash_payload("git commit -m 'feat: add config'", repo),
+            env=no_gitleaks_env(),
+        )
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("config.yaml", reason(output))
+        self.assertNotIn("ghp_", reason(output))
+
+    @unittest.skipUnless(GITLEAKS_REAL_BINARY, "gitleaks is not installed on this machine")
+    def test_denies_a_staged_token_found_by_gitleaks(self):
+        repo = git_repo()
+        # A filename outside the secret file patterns, so the gitleaks content scan is
+        # what catches this, not the filename check that runs before it.
+        stage(
+            repo,
+            "deploy-notes.md",
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIBogIBAAJBAKj34GkxFhD91assxmE1QHDAuyBbS4U8/03/vapEO9OCjF2gnXVE\n"
+            "DdpnTGhNJ9KqaIaZImLjfDuxCz8xx1rhTQ0CAwEAAQ==\n"
+            "-----END RSA PRIVATE KEY-----\n",
+        )
+        output = run_hook(
+            "secret_guard.py",
+            bash_payload("git commit -m 'chore: add key'", repo),
+            env=gitleaks_env(),
+        )
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("deploy-notes.md", reason(output))
+        self.assertNotIn("BEGIN RSA PRIVATE KEY", reason(output))
+
+
+if __name__ == "__main__":
+    unittest.main()
