@@ -30,6 +30,10 @@ task install
 and keeps a backup of every file it replaces. Personal values go into
 `~/.config/agent-skills/local.json`, see `settings/local.example.json`.
 
+Run `task install` in your own terminal, not from an agent session. The installed settings deny
+an agent every write to `~/.claude/settings.json`, `~/.claude/CLAUDE.md` and
+`~/.config/agent-skills`, so an unattended run cannot widen its own permissions.
+
 Skills alone, for any agent that supports skills.sh:
 
 ```sh

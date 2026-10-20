@@ -32,7 +32,8 @@ task doctor
 
 ## Changing the baseline
 
-- Edit here. Never edit the installed files under `~/.claude`. `task install` overwrites them.
+- Edit here. Never edit the installed files under `~/.claude`. `task install` overwrites them,
+  and the installed settings deny an agent those writes. The user runs `task install`.
 - Skill and hook edits are live after `task install`, settings need a new session.
 - A new skill needs an entry in `skills.sh.json` and a new hook an entry in `hooks/hooks.json`
   plus a test.

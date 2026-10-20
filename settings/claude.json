@@ -120,8 +120,14 @@
       "Bash(gh repo edit:*)",
       "Bash(gh label:*)",
       "Bash(gh ruleset:*)",
-      "Bash(gh secret:*)",
+      "Bash(gh secret set:*)",
+      "Bash(gh secret delete:*)",
       "Bash(gh variable set:*)",
+      "Bash(gh variable delete:*)",
+      "Bash(gh alias:*)",
+      "Bash(gh extension:*)",
+      "Bash(gh repo rename:*)",
+      "Bash(gh repo set-default:*)",
       "Bash(talosctl reset:*)",
       "Bash(curl:*)",
       "Bash(wget:*)",
@@ -150,7 +156,13 @@
       "Read(~/.vault-token)",
       "Read(~/.netrc)",
       "Read(~/.zshrc)",
-      "Read(~/.zshenv)"
+      "Read(~/.zshenv)",
+      "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/CLAUDE.md)",
+      "Edit(~/.config/agent-skills/**)",
+      "Write(~/.claude/settings.json)",
+      "Write(~/.claude/CLAUDE.md)",
+      "Write(~/.config/agent-skills/**)"
     ]
   },
   "sandbox": {
@@ -212,7 +224,11 @@
         "**/*.tfvars",
         "**/*.tfvars.json",
         "**/kubeconfig",
-        "**/talosconfig"
+        "**/talosconfig",
+        "**/secrets.yaml",
+        "**/secrets.yml",
+        "**/*.pem",
+        "**/*.key"
       ]
     },
     "credentials": {
