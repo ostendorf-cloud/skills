@@ -3,6 +3,8 @@ name: work-review
 description: Reviews the pull request of one issue in review requested as a fresh independent agent, writes a GitHub review and routes the label to done, changes requested or needs human. Use when asked to review, check or sign off the AI implementation of an issue. Trigger phrases: review issue 42, check the PR for issue 42, Issue 42 review, PR gegenpruefen.
 model: opus
 context: fork
+disallowed-tools:
+  - AskUserQuestion
 ---
 
 # work-review

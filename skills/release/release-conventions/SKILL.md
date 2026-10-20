@@ -12,6 +12,12 @@ description: >-
 
 How versions, changelogs and dependency updates get produced.
 
+## When to use
+
+- Setting up release automation or dependency updates in a repository.
+- Deciding what a change means for the next version.
+- Reviewing a release pull request or a Renovate configuration.
+
 ## Rules
 
 ### Versioning
