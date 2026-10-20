@@ -1,0 +1,103 @@
+---
+name: repo-conventions
+description: What every repository must contain, how it is laid out, how its tools are pinned and
+  how its scripts are placed. Use when creating a repository, auditing one against the baseline,
+  or deciding where a file, a tool pin or a script belongs. Trigger phrases: new repository,
+  repository layout, mise.toml, Taskfile, where does this script go, Repository anlegen,
+  Tool-Version pinnen.
+---
+
+# Repository conventions
+
+The baseline every repository follows, independent of language.
+
+## When to use
+
+- Creating a repository, or bringing an existing one up to the baseline.
+- Deciding where a file, a script or a document belongs.
+- A tool version differs between a machine and CI.
+
+## Rules
+
+### Required files
+
+- `README.md`: what the repository is, quick start, configuration, development, releasing.
+- `AGENTS.md`: layout, the commands that verify a change, and this repository's own constraints.
+  Repository specific only, the baseline already applies. A `CLAUDE.md` holding `@AGENTS.md` sits
+  next to it until every agent reads `AGENTS.md` on its own.
+- `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
+- `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
+- `mise.toml` pinning every tool the repository needs.
+- `Taskfile.yaml` exposing at least `test`, `lint`, `build` and `fmt`. An existing repository keeps
+  whatever task runner it already has instead of adding a second one.
+- `renovate.json`, referencing the organisation's shared preset where one exists.
+- `release-please-config.json` and `.release-please-manifest.json` for anything that is released.
+  `CHANGELOG.md` is generated from them and never hand edited.
+- `.github/workflows/` calling the organisation's reusable workflows where they exist. Until then
+  keep workflows minimal and explicit.
+
+### Layout
+
+- `docs/adr/NNNN-title.md` for decision records, `docs/concepts/<feature>.md` for concept docs.
+- `docs/` for everything else a user or an operator needs to read.
+- No generated artifact in git unless a consumer needs it there, and then it is marked generated
+  and checked in CI.
+
+### Tooling (development environment)
+
+- `mise.toml` is the only source of tool versions. Pin to the minor version the repository is
+  tested with. No `latest`. Pin to the patch where one tool is coupled to another's version.
+- `mise` is the only installer. Never `go install`, `go get -tool`, `npx`, `pipx` or `curl | sh`,
+  in a task, in CI or by hand. A tool missing from the `mise` registry is named, with an
+  alternative proposed instead of reaching for another installer.
+- A tool needed on every machine rather than in one repository is Homebrew's job, installed by a
+  human, not by an agent.
+- `mise install` is the single setup command. It is documented in the README.
+
+### CI
+
+- CI installs the same tool versions from the same `mise.toml`, through the `mise` GitHub Action,
+  so no tool version is duplicated into a workflow file.
+- CI runs the same task targets a human runs locally. No logic exists only in the workflow.
+- A missing tool fails the job with a clear message instead of being installed ad hoc.
+
+### Scripts
+
+- Ask the generic question every time a script is touched: could another repository use it with
+  different inputs. If yes it belongs in the organisation's shared scripts repository, not here.
+- A script needed only by this repository, for example one reading this repository's own output,
+  stays in its `scripts/` and is documented in the README. Never copy a script between
+  repositories, move it and point the caller at the moved one.
+- A check that only asserts a convention is not a script. See `conformance-checks`.
+- A check script longer than roughly one screen is a sign the wrong tool is in use, or that the
+  right tool was never looked for. Search for an existing tool before writing one.
+
+### Settings and labels
+
+- Repository and organisation settings, rulesets, secrets and labels are infrastructure as code in
+  the organisation's infrastructure repository. Never change them with a CLI or a web interface.
+- A label missing on the tracker is reported. Skills never create one.
+
+### Scope
+
+- One repository has one purpose. A part that grows its own features, documentation and release
+  cycle gets extracted into its own repository.
+
+## Guardrails
+
+- Never hand edit `CHANGELOG.md` or the release-please manifest.
+- Never add a second task runner next to an existing one.
+- Never change a repository or organisation setting outside its infrastructure repository.
+
+## Config
+
+- `verify`: command that proves a change is good. Default: `task lint && task test` when a
+  Taskfile exists, else detected.
+- `iac`: infrastructure as code tool. Default: `opentofu`.
+- `docs.adr`: path for decision records. Default: `docs/adr`.
+- `docs.concepts`: path for concept docs. Default: `docs/concepts`.
+
+## References
+
+- `conformance-checks` for a rule that belongs in a declarative suite rather than a script.
+- `secrets-handling` for what never belongs in any of these files.
