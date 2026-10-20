@@ -1,0 +1,22 @@
+{
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "Organization: <your name or company>. Primary use: software development and infrastructure automation",
+      "Source control: github.com/<org-one>, github.com/<org-two> and all repositories under them",
+      "Protected IaC scopes: every OpenTofu root module that manages servers, clusters or DNS; apply only when the user names the change"
+    ]
+  },
+  "sandbox": {
+    "network": {
+      "allowUnixSockets": ["~/.bitwarden-ssh-agent.sock"]
+    }
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "hooks": [{ "type": "command", "command": "\"$HOME\"/.config/iterm2/cc-status" }]
+      }
+    ]
+  }
+}
