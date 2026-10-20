@@ -101,6 +101,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Use subagents for parallel work or an independent review, not for work that is faster done directly.
 - Give each one a bounded scope, the files it may touch and these rules. Results are claims. Verify before relying on them.
 - Default models: plan with Opus, implement with Sonnet, review with Opus. The plan may choose another model for a task and says why.
+- Give every agent an expected duration. When it has not reported by then, check its status and last output. Stuck or idle means terminate and reassign the scope.
 - Terminate every agent that is finished, idle, stale or stuck. Check the agent list before spawning more and before ending the session.
 - Never route work through another agent to get around a permission decision.
 
