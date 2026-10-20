@@ -24,6 +24,8 @@ Produce a short plan in the issue that can be approved or corrected before code 
 5. Files to touch, with paths. Flag shared interfaces, schemas or config contracts.
 6. Name the verification command from config `verify`, or state why none is needed.
 7. State risks: migration, backward compatibility, rollback.
+   Add an expected duration for the whole plan and per step where it helps. A rough number,
+   not a promise.
 8. Pick a model per step only when a step needs something other than the configured implement
    model; state tokens and time against capability in one line.
 9. List open questions: anything unclear, anything that could additionally be implemented, every
