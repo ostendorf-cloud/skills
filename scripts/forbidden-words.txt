@@ -1,0 +1,6 @@
+simonostendorf
+ostendorf-cloud
+kirch-ostendorf
+tituskirch
+kirchdev
+ai-setup
