@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "hooks": [
+    {
+      "id": "git-guard",
+      "script": "git_guard.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "Push to the default branch, force push without lease or onto the default branch, bypassed hooks or signing, deletion of the default branch."
+    },
+    {
+      "id": "secret-guard",
+      "script": "secret_guard.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 15,
+      "decision": "deny",
+      "description": "Commands that print a secret, and a commit whose staged diff holds a credential pattern or a file that never belongs in git."
+    },
+    {
+      "id": "shell-hygiene",
+      "script": "shell_hygiene.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "File content written through the shell: heredoc or redirect into a file, tee, sed -i. Inline interpreter one liners that span lines."
+    },
+    {
+      "id": "commit-message",
+      "script": "commit_message.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "Commit subject that is not a Conventional Commit, or a commit body carrying an attribution line."
+    },
+    {
+      "id": "prefer-opentofu",
+      "script": "prefer_opentofu.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "terraform in a repository that is not marked as Terraform based in .agent-skills.json."
+    },
+    {
+      "id": "iac-first",
+      "script": "iac_first.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, and gh release where release-please is configured."
+    },
+    {
+      "id": "session-lock",
+      "script": "session_lock.py",
+      "event": "SessionStart",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Records the session for the checkout and warns when another live session already works in it."
+    },
+    {
+      "id": "session-unlock",
+      "script": "session_lock.py",
+      "event": "SessionEnd",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Removes the session record at session end."
+    },
+    {
+      "id": "skill-reminder",
+      "script": "skill_reminder.py",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Names the skills that cover the request."
+    },
+    {
+      "id": "file-parses",
+      "script": "file_parses.py",
+      "event": "PostToolUse",
+      "matcher": "Write|Edit",
+      "timeout": 20,
+      "decision": "context",
+      "description": "A YAML, JSON or TOML file that no longer parses after a write."
+    },
+    {
+      "id": "tofu-fmt",
+      "script": "tofu_fmt.py",
+      "event": "PostToolUse",
+      "matcher": "Write|Edit",
+      "timeout": 20,
+      "decision": "context",
+      "description": "Runs tofu fmt on a written .tf or .tfvars file and reports when it changed something."
+    }
+  ]
+}
