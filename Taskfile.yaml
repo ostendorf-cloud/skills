@@ -1,0 +1,65 @@
+version: "3"
+
+tasks:
+  default:
+    cmds:
+      - task: ci
+
+  setup:
+    desc: Install the pinned toolchain
+    cmds:
+      - mise trust
+      - mise install
+
+  test:
+    desc: Hook and installer tests
+    cmds:
+      - python3 -m unittest discover -s hooks/tests -p "test_*.py"
+      - python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
+  lint:
+    desc: Python, markdown, YAML and workflow lint
+    cmds:
+      - ruff check hooks scripts
+      - ruff format --check hooks scripts
+      - markdownlint-cli2 "**/*.md"
+      - yamllint .
+      - actionlint
+
+  fmt:
+    desc: Format Python
+    cmds:
+      - ruff format hooks scripts
+      - ruff check --fix hooks scripts
+
+  validate:
+    desc: Check skills, manifest, settings and rules in this checkout
+    cmds:
+      - python3 scripts/validate.py
+
+  install:
+    desc: Install this checkout for Claude Code on this machine
+    cmds:
+      - python3 scripts/install.py install
+
+  uninstall:
+    desc: Remove the installed files and restore the backups
+    cmds:
+      - python3 scripts/install.py uninstall
+
+  status:
+    desc: Show what is installed and whether it drifts from this checkout
+    cmds:
+      - python3 scripts/install.py status
+
+  doctor:
+    desc: Check tools, links, settings and hooks of the installation
+    cmds:
+      - python3 scripts/install.py doctor
+
+  ci:
+    desc: Everything CI runs
+    cmds:
+      - task: lint
+      - task: test
+      - task: validate

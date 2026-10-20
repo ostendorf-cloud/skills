@@ -1,0 +1,7 @@
+[tools]
+python = "3.13"
+task = "3"
+ruff = "0.15"
+actionlint = "1"
+markdownlint-cli2 = "0.20"
+yamllint = "1"
