@@ -25,6 +25,7 @@ tasks:
       - markdownlint-cli2 "**/*.md"
       - yamllint .
       - actionlint
+      - gitleaks git --no-banner --redact
 
   fmt:
     desc: Format Python
