@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared helpers for the skills repository hooks.
 
-Covers reading the hook payload, splitting a shell command into parts, finding the
-repository root and its default branch, reading `.agent-skills.json`, and emitting the
-deny or context JSON the hook protocol expects.
+Covers reading the hook payload, splitting a shell command into parts, stripping
+fenced and inline code from text, finding the repository root and its default
+branch, reading `.agent-skills.json`, and emitting the deny or context JSON the
+hook protocol expects.
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any, Optional
@@ -102,6 +104,106 @@ def mask_quoted(command: str) -> str:
         if char in ("'", '"'):
             quote = char
     return "".join(chars)
+
+
+FENCE_OPEN = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+BACKTICK_RUN = re.compile(r"`+")
+
+
+def strip_code(text: str) -> str:
+    """Removes fenced code blocks and inline code spans from text.
+
+    A fenced block opens on a line that, after leading whitespace, starts with three
+    or more backticks or tildes, an info string allowed after the marker. It closes
+    on the next line holding nothing but at least that many of the same character,
+    surrounding whitespace allowed. An opening fence with no matching close is left
+    as plain text. Fenced lines, open through close, are blanked, which keeps the
+    line structure intact for the text around them.
+
+    An inline code span opens with a run of one or more backticks and closes only
+    with the next run of exactly the same length later on the same line, a shorter
+    or longer run encountered in between is content, not a delimiter. A span never
+    crosses a line break: a trailer or a marker lives on its own line, so a stray
+    backtick on one line can never pair with a stray backtick on another to swallow
+    it, at the cost of also denying a deliberate quotation wrapped across a line
+    break. A backtick run with no same-length closing run later on its line is left
+    as plain text, it strips nothing. A matched span, delimiters and content, is
+    replaced by a single space, so the text before and after it can never glue into
+    a new match. Two stray backticks on one line around a pattern on that same line
+    form a span by this rule and hide it. That is a quotation by the Markdown rules
+    and an accepted limit: a trailer or a marker on its own line is never affected.
+
+    Returns the text with every matched span removed this way.
+    """
+    lines = text.split("\n")
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        opening = FENCE_OPEN.match(line)
+        if opening:
+            fence_char = opening.group(1)[0]
+            fence_len = len(opening.group(1))
+            closing = _find_fence_close(lines, index + 1, fence_char, fence_len)
+            if closing is not None:
+                kept.extend([""] * (closing - index + 1))
+                index = closing + 1
+                continue
+        kept.append(_strip_inline_spans(line))
+        index += 1
+    return "\n".join(kept)
+
+
+def _find_fence_close(
+    lines: list[str], start: int, fence_char: str, fence_len: int
+) -> Optional[int]:
+    """The index, at or after start, of the line in lines that closes a fence opened
+    with fence_len copies of fence_char. None when no such line exists."""
+    for index in range(start, len(lines)):
+        body = lines[index].strip(" \t")
+        if body and len(body) >= fence_len and set(body) == {fence_char}:
+            return index
+    return None
+
+
+def _strip_inline_spans(text: str) -> str:
+    """Replaces every inline code span in text with a single space.
+
+    Scans left to right. A backtick run that reaches no run of the exact same
+    length anywhere later in text is literal and is kept; a run of a different
+    length encountered while looking for that close is skipped over as span
+    content, the way CommonMark treats a shorter or longer run inside a span.
+    """
+    pieces: list[str] = []
+    position = 0
+    length = len(text)
+    while position < length:
+        opening = BACKTICK_RUN.search(text, position)
+        if not opening:
+            pieces.append(text[position:])
+            break
+        pieces.append(text[position : opening.start()])
+        closing = _find_closing_run(text, opening.end(), opening.end() - opening.start())
+        if closing is None:
+            pieces.append(text[opening.start() : opening.end()])
+            position = opening.end()
+            continue
+        pieces.append(" ")
+        position = closing[1]
+    return "".join(pieces)
+
+
+def _find_closing_run(text: str, start: int, run_length: int) -> Optional[tuple[int, int]]:
+    """The span, at or after start, of the next backtick run in text whose length is
+    exactly run_length. None when no such run exists."""
+    position = start
+    while True:
+        run = BACKTICK_RUN.search(text, position)
+        if not run:
+            return None
+        if run.end() - run.start() == run_length:
+            return run.start(), run.end()
+        position = run.end()
 
 
 def strip_env_prefix(part: str) -> str:
