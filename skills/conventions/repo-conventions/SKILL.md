@@ -23,8 +23,9 @@ The baseline every repository follows, independent of language.
 
 - `README.md`: what the repository is, quick start, configuration, development, releasing.
 - `AGENTS.md`: layout, the commands that verify a change, and this repository's own constraints.
-  Repository specific only, the baseline already applies. A `CLAUDE.md` holding `@AGENTS.md` sits
-  next to it until every agent reads `AGENTS.md` on its own.
+  Repository specific only, the baseline already applies. Deviations from this baseline go under
+  `## Deviations`, one line each with the reason. A `CLAUDE.md` holding `@AGENTS.md` sits next to
+  it until every agent reads `AGENTS.md` on its own.
 - `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
 - `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
 - `mise.toml` pinning every tool the repository needs.
@@ -44,9 +45,19 @@ The baseline every repository follows, independent of language.
 ### Layout
 
 - `docs/adr/NNNN-title.md` for decision records, `docs/concepts/<feature>.md` for concept docs.
+  Neither directory exists ahead of time. A skill creates it with the first record it writes, not
+  as part of repository setup.
 - `docs/` for everything else a user or an operator needs to read.
 - No generated artifact in git unless a consumer needs it there, and then it is marked generated
   and checked in CI.
+
+### Deviations
+
+- A repository that does something differently from this baseline says so in `AGENTS.md` under
+  `## Deviations`, one line per deviation with the reason.
+- A skill about to create a file or a directory this baseline describes reads that heading first
+  and skips the step an entry opts out of.
+- No `## Deviations` heading, or no entry naming the skill, means the baseline applies in full.
 
 ### Tooling (development environment)
 
@@ -94,6 +105,8 @@ The baseline every repository follows, independent of language.
 - Never hand edit `CHANGELOG.md` or the release-please manifest.
 - Never add a second task runner next to an existing one.
 - Never change a repository or organisation setting outside its infrastructure repository.
+- Never create `docs/adr` or `docs/concepts` ahead of a record, and never override a
+  `## Deviations` entry that opts out.
 
 ## Config
 

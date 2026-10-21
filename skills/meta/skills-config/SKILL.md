@@ -25,8 +25,10 @@ Create or validate the per repository skills configuration, never the tracker's 
 7. A label the config names but the tracker lacks: report it as missing for the infrastructure
    repository to create. Never create it here.
 8. Explain every key actually set, in one line each, before writing the file.
-9. Include the `$schema` key pointing at the schema's raw URL.
-10. Write the file with the file tools, never with shell redirection.
+9. Read `AGENTS.md` for `## Deviations` and report every entry found, next to that
+   explanation.
+10. Include the `$schema` key pointing at the schema's raw URL.
+11. Write the file with the file tools, never with shell redirection.
 
 ## Guardrails
 
@@ -35,6 +37,7 @@ Create or validate the per repository skills configuration, never the tracker's 
 - Labels are infrastructure as code. This skill reports a gap, it never closes one.
 - Structural validation only: a value that parses but contradicts repository reality is named,
   not silently kept.
+- Deviations are reported, never silently applied and never silently ignored.
 
 ## Config
 

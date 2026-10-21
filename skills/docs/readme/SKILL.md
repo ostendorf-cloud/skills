@@ -21,21 +21,23 @@ Produce a short, accurate README in one house style across repositories.
 
 ## Steps
 
-1. Read the entry point, task runner, CI workflows, config loading, chart values or
+1. Read `AGENTS.md` for `## Deviations`. An entry naming the readme skill changes the step
+   it names; everything else below still applies.
+2. Read the entry point, task runner, CI workflows, config loading, chart values or
    OpenTofu variables first. Every command and option comes from there.
-2. Write the sections in this order, dropping one only if it does not apply: title and
+3. Write the sections in this order, dropping one only if it does not apply: title and
    one line, What it does, Install, Use, Configuration, Development, License.
-3. What it does: one or two sentences, what it is and who it is for.
-4. Install: the shortest path from clone to running, with commands actually executed.
+4. What it does: one or two sentences, what it is and who it is for.
+5. Install: the shortest path from clone to running, with commands actually executed.
    Name prerequisite versions if they matter.
-5. Use: the two or three things people actually do, with real input and output. Link
+6. Use: the two or three things people actually do, with real input and output. Link
    `docs/` for the rest.
-6. Configuration: a table of name, purpose, default, required, sourced from the code.
-7. Development: build, test, lint, run locally, preferring the repository task runner.
-8. License: name plus link to the `LICENSE` file.
-9. Verify: run the commands, open every link, diff the configuration table against
-   the code.
-10. Keep it one or two screens. A section that grows past that moves to `docs/` and
+7. Configuration: a table of name, purpose, default, required, sourced from the code.
+8. Development: build, test, lint, run locally, preferring the repository task runner.
+9. License: name plus link to the `LICENSE` file.
+10. Verify: run the commands, open every link, diff the configuration table against
+    the code.
+11. Keep it one or two screens. A section that grows past that moves to `docs/` and
     gets linked.
 
 Review pass for an existing README: stale claims (removed or renamed features, changed
@@ -44,6 +46,7 @@ names, `TODO`, scaffold URLs), install steps that no longer work, sections out o
 
 ## Guardrails
 
+- `## Deviations` checked before writing or reviewing.
 - Fixed section order followed, sections dropped only when they do not apply.
 - No marketing filler, no emoji, no badge wall, no roadmap or changelog section.
 - Only commands that exist in the repository and were run.
