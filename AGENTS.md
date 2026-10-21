@@ -23,12 +23,14 @@ baseline already applies here and is not repeated.
 
 ```sh
 task setup           # mise install
+task check           # every check, one after another: lint:*, test:*, validate
 task --list          # one target per check: lint:*, test:*, validate
 task install         # install this checkout for Claude Code
 task doctor
 ```
 
-- One task target per check and one CI job per target. No umbrella target.
+- One task target per check and one CI job per target. `check` aggregates the small targets and
+  holds no command of its own. CI calls the small targets, never `check`.
 - Workflows: `checks.yaml` runs every check as its own job, `install.yaml` smoke tests the installer.
 
 ## Changing the baseline

@@ -70,8 +70,7 @@ Produce a short plan in the issue that can be approved or corrected before code 
 
 Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 
-- `verify`: command that proves a change is good. Default `task lint && task test` when a
-  Taskfile exists.
+- `verify`: command that proves a change is good. Default `task check` when a Taskfile exists.
 - `models.plan`: default `opus`. `models.implement`: default `sonnet`.
 
 ## References

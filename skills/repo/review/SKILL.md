@@ -47,7 +47,7 @@ Review a change the way a peer does who has to maintain it afterwards.
 
 ## Config
 
-- `verify`: command used to check a claim about tests or lint. Default: `task lint && task test`.
+- `verify`: command used to check a claim about tests or lint. Default: `task check`.
 
 ## References
 
