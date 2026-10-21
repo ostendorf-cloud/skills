@@ -51,6 +51,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 ## Guardrails
 
 - Review only: no edits, no commits, no merges.
+- Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
+  remains after the move.
 - A different agent than the implementer, every time.
 - `done` is a real acceptance. When unsure, `needs human`, never a rubber stamp.
 - The round cap is a floor for a human decision, never a ceiling that waves through unfinished

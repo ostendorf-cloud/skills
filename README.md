@@ -47,6 +47,23 @@ npx skills add ostendorf-cloud/skills -g
 - `task status` shows drift between the checkout and the installation. `task doctor` checks
   tools, links and hooks.
 
+## Hooks
+
+| Hook | Decision | What it does |
+| --- | --- | --- |
+| `git-guard` | deny | Push to the default branch, force push without lease or onto the default branch, `git push --all` or `--mirror`, bypassed hooks or signing, deletion of the default branch. |
+| `secret-guard` | deny | Commands that print a secret, and a commit whose staged diff holds a credential pattern or a file that never belongs in git. |
+| `shell-hygiene` | deny | File content written through the shell: heredoc or redirect into a file, `tee`, `sed -i`. Inline interpreter one liners that span lines. |
+| `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit body carrying an attribution line. |
+| `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
+| `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where release-please is configured, and `gh repo` rename, set-default, alias or extension. |
+| `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |
+| `session-lock` | context | Records the session for the checkout and warns when another live session already works in it. |
+| `session-unlock` | context | Removes the session record at session end. |
+| `skill-reminder` | context | Names the skills that cover the request. |
+| `file-parses` | context | A YAML, JSON or TOML file that no longer parses after a write. |
+| `tofu-fmt` | context | Reports when a written `.tf` or `.tfvars` file is not formatted. |
+
 ## Per repository
 
 An optional `.agent-skills.json` at the repository root sets verify command, labels, models and

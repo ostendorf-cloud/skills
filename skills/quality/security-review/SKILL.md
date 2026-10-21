@@ -53,6 +53,8 @@ Find security problems in a change and report them where the change lives.
 - Never weaken a check to make a finding disappear.
 - No speculative findings. A finding without a code location is a question, not a finding.
 - In CI, post only through the review API. No labels, no pushes.
+- Setting `labels.needsHuman` uses the snippet in `skills/README.md`: exactly one `ai:`
+  state label remains afterwards.
 
 ## Config
 

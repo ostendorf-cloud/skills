@@ -101,6 +101,8 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 - Non-trivial work starts with a plan in the issue: goal, steps, verification, model choice. Not in `docs/`.
 - Work on an issue moves its `ai:` label: `ready` to `working` to `review requested` to `done`, with `changes requested`, `needs human` and `blocked` as exits.
+- Moving the state means exactly one `ai:` state label remains. Remove every other `ai:` label in the same step.
+- List the labels afterwards to confirm the result.
 - `ai: ready` and `needs triage` are set by humans only. An issue carrying `needs triage` is not picked up.
 - A missing label is reported, never created.
 

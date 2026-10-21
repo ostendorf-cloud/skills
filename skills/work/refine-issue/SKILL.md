@@ -54,6 +54,8 @@ Appended to the body:
 - Never implement, never create a branch.
 - Open questions go to the user when interactive, to a comment when unattended. Never guessed.
 - `needs triage` and `ai: ready` change only with the user's explicit confirmation.
+- Setting `ai: ready` uses the snippet in `skills/README.md`: exactly one `ai:` state
+  label remains afterwards.
 
 ## Config
 
