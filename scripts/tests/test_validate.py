@@ -292,7 +292,22 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "ok")
 
-    def test_ignores_vendored_yml_in_untracked_directory(self) -> None:
+    def test_ignores_vendored_yml_in_gitignored_directory(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps({"$schema": "x", "properties": {}}),
+        )
+        write(self.root / ".gitignore", "vendor/\n")
+        git_commit_all(self.root)
+        write(self.root / "vendor" / "lib.yml", "vendored: true\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
+    def test_detects_untracked_yml_file_in_a_git_repository(self) -> None:
         self._write_skill()
         self._write_groupings(["myskill"])
         write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
@@ -301,10 +316,10 @@ class ValidateTestCase(unittest.TestCase):
             json.dumps({"$schema": "x", "properties": {}}),
         )
         git_commit_all(self.root)
-        write(self.root / "vendor" / "lib.yml", "vendored: true\n")
+        write(self.root / ".github" / "workflows" / "lint.yml", "name: lint\n")
         code, output = run(self.root)
-        self.assertEqual(code, 0)
-        self.assertEqual(output.strip(), "ok")
+        self.assertEqual(code, 1)
+        self.assertIn(".github/workflows/lint.yml: uses the .yml extension", output)
 
     def test_allows_funding_and_dependabot_yml_exceptions(self) -> None:
         self._write_skill()

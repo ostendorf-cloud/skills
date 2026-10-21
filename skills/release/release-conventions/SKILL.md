@@ -72,6 +72,7 @@ How versions, changelogs and dependency updates get produced.
 
 ## References
 
+- `ci-conventions` for workflow files and the action pinning rule.
 - <https://github.com/googleapis/release-please>
 - <https://www.conventionalcommits.org/en/v1.0.0/>
 - <https://docs.renovatebot.com/configuration-options/>

@@ -383,10 +383,9 @@ def check_license_headers(root: Path) -> list[str]:
 
 
 def list_yml_files(root: Path) -> list[Path]:
-    """Lists *.yml files tracked by git, falling back to a filesystem walk when git is
-    unavailable."""
+    """Lists tracked and untracked *.yml files, respecting .gitignore, or walks without git."""
     result = subprocess.run(
-        ["git", "ls-files", "*.yml"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.yml"],
         cwd=root,
         capture_output=True,
         text=True,
