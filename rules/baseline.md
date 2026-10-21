@@ -82,6 +82,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 ## Repositories
 
 - Every repository carries an `AGENTS.md` with its layout, commands and constraints. A `CLAUDE.md` holding `@AGENTS.md` sits next to it.
+- A repository that drops or changes a convention says so in `AGENTS.md` under `## Deviations`, one line with the reason. Read it before creating files the baseline describes.
 - An optional `.agent-skills.json` configures the skills for the repository. Absent means defaults.
 - Reference sibling repositories only within the same organisation as the current repository. Conventions from elsewhere may be used, never linked.
 - New code gets tests. Changes get documentation where a reader needs it.
