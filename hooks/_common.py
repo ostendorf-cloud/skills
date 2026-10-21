@@ -123,6 +123,15 @@ def _looks_like_assignment(token: str) -> bool:
     )
 
 
+def command_name(part: str) -> str:
+    """The basename of the first token in part, so `/opt/homebrew/bin/gh` and `gh`
+    both resolve to "gh"."""
+    tokens = part.split()
+    if not tokens:
+        return ""
+    return os.path.basename(tokens[0])
+
+
 def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:
     """Normalises global git options out of a command part that starts with "git".
 
