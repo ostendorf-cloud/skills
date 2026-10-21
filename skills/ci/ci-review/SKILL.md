@@ -4,8 +4,9 @@ description: >-
   Reviews a pull request from CI as a GitHub review grouped by severity
   with file and line references, approving when nothing blocks and never
   merging or pushing. Use when a workflow triggers an automated pull
-  request review, Pull Request aus der CI pruefen, automatisierte
-  Review.
+  request review, including an infrastructure pull request with a sticky
+  plan comment to read, Pull Request aus der CI pruefen, automatisierte
+  Review, Infrastruktur Pull Request, Plan Kommentar pruefen.
 disallowed-tools: AskUserQuestion
 ---
 
@@ -25,7 +26,9 @@ A pull request review a human can act on without rereading the diff.
 3. On an infrastructure pull request, read the sticky plan comment the OpenTofu pipeline
    posted for every touched module: replace and destroy rows first with their reason,
    then anything that looks like drift instead of the change itself, then the plan output
-   for a secret value that should have stayed masked.
+   for a secret value that should have stayed masked. A touched module with no comment
+   means the plan job failed or posted nothing: ask for that run, do not judge the diff
+   alone.
 4. Review in order: correctness, security, operational impact, conventions, tests,
    documentation.
 5. Verify what is verifiable in the runner: tests, linters, build. Report the real
@@ -62,8 +65,8 @@ A pull request review a human can act on without rereading the diff.
 
 ## Guardrails
 
-- A sticky plan comment read for replace, destroy and secrets before anything else on an
-  infrastructure pull request.
+- On an infrastructure pull request, the sticky plan comment read at step 3, for replace,
+  destroy and secrets, before judging the change from the diff alone.
 - Intent read before judging. Diff read in full, not sampled.
 - Findings reference file and line and name a concrete fix.
 - Severity separated, linter owned style dropped.

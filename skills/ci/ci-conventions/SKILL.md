@@ -65,32 +65,42 @@ shaped.
 
 ## OpenTofu
 
-- A detect job diffs the pull request, or the push, against the default branch and lists
-  every root module whose files changed. Every later job reads that list, none recomputes
-  it.
-- A matrix plan job runs one `tofu plan` per changed module on a pull request. Each matrix
-  cell posts or updates one sticky comment for its own module, with the plan grouped by
-  create, update, replace, destroy and import.
-- On merge to the default branch a matrix apply job runs one `tofu apply` per module that
-  was touched, same module list, same grouping in the job summary.
-- One job per check: `fmt`, `validate`, `lint`, `test`, `plan`, `apply`. `lint` runs
-  `tflint` and `trivy config` together, both check the same written code. No job bundles
-  plan with apply, and no job covers more than one check.
+- A detect job diffs the pull request against the merge base of the base branch, or the
+  push against its first parent (`HEAD^`), and lists every root module whose files
+  changed. A changed shared module, or a file every root module reads, maps to every root
+  module that references it. Every later job reads that list, none recomputes it.
+- The plan and apply jobs run only when the detect job's module list is not empty, guarded
+  by an `if` on that output. Neither runs with an empty matrix: a pull request or push
+  that touches no module stays green.
+- A matrix plan job runs one `tofu plan` per changed module on a pull request from a
+  branch of the repository. A fork pull request gets a read only token and no secrets, so
+  its plan job does not run. Each matrix cell posts or updates one sticky comment for its
+  own module, the marker carries the module path so cells never overwrite each other's
+  comment, with the plan grouped by create, update, replace, destroy and import.
+- No plan artifact. A plan file holds every value in clear, secrets included, so it is
+  never uploaded anywhere. The pull request plan is review input only.
+- On merge to the default branch a matrix apply job runs one `tofu plan` followed by
+  `tofu apply` of that plan, in the same job, per module that was touched, same module
+  list, same grouping in the job summary.
+- One job per check: `fmt`, `validate`, `tflint`, `trivy config`, `test`, `plan`, `apply`.
+  `tflint` and `trivy config` both check the same written code but run as separate jobs,
+  one scanner per job. No job bundles plan with apply, and no job covers more than one
+  check.
 - `tofu test` is its own job, on the pull request and on the push to the default branch.
-  Mock providers where a real provider would cost money or need credentials, real
-  providers only where the repository's config says so.
-- `fmt`, `validate`, `lint` and a mock provider `test` need no backend: `tofu init
-  -backend=false`. `plan`, `apply` and a real provider `test` need the backend and its
-  credentials.
-- Concurrency is one group per pull request for the plan jobs, one group per default
-  branch for the apply jobs. `cancel-in-progress` is true for plan, false for apply: an
-  apply never gets cancelled halfway through.
-- The target shape: apply consumes the plan artifact its matching plan job produced and
-  applies it unchanged, instead of planning again after merge. The trade-off is named,
-  not hidden: a plan that aged between review and merge still gets applied as reviewed,
-  so drift between merge and apply is applied too, rather than caught by a fresh plan.
+  Mock providers on a pull request by default. A real provider test runs only in a
+  dedicated test workspace the repository names in its `AGENTS.md`, never against
+  resources that exist for another purpose.
+- `validate`, `tflint`, `trivy config` and a mock provider `test` need no backend: `tofu
+  init -backend=false`. `fmt` needs no `init` at all. `plan`, `apply` and a real provider
+  `test` need the backend and its credentials.
+- Concurrency is set at workflow level, not per job. One group per pull request for the
+  plan workflow, `cancel-in-progress` true. One group per default branch for the apply
+  workflow, `cancel-in-progress` false: an apply never gets cancelled halfway through.
 - No allowlist of modules or directories. Every root module the diff touches is in scope.
 - No manual trigger. `pull_request` and `push` to the default branch are the only events.
+- The Rules above bind an agent running inside CI, not the workflow's own jobs. The apply
+  job is the pipeline's gate: the merge is the approval, so it runs `tofu apply` where no
+  agent session may.
 
 ## Guardrails
 
