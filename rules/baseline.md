@@ -88,6 +88,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - An optional `.agent-skills.json` configures the skills for the repository. Absent means defaults.
 - Reference sibling repositories only within the same organisation as the current repository. Conventions from elsewhere may be used, never linked.
 - New code gets tests. Changes get documentation where a reader needs it.
+- A bug fix starts with the test that reproduces it.
 - ADR in `docs/adr` only for a decision worth remembering. Concept doc in `docs/concepts` only before a new service or major feature. Both are bullet lists, one screen.
 - Changelogs and versions belong to release-please. Never hand edit. Never cut a release with the CLI where release-please exists.
 - Conventions name no product where several are in use. The repository config and the tools present supply the vendor.
