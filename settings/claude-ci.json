@@ -42,6 +42,7 @@
       "Bash(gh issue edit --remove-label:*)",
       "Bash(gh run view:*)",
       "Bash(gh run list:*)",
+      "Bash(task check)",
       "Bash(task lint:*)",
       "Bash(task test:*)",
       "Bash(task validate:*)",

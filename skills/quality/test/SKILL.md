@@ -19,8 +19,8 @@ Run the repository's tests and make sure changed behaviour is covered.
 
 ## Steps
 
-1. Detect the runner instead of assuming one: `task test`, `go test`, `pytest` or
-   `unittest`, `helm unittest`, `tofu test`, `vitest`. Prefer the task a human would run.
+1. Detect the runner instead of assuming one: `task test:<suite>` targets, `go test`,
+   `pytest` or `unittest`, `helm unittest`, `tofu test`, `vitest`. Prefer the task targets.
 2. Run the full suite once for a baseline. If it is already red before the change, say so
    instead of attributing the failure to the change.
 3. For each changed behaviour, check whether a test asserts it. Add missing tests next to

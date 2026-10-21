@@ -335,7 +335,67 @@ def check_schema(root: Path) -> list[str]:
         findings.append("agent-skills.schema.json: missing $schema")
     if "properties" not in data:
         findings.append("agent-skills.schema.json: missing properties")
+    findings.extend(check_config_against_schema(root, data))
     return findings
+
+
+def check_config_against_schema(root: Path, schema: dict) -> list[str]:
+    """Checks the repository's own .agent-skills.json: known keys and matching types."""
+    path = root / ".agent-skills.json"
+    if not path.is_file():
+        return []
+    try:
+        config = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        return [f".agent-skills.json: invalid JSON: {exc}"]
+    if not isinstance(config, dict):
+        return [".agent-skills.json: top level must be an object"]
+    return _check_object(config, schema, ".agent-skills.json")
+
+
+_JSON_TYPES = {
+    "string": str,
+    "boolean": bool,
+    "integer": int,
+    "number": (int, float),
+    "array": list,
+    "object": dict,
+}
+
+
+def _check_object(value: dict, schema: dict, where: str) -> list[str]:
+    findings: list[str] = []
+    properties = schema.get("properties", {})
+    for key, item in value.items():
+        if key not in properties:
+            if schema.get("additionalProperties") is False:
+                findings.append(f"{where}: unknown key {key}")
+            continue
+        findings.extend(_check_value(item, properties[key], f"{where}.{key}"))
+    return findings
+
+
+def _check_value(value: object, schema: dict, where: str) -> list[str]:
+    if "oneOf" in schema:
+        for option in schema["oneOf"]:
+            if not _check_value(value, option, where):
+                return []
+        return [f"{where}: matches none of the allowed shapes"]
+    expected = schema.get("type")
+    if expected is None:
+        return []
+    names = expected if isinstance(expected, list) else [expected]
+    if "const" in schema and value != schema["const"]:
+        return [f"{where}: must be {schema['const']!r}"]
+    if isinstance(value, bool) and "boolean" not in names:
+        return [f"{where}: expected {', '.join(names)}"]
+    if not any(isinstance(value, _JSON_TYPES[name]) for name in names if name in _JSON_TYPES):
+        return [f"{where}: expected {', '.join(names)}"]
+    if "enum" in schema and value not in schema["enum"]:
+        return [f"{where}: must be one of {', '.join(map(str, schema['enum']))}"]
+    if isinstance(value, dict) and "properties" in schema:
+        return _check_object(value, schema, where)
+    return []
 
 
 def check_adrs(root: Path) -> list[str]:
