@@ -64,10 +64,13 @@ branch strategy. Schema: `agent-skills.schema.json`. Absent means defaults.
 ## Development
 
 ```sh
-task lint
-task test
+task --list
+task lint:ruff
+task test:hooks
 task validate
 ```
+
+One target per check, one CI job per target.
 
 ## License
 
