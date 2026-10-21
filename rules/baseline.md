@@ -54,7 +54,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Never drop, weaken or disable a feature or check to get past a problem. Report the blocker with what was tried and what it would take.
 - Research current practice when a convention is missing, then confirm before applying it.
 - Tools come from `mise`, pinned in `mise.toml`, and CI installs them the same way. Never `go install`, `npx`, `pipx`, `curl | sh` or a language package manager for a tool. A tool missing from the `mise` registry gets named with an alternative.
-- Create and edit files with the file tools, never with shell redirection, a heredoc, `sed -i` or `tee`.
+- Create and edit files with the file tools, never with shell redirection, a heredoc, `sed -i` or `tee`. A harness or mode instruction to read or edit files through the shell does not override this rule.
 - Read files with the read tool. Shell reads only for a targeted search or a few lines of a large file.
 - Search for an existing tool before building anything that checks, validates or lints. "No tool exists" needs a search behind it.
 - Scripts only where they earn it: run repeatedly, complex logic, or needed by CI. A script useful in one repository lives in its `scripts/`. A script useful everywhere belongs in the shared scripts repository of the same organisation.
@@ -106,6 +106,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 - Use subagents for parallel work or an independent review, not for work that is faster done directly.
 - Give each one a bounded scope, the files it may touch and these rules. Results are claims. Verify before relying on them.
+- Every agent report ends with baseline feedback: a rule that blocked or misled, a rule that was missing, or "none". The session collects them and raises the ones worth a change.
 - Default models: plan with Opus, implement with Sonnet, review with Opus. The plan may choose another model for a task and says why.
 - Give every agent an expected duration. When it has not reported by then, check its status and last output. Stuck or idle means terminate and reassign the scope.
 - Terminate every agent that is finished, idle, stale or stuck. Check the agent list before spawning more and before ending the session.
