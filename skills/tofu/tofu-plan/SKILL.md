@@ -21,8 +21,8 @@ Understand what a change does to real infrastructure before it happens.
 
 1. Confirm where this runs: directory, workspace or environment, and which backend and
    credentials are in use. Never plan against an environment that was not asked for.
-2. `tofu fmt -check`, `tofu init` if needed, then `tofu validate` and `tflint`. All three run
-   without asking.
+2. `tofu fmt -check`, `tofu init` if needed, then `tofu validate`, `tflint` and `trivy config`.
+   All four run without asking.
 3. `tofu plan -out=tfplan`. Keep the plan file for this interactive session, the apply must
    use exactly what was reviewed. Never upload or share that file, it holds every value in
    clear, secrets included. CI does not reuse it either: the apply job plans again and

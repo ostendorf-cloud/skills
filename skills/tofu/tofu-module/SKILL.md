@@ -44,6 +44,9 @@ Write a module someone else can consume without reading its internals.
 - No wrapper around an upstream module that only renames its inputs.
 - An extraction that changes more than the resource addresses is a bug, not a refactor.
 - No secret in an output, sensitive or not.
+- An in-repository submodule called by two or more environments of the same repository needs
+  no `examples/` directory and no README inputs/outputs table: the environments calling it are
+  the examples, and the README states purpose, inputs and outputs in prose instead.
 
 ## References
 

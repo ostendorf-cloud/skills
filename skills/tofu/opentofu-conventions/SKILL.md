@@ -24,11 +24,12 @@ Infrastructure as code is written with OpenTofu. Terraform only where configured
 
 - `tofu` is the binary. `terraform` only in a repository whose config sets `iac: terraform`.
 - `tofu fmt` and `tofu validate` before every commit. `tflint` runs too.
-- `tofu plan`, `tofu validate` and `tflint` run freely, no confirmation needed.
+- `tofu plan`, `tofu validate`, `tflint` and `trivy config` run freely, no confirmation needed.
 - `tofu apply` asks for confirmation first. `tofu destroy` is never run by an agent.
 - `tofu output` and `tofu state show` are never run, both print secrets in clear. Read a secret
   through a `sensitive` aware path in code, or ask the user to read it themselves.
 - `required_version` is set, provider versions constrained with `~>`. Lock file committed.
+- `trivy config` is the HCL security scan, for misconfiguration and open exposure.
 
 ### Files
 
@@ -37,6 +38,13 @@ Infrastructure as code is written with OpenTofu. Terraform only where configured
   `locals.tf` for locals.
 - Every variable is declared in `variables.tf`, never in another file.
 - Split `main.tf` by topic once it grows, for example `network.tf` or `storage.tf`.
+
+### File order
+
+- A data source comes before the resource or module call that reads it.
+- Inside a resource: `count`/`for_each`, arguments, `tags`, blocks, `lifecycle`, `depends_on`.
+- Inside a variable: `type`, `description`, `default`, `sensitive`, `validation`, in that order.
+- Multiple provider configurations: the default, without `alias`, comes first, aliases after it.
 
 ### Naming
 
@@ -71,13 +79,35 @@ Infrastructure as code is written with OpenTofu. Terraform only where configured
 
 ### State
 
-- Remote backend with locking. Never local state in a repository, never a state file committed.
-- One root module per blast radius. A module reads the state of the module before it, never the
-  reverse.
-- No wrappers, no generated HCL. Resources are written out by hand, even when that repeats a
-  little.
-- Bring an existing resource under management with an `import` block, never by deleting and
-  recreating it.
+- `backend "s3"` against S3 compatible object storage, with `use_lockfile = true` for locking.
+  No separate lock table or lock resource. Never local state, never a state file committed.
+- `encryption {}` sits inside `terraform {}`, in `versions.tf`: `key_provider "pbkdf2"` derives
+  the key, `method "aes_gcm"` encrypts `state` and `plan` with it. No default, it fails without one.
+- `unencrypted` is a declared `method`, used from the `fallback` block in `state` or `plan`, for the
+  migration off plaintext state. Remove it once every module has applied once with encryption on.
+- A scheduled backup of the state to a second provider, different from the one holding the
+  primary copy. Object storage with no previous version to restore has no other way back.
+- `tofu init -backend=false` for a check that needs no state and no backend credentials.
+- One root module per blast radius, reading the state of the module before it, never the
+  reverse. No wrappers, no generated HCL: resources are written out by hand.
+
+### Secrets
+
+- A provider token comes from a data source against the secret manager, declared in
+  `providers.tf`. Never a token pasted into a file or left as a default.
+- A provider that does not mark a value sensitive gets it wrapped in `sensitive()` at every use.
+- A key that may not exist yet is read behind a guard, not a lookup that fails the whole plan.
+- Backend credentials and the encryption passphrase come from the environment, never the secret
+  manager: both resolve before any provider is configured and cannot read one.
+- A value that must never reach state, a kubeconfig, say: an `ephemeral` resource reads it, a
+  write-only attribute (write-only pattern, `_wo` provider convention) passes it on, null in state.
+
+### Adoption
+
+- An existing resource is brought under management with an `import {}` block, applied through the
+  plan workflow, never by deleting and recreating it.
+- The ID in the block gets a comment: a read-only inventory command, or a documented API call
+  where the CLI has no listing command, run once and not part of the apply.
 
 ## Guardrails
 
