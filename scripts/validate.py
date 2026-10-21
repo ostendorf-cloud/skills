@@ -35,6 +35,9 @@ KNOWN_EVENTS = {
     "Notification",
 }
 KNOWN_DECISIONS = {"deny", "context"}
+# Only Edit(path) and Read(path) rules are consulted for file access. A path rule on one of
+# these tools is accepted by the harness and never used.
+UNMATCHED_PATH_RULE_PREFIXES = ("Write(", "NotebookEdit(", "MultiEdit(", "Glob(")
 
 FRONTMATTER_KEY = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
 ADR_NAME = re.compile(r"^(\d{4})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$")
@@ -305,9 +308,13 @@ def check_settings(root: Path) -> list[str]:
         except json.JSONDecodeError as exc:
             findings.append(f"{rel}: invalid JSON: {exc}")
             continue
+        permissions = data.get("permissions", {})
+        if not isinstance(permissions, dict):
+            findings.append(f"{rel}: permissions must be an object")
+            continue
+        findings.extend(unmatched_path_rules(rel, permissions))
         if path.name not in ("claude.json", "claude-ci.json"):
             continue
-        permissions = data.get("permissions", {})
         allow = permissions.get("allow")
         deny = permissions.get("deny")
         if not isinstance(allow, list):
@@ -316,8 +323,28 @@ def check_settings(root: Path) -> list[str]:
         if not isinstance(deny, list):
             findings.append(f"{rel}: permissions.deny must be an array")
             deny = []
+        if "ask" in permissions and not isinstance(permissions["ask"], list):
+            findings.append(f"{rel}: permissions.ask must be an array")
         for entry in sorted(set(allow) & set(deny)):
             findings.append(f"{rel}: '{entry}' is in both permissions.allow and permissions.deny")
+    return findings
+
+
+def unmatched_path_rules(rel: Path, permissions: dict) -> list[str]:
+    """Path rules the permission checks never consult. The overlay is included because
+    the installer merges it into the installed settings."""
+    findings: list[str] = []
+    for list_name in ("allow", "ask", "deny"):
+        entries = permissions.get(list_name)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, str) and entry.startswith(UNMATCHED_PATH_RULE_PREFIXES):
+                findings.append(
+                    f"{rel}: '{entry}' in permissions.{list_name} is never matched, "
+                    "a file rule is written as Edit(path) for every editing tool or "
+                    "Read(path) for Glob"
+                )
     return findings
 
 
