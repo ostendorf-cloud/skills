@@ -31,6 +31,9 @@ Open a pull request a reviewer can judge without reading the whole diff first.
    config `stacks` glob the changed files match.
 7. Create it with `gh pr create`, or update an existing one with `gh pr edit`. Open as draft
    unless config `pr.draft` is `false`. Request no human reviewer unless config says otherwise.
+   A stacked pull request has another branch as base. GitHub links `Closes #123` only against
+   the default branch, so comment the pull request number on the issue, and edit the body once
+   the base has moved to the default branch.
 8. Mark it ready only once the verify command is green and either the user asked for it or the
    work loop calls for it.
 9. Report the URL, the merge strategy and what a reviewer should look at first.
