@@ -36,8 +36,11 @@ Find security problems in a change and report them where the change lives.
 6. Group findings by severity: critical, high, medium, low. Each with file, line, the problem in
    one sentence and the fix in one sentence.
 7. Post the result:
-   - Pull request: `gh pr review` with `--request-changes` when critical or high exists,
-     `--comment` otherwise. Inline comments through the reviews API where lines are known.
+   - Pull request: `gh pr comment` with `Verdict: changes requested` as the first line when
+     critical or high exists, `Verdict: comment` otherwise, then the grouped findings. A
+     formal `gh pr review --request-changes` only with a review identity from config
+     `review.token`, as the `review` skill describes. GitHub refuses it on a self-authored
+     pull request, the comment then stands.
    - Branch or working tree: print the grouped list in the answer.
 8. Never fix as part of the review. Fixes are a separate change, after the user or the work loop
    decided.

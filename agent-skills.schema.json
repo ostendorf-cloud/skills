@@ -101,6 +101,16 @@
         }
       ]
     },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "description": "Environment variable holding a token of a review identity, for the gh pr review upgrade. Default: unset, the review stands as a comment.",
+          "type": "string"
+        }
+      }
+    },
     "docs": {
       "type": "object",
       "additionalProperties": false,

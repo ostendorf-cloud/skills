@@ -1,9 +1,10 @@
 ---
 name: ci-review
 description: >-
-  Reviews a pull request from CI as a GitHub review grouped by severity
-  with file and line references, approving when nothing blocks and never
-  merging or pushing. Use when a workflow triggers an automated pull
+  Reviews a pull request from CI as a comment whose first line is the verdict,
+  grouped by severity with file and line references, upgrading to a formal
+  GitHub review when the workflow's identity differs from the author, and
+  never merging or pushing. Use when a workflow triggers an automated pull
   request review, including an infrastructure pull request with a sticky
   plan comment to read, Pull Request aus der CI pruefen, automatisierte
   Review, Infrastruktur Pull Request, Plan Kommentar pruefen.
@@ -36,27 +37,38 @@ A pull request review a human can act on without rereading the diff.
 6. Classify findings: blocking (defect, security issue, data loss, breaking change
    without migration), should fix (convention violation, missing test, unclear naming,
    missing docs), nit (optional improvement). Drop anything a linter already owns.
-7. Post the review with `gh pr review`: `--approve` when nothing blocks,
-   `--request-changes` with concrete items when something does, `--comment` otherwise.
-   Inline comments reference file and line through the API.
-8. End the body with the limits of the review: what was not reviewed, what could not
-   be verified.
-9. Never merge, never push to the branch, unless the workflow explicitly asked for a
-   fix commit.
-10. When the work loop is in use, move the label from the config: `reviewing` while the
-    review runs, `changesRequested` on request changes, `done` or `needsHuman` per the
-    workflow's outcome. A missing label on the tracker is reported, never created.
+7. Decide the verdict: `approve` when nothing blocks, `changes requested` when something
+   does, `needs human` when the call is ambiguous, `blocked` when the pull request cannot
+   go forward as is.
+8. Post the verdict with `gh pr comment`: first line `Verdict: <verdict>`, then the output
+   format below. This comment is the verdict and stands on its own.
+9. Upgrade to a formal review with `gh pr review --approve` or `--request-changes` and the
+   same body: on a runner the workflow's own token is already a different identity than the
+   pull request's author, so this is the normal path here, not the exception. Config
+   `review.token` names an environment variable to read `GH_TOKEN` from instead, when the
+   runner's default identity is the author. The workflow sets `GH_TOKEN` at job level,
+   never as a command prefix: the CI profile allows the bare `gh pr review` and nothing else.
+10. GitHub refuses the review call when the identity still matches the author, or no
+    variable resolves: the comment from step 8 already stands, name the fallback in the
+    report.
+11. Never merge, never push to the branch, unless the workflow explicitly asked for a
+    fix commit.
+12. When the work loop is in use, move the label from the config: `reviewing` while the
+    review runs, then `done`, `changesRequested`, `needsHuman` or `blocked` per the
+    verdict. A missing label on the tracker is reported, never created.
 
 ## Output format
 
 ```markdown
-## Blocking
+Verdict: approve
+
+## Blocker
 - path/file.ext:42 problem, fix
 
-## Should fix
+## Should
 - path/file.ext:88 problem, fix
 
-## Nits
+## Nit
 - path/file.ext:12 problem, fix
 
 ## Not verified
@@ -71,14 +83,19 @@ A pull request review a human can act on without rereading the diff.
 - Findings reference file and line and name a concrete fix.
 - Severity separated, linter owned style dropped.
 - Checks actually run, output real, nothing claimed that did not execute.
-- Approve or request changes posted, never a merge or a push.
+- The comment is the verdict. A formal review only adds the same body through the review
+  API, never replaces the comment.
+- `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
+- A verdict comment posted, never a merge or a push.
 - Limits of the review stated in the output.
 
 ## Config
 
-- `labels.reviewing`, `labels.changesRequested`, `labels.done`, `labels.needsHuman`:
-  label names for the work loop. Defaults in the skills README. A missing label is
+- `labels.reviewing`, `labels.changesRequested`, `labels.done`, `labels.needsHuman`,
+  `labels.blocked`: label names for the work loop. Defaults in the skills README. A missing label is
   reported, never created.
+- `review.token`: environment variable holding a token of a review identity, for the
+  formal review upgrade. Default: unset, the runner's own identity applies.
 
 ## References
 
