@@ -26,6 +26,11 @@ TRIGGERS = (
     ("review", r"\b(review|durchsehen|code review)\b"),
     ("commit", r"\b(commit|commits|committen|einchecken|stage and commit)\b"),
     ("pr", r"\b(pull request|\bpr\b|merge request)\b"),
+    (
+        "github-as-code",
+        r"\b(github provider|repository settings|rulesets?|labels as code|org settings|"
+        r"Repo-Einstellungen)\b",
+    ),
     ("issue", r"\b(issue|ticket|bug report)\b"),
     ("plan", r"\b(plan|planen|implementation plan)\b"),
     ("implement", r"\b(implement|umsetzen|implementieren)\b"),
