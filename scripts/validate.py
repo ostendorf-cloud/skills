@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
-"""Check this repository: skill style, hooks, settings, groupings, ADRs, license headers,
-YAML extensions."""
+"""Checks skill style, hooks, settings, groupings, ADRs, license headers, YAML extensions."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import subprocess
 from pathlib import Path
 
 MIN_DESCRIPTION_LENGTH = 60
@@ -43,6 +43,11 @@ LICENSE_LINES = (
     "# Copyright 2026 Simon Ostendorf",
     "# SPDX-License-Identifier: Apache-2.0",
 )
+
+YAML_EXTENSION_EXCEPTIONS = {
+    Path(".github/FUNDING.yml"),
+    Path(".github/dependabot.yml"),
+}
 
 
 def is_emoji(char: str) -> bool:
@@ -377,12 +382,33 @@ def check_license_headers(root: Path) -> list[str]:
     return findings
 
 
+def list_yml_files(root: Path) -> list[Path]:
+    """Lists *.yml files tracked by git, falling back to a filesystem walk when git is
+    unavailable."""
+    result = subprocess.run(
+        ["git", "ls-files", "*.yml"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        paths = [root / line for line in result.stdout.splitlines() if line]
+    else:
+        paths = sorted(root.rglob("*.yml"))
+    return [
+        path
+        for path in paths
+        if ".worktrees" not in path.relative_to(root).parts
+        and ".git" not in path.relative_to(root).parts
+    ]
+
+
 def check_yaml_extension(root: Path) -> list[str]:
     findings: list[str] = []
-    for path in sorted(root.rglob("*.yml")):
-        if ".worktrees" in path.parts or ".git" in path.parts:
-            continue
+    for path in list_yml_files(root):
         rel = path.relative_to(root)
+        if rel in YAML_EXTENSION_EXCEPTIONS:
+            continue
         findings.append(f"{rel}: uses the .yml extension, rename to .yaml")
     return findings
 

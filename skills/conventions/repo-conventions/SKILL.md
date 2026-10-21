@@ -30,15 +30,15 @@ The baseline every repository follows, independent of language.
 - `mise.toml` pinning every tool the repository needs.
 - `Taskfile.yaml` over a Makefile, exposing at least `test`, `lint`, `build` and `fmt`. One task
   target per check, never an umbrella target such as `check` or `ci` that hides which part
-  failed. An existing repository keeps whatever task runner it already has, and a Makefile stays
-  only where one already exists and nobody is touching it.
+  failed. An existing repository keeps whatever task runner it already has.
 - `renovate.json`, referencing the organisation's shared preset where one exists.
 - `release-please-config.json` and `.release-please-manifest.json` for anything that is released.
   `CHANGELOG.md` is generated from them and never hand edited.
 - `.github/workflows/` with one file per purpose, named after what it checks or releases, for
   example `lint.yaml` and `test.yaml` rather than one `ci.yaml`. See `ci-conventions`.
 - Every YAML file ends in `.yaml` wherever the tool reading it accepts that extension. Known
-  exception: `.github/FUNDING.yml`, where GitHub requires that exact name.
+  exceptions: `.github/FUNDING.yml` and `.github/dependabot.yml`, where GitHub reads only that
+  exact name.
 
 ### Layout
 

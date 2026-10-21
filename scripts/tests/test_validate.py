@@ -6,6 +6,7 @@
 import contextlib
 import io
 import json
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -25,6 +26,21 @@ def run(root: Path) -> tuple:
     with contextlib.redirect_stdout(out):
         code = validate.main(["--root", str(root)])
     return code, out.getvalue()
+
+
+def git_commit_all(root: Path) -> None:
+    """Initialises a git repository at root and commits everything written so far."""
+    for args in (
+        ["init", "-q"],
+        ["config", "user.email", "test@example.com"],
+        ["config", "user.name", "Test"],
+        ["config", "commit.gpgsign", "false"],
+    ):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "chore: init"], cwd=root, check=True, capture_output=True
+    )
 
 
 LONG_DESCRIPTION = (
@@ -272,6 +288,35 @@ class ValidateTestCase(unittest.TestCase):
             json.dumps({"$schema": "x", "properties": {}}),
         )
         write(self.root / ".worktrees" / "feat-x" / "mise.yml", "tools: {}\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
+    def test_ignores_vendored_yml_in_untracked_directory(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps({"$schema": "x", "properties": {}}),
+        )
+        git_commit_all(self.root)
+        write(self.root / "vendor" / "lib.yml", "vendored: true\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
+    def test_allows_funding_and_dependabot_yml_exceptions(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps({"$schema": "x", "properties": {}}),
+        )
+        write(self.root / ".github" / "FUNDING.yml", "github: [octocat]\n")
+        write(self.root / ".github" / "dependabot.yml", "version: 2\n")
+        git_commit_all(self.root)
         code, output = run(self.root)
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "ok")
