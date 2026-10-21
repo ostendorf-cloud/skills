@@ -23,7 +23,7 @@
     {
       "title": "Docs",
       "description": "README, decision records and concept docs.",
-      "skills": ["readme", "adr", "concept-doc"]
+      "skills": ["readme", "adr", "concept-doc", "post-mortem"]
     },
     {
       "title": "Release",

@@ -37,6 +37,7 @@ TRIGGERS = (
     ("release", r"\b(cut a release|release machen|tag a release|ver(ö|oe)ffentlichen)\b"),
     ("adr", r"\b(adr|architecture decision)\b"),
     ("concept-doc", r"\b(concept doc|konzept|design doc)\b"),
+    ("post-mortem", r"\b(post[- ]?mortem|incident|outage|vorfall|ausfall)\b"),
     ("readme", r"\breadme\b"),
     ("fix-ci", r"\b(ci (is )?(red|failing|broken)|workflow f(ä|ae)hlt|pipeline (red|failing))\b"),
     ("test", r"\b(tests?|unit test|testabdeckung|coverage)\b"),

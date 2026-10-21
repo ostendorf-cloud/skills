@@ -32,6 +32,7 @@ class SkillReminderTest(unittest.TestCase):
             ("update the repository settings for this org", "github-as-code"),
             ("we need new rulesets on the default branch", "github-as-code"),
             ("can you write an ansible playbook for this", "ansible-conventions"),
+            ("write up the post mortem for last night's outage", "post-mortem"),
         ]
         for prompt, skill in cases:
             self.assertIn(
