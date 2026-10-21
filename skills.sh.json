@@ -22,7 +22,7 @@
     },
     {
       "title": "Docs",
-      "description": "README, decision records and concept docs.",
+      "description": "README, decision records, concept docs and incident records.",
       "skills": ["readme", "adr", "concept-doc", "post-mortem"]
     },
     {
