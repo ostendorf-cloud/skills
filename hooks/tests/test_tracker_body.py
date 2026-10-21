@@ -1,0 +1,159 @@
+# Copyright 2026 Simon Ostendorf
+# SPDX-License-Identifier: Apache-2.0
+"""Tests for tracker_body.py."""
+
+import os
+import sys
+import tempfile
+import unittest
+
+from helper import HOOKS_DIR, bash_payload, decision, reason, run_hook
+
+sys.path.insert(0, HOOKS_DIR)
+import _common  # noqa: E402
+
+
+class TrackerBodyTest(unittest.TestCase):
+    def test_denies_a_trailer_in_a_gh_pr_create_body(self):
+        command = (
+            "gh pr create --title 'feat: add valkey module' --body "
+            "'Adds the valkey module to the catalogue.\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_generated_with_line_in_a_gh_pr_create_body(self):
+        command = (
+            "gh pr create --title 'fix: pin provider version' "
+            "--body 'Pins the provider to the last known good release.\n\n"
+            "Generated with Claude Code'"
+        )
+        self.assertEqual(decision(run_hook("tracker_body.py", bash_payload(command))), "deny")
+
+    def test_allows_generated_with_mid_sentence(self):
+        command = "gh pr comment 1 --body 'the CRD is generated with controller-gen'"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_a_body_file_with_a_claude_dot_com_link(self):
+        directory = tempfile.mkdtemp(prefix="tracker-body-")
+        path = os.path.join(directory, "body.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(
+                "Rotates the staging credentials ahead of the audit.\n\n"
+                "See https://claude.com/claude-code for the tool that drafted this.\n"
+            )
+        command = f"gh issue edit 12 --body-file {path}"
+        output = run_hook("tracker_body.py", bash_payload(command, directory))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_a_documentation_link(self):
+        command = (
+            "gh issue comment 12 --body "
+            "'See https://docs.claude.com/en/docs/claude-code/hooks for the payload shape.'"
+        )
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_allows_an_ordinary_gh_issue_comment(self):
+        command = "gh issue comment 12 --body 'Reproduced on staging, looking into the cause.'"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_allows_a_gh_pr_comment_that_mentions_claude_in_a_code_span(self):
+        command = (
+            "gh pr comment 42 --body "
+            "'Renamed the variable from `claude_client` to `llm_client` for clarity.'"
+        )
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_allows_a_body_file_without_forbidden_patterns(self):
+        directory = tempfile.mkdtemp(prefix="tracker-body-")
+        path = os.path.join(directory, "body.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("Adds retry logic around the flaky upstream call.\n")
+        command = f"gh pr edit 7 --body-file {path}"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command, directory))))
+
+    def test_ignores_unrelated_gh_commands(self):
+        for command in [
+            "gh pr list",
+            "gh issue view 12",
+            "gh pr status",
+        ]:
+            self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))), command)
+
+    def test_ignores_a_body_file_argument_of_dash_without_a_pipe(self):
+        command = "gh pr create --title 'feat: add thing' --body-file -"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_an_attached_shorthand_body_flag(self):
+        command = "gh pr comment 1 -b'Co-Authored-By: Claude <noreply@anthropic.com>'"
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_an_attached_shorthand_body_flag_with_equals(self):
+        command = "gh pr comment 1 -b=Co-Authored-By:x"
+        self.assertEqual(decision(run_hook("tracker_body.py", bash_payload(command))), "deny")
+
+    def test_denies_an_attached_shorthand_body_file_flag(self):
+        directory = tempfile.mkdtemp(prefix="tracker-body-")
+        path = os.path.join(directory, "body.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("Generated with Claude Code\n")
+        command = f"gh pr edit 7 -F{path}"
+        self.assertEqual(
+            decision(run_hook("tracker_body.py", bash_payload(command, directory))), "deny"
+        )
+
+    def test_allows_an_attached_shorthand_body_flag_without_forbidden_patterns(self):
+        command = "gh pr comment 1 -b'Looks good, merging now.'"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_a_trailer_piped_into_a_body_file_from_stdin(self):
+        command = "printf 'Co-Authored-By: Someone <a@b.c>' | gh pr comment 1 --body-file -"
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_a_body_file_from_stdin_without_forbidden_patterns(self):
+        command = "printf 'Reproduced on staging.' | gh pr comment 1 --body-file -"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_allows_a_body_file_from_dev_stdin_without_a_pipe(self):
+        command = "gh pr comment 1 --body-file /dev/stdin"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_a_trailer_in_a_gh_api_body_field(self):
+        command = (
+            "gh api repos/ostendorf-cloud/skills/issues/1/comments "
+            "-f body='Co-Authored-By: Claude <noreply@anthropic.com>'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_a_gh_api_body_field_without_forbidden_patterns(self):
+        command = (
+            "gh api repos/ostendorf-cloud/skills/issues/1/comments -f body='looks good, merging'"
+        )
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_a_trailer_through_an_absolute_gh_path(self):
+        command = (
+            "/opt/homebrew/bin/gh pr comment 1 --body "
+            "'Co-Authored-By: Claude <noreply@anthropic.com>'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_resolves_command_name_to_the_basename(self):
+        self.assertEqual(_common.command_name("/opt/homebrew/bin/gh pr comment 1"), "gh")
+        self.assertEqual(_common.command_name("gh pr comment 1"), "gh")
+        self.assertEqual(_common.command_name(""), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

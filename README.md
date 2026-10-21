@@ -9,6 +9,8 @@ Rules, skills, hooks and settings for coding agents. Claude Code first, every ag
 - Skills for commits, pull requests, reviews, issues, releases, OpenTofu, Kubernetes and more.
   Loaded when needed.
 - Hooks that deny what must never happen and remind of what is easy to forget. They do not ask.
+  Among them: a commit, pull request or issue carrying an attribution line, a generated-by
+  marker or a link to Claude or Anthropic gets denied before it is written.
 - A settings profile that lets an agent work unattended: auto mode, sandbox, masked credentials,
   a short ask list.
 - A label driven work loop: an issue marked `ai: ready` gets implemented, pushed, reviewed and
@@ -54,7 +56,8 @@ npx skills add ostendorf-cloud/skills -g
 | `git-guard` | deny | Push to the default branch, force push without lease or onto the default branch, `git push --all` or `--mirror`, bypassed hooks or signing, deletion of the default branch. |
 | `secret-guard` | deny | Commands that print a secret, and a commit whose staged diff holds a credential pattern or a file that never belongs in git. |
 | `shell-hygiene` | deny | File content written through the shell: heredoc or redirect into a file, `tee`, `sed -i`. Inline interpreter one liners that span lines. |
-| `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit body carrying an attribution line. |
+| `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit message carrying an attribution trailer, a "Generated with" line or a vendor link outside the documentation hosts. |
+| `tracker-body` | deny | A `gh` pull request, issue, review or API body carrying the same attribution patterns, from `--body`, a body file or piped stdin. |
 | `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
 | `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where release-please is configured, and `gh repo` rename, set-default, alias or extension. |
 | `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |

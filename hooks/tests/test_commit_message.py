@@ -54,6 +54,27 @@ class CommitMessageTest(unittest.TestCase):
         )
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
+    def test_denies_a_claude_dot_com_link(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\nfeat: add thing\n\n"
+            'See https://claude.com/claude-code for details.\nEOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_generated_with_mid_sentence(self):
+        command = "git commit -m 'fix: drop the generated with marker from the template'"
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
+    def test_allows_a_documentation_link(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\ndocs: link the hook protocol reference\n\n"
+            "See https://docs.claude.com/en/docs/claude-code/hooks for the payload shape."
+            '\nEOF\n)"'
+        )
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
     def test_reads_the_message_from_a_file_flag(self):
         directory = tempfile.mkdtemp(prefix="commit-message-")
         path = os.path.join(directory, "message.txt")
