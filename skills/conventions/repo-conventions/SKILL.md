@@ -54,10 +54,11 @@ The baseline every repository follows, independent of language.
 ### Deviations
 
 - A repository that does something differently from this baseline says so in `AGENTS.md` under
-  `## Deviations`, one line per deviation with the reason.
-- A skill about to create a file or a directory this baseline describes reads that heading first
-  and skips the step an entry opts out of.
-- No `## Deviations` heading, or no entry naming the skill, means the baseline applies in full.
+  `## Deviations`. One line per entry: the convention it drops or changes, then the reason.
+- Every skill that creates, reviews or reports on the repository layout reads that heading first.
+  An entry that drops a convention skips the step, and the skill says so.
+- No `## Deviations` heading, or no entry for the convention at hand, means the baseline applies
+  in full.
 
 ### Tooling (development environment)
 
@@ -105,8 +106,8 @@ The baseline every repository follows, independent of language.
 - Never hand edit `CHANGELOG.md` or the release-please manifest.
 - Never add a second task runner next to an existing one.
 - Never change a repository or organisation setting outside its infrastructure repository.
-- Never create `docs/adr` or `docs/concepts` ahead of a record, and never override a
-  `## Deviations` entry that opts out.
+- Never create `docs/adr` or `docs/concepts` ahead of a record.
+- Never override a `## Deviations` entry.
 
 ## Config
 

@@ -21,8 +21,8 @@ Produce a short, accurate README in one house style across repositories.
 
 ## Steps
 
-1. Read `AGENTS.md` for `## Deviations`. An entry naming the readme skill changes the step
-   it names; everything else below still applies.
+1. Read `AGENTS.md` for `## Deviations`. An entry about the README, for example a dropped
+   section, overrides the matching rule below. Everything else still applies.
 2. Read the entry point, task runner, CI workflows, config loading, chart values or
    OpenTofu variables first. Every command and option comes from there.
 3. Write the sections in this order, dropping one only if it does not apply: title and

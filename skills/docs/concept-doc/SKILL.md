@@ -21,8 +21,8 @@ description already explains.
 
 ## Steps
 
-1. Read `AGENTS.md` for `## Deviations`. An entry opting this repository out of concept docs
-   ends the skill here.
+1. Read `AGENTS.md` for `## Deviations`. An entry that drops concept docs means: say so and
+   stop.
 2. Apply the gate above. If skipped, say so and stop.
 3. Create one file per feature, lowercase with hyphens, in the concepts directory. No
    directory yet means this is the first record: create it now.

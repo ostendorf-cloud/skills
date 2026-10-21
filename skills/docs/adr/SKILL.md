@@ -22,8 +22,7 @@ Extend or supersede an existing ADR instead of writing a near duplicate.
 
 ## Steps
 
-1. Read `AGENTS.md` for `## Deviations`. An entry opting this repository out of ADRs ends the
-   skill here.
+1. Read `AGENTS.md` for `## Deviations`. An entry that drops ADRs means: say so and stop.
 2. Apply the gate above. If no ADR is warranted, say so and stop.
 3. List the ADR directory. Take the highest number plus one, four digits, sequential,
    never reused. No directory yet means this is the first record: create it now.
