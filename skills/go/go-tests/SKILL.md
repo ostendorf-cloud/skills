@@ -57,6 +57,11 @@ Procedure and conventions for adding tests to a Go module.
 - Test behavior, not implementation. A behavior preserving refactor must not change a test.
 - Fix a bug by adding the failing test first.
 
+### CI
+
+- The CI test job runs `go test -race -count=1 ./...` too, not only the local step before a
+  pull request.
+
 ### Unit or integration
 
 - Unit by default: the logic is local, dependencies fit a fake, the test runs in milliseconds.
@@ -79,8 +84,9 @@ Procedure and conventions for adding tests to a Go module.
 - HTTP exercised through `httptest` against the real chain.
 - Golden files in `testdata/`, diffs reviewed.
 - Edge cases and failure paths explicit.
-- `go test -race -count=1 ./...` passes.
+- `go test -race -count=1 ./...` passes locally and in CI.
 
 ## References
 
+- `test` for detecting the runner and extending coverage for changed code.
 - `httptest`: <https://pkg.go.dev/net/http/httptest>

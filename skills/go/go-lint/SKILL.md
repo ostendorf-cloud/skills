@@ -2,9 +2,9 @@
 name: go-lint
 description: >-
   How to format Go code with gofumpt through golangci-lint fmt, run and fix
-  golangci-lint, pick the linter set and pin the version to the Go
-  release. Use when lint fails, when setting up linting, or before opening
-  a Go pull request.
+  golangci-lint, pick the linter set and pin the version in mise.toml. Use
+  when lint fails, when setting up linting, or before opening a Go pull
+  request, Go linten.
 ---
 
 # Go lint
@@ -39,10 +39,10 @@ Format and lint a Go module and resolve the findings.
 
 - One `.golangci.yaml` in the repository root. No per directory config.
 - Enable linters explicitly. Do not rely on the default set.
-- Pin `golangci-lint` to the patch release that matches the module's Go version, so an upgrade
-  is a deliberate commit.
-- Exclude generated code by path (`zz_generated.*`, `*.pb.go`, a mocks directory), not with an
-  inline comment.
+- Pin `golangci-lint` in `mise.toml`. A `golangci-lint` binary is built with a Go toolchain at
+  least as new as the `go` directive in `go.mod`, so the pinned `golangci-lint` and the pinned
+  Go version move together, and an upgrade is a deliberate commit.
+- Exclude generated code by path (`zz_generated.*`, `*.pb.go`), not with an inline comment.
 - Lint test files too.
 
 ### Linter set
@@ -84,8 +84,10 @@ data, err := os.ReadFile(cfg.CertPath)
   finding.
 - Generated code excluded by path.
 - Formatting committed separately from behavior.
-- `golangci-lint` pinned to the patch matching the Go version.
+- `golangci-lint` pinned in `mise.toml`, built with a Go toolchain at least as new as the `go`
+  directive in `go.mod`.
 
 ## References
 
+- `lint` for detecting the repository's tooling and running the formatter and linter together.
 - <https://golangci-lint.run/usage/linters/>

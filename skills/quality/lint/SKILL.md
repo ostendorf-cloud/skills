@@ -21,11 +21,12 @@ Run the repository's own formatters and linters and fix what they report.
 
 1. Detect the tooling from `mise.toml` first, then the task runner, then config files.
    Prefer the `lint:<tool>` task targets over calling a tool directly when they exist.
-2. Match the tool to the file type: `gofmt`, `go vet`, `golangci-lint` for Go; `ruff check`,
-   `ruff format` for Python; `eslint` or `oxlint` for JavaScript and TypeScript; `shellcheck`,
-   `shfmt` for shell; `yamllint` for YAML; `markdownlint` for Markdown; `actionlint` for
-   GitHub Actions; `tofu fmt`, `tflint`, `trivy config` for OpenTofu; `ansible-lint` for
-   Ansible; `helm lint` for Helm charts; `hadolint` for container images.
+2. Match the tool to the file type: `golangci-lint fmt` (`gofumpt`), `go vet`, `golangci-lint`
+   for Go; `ruff check`, `ruff format` for Python; `eslint` or `oxlint` for JavaScript and
+   TypeScript; `shellcheck`, `shfmt` for shell; `yamllint` for YAML; `markdownlint` for
+   Markdown; `actionlint` for GitHub Actions; `tofu fmt`, `tflint`, `trivy config` for
+   OpenTofu; `ansible-lint` for Ansible; `helm lint` for Helm charts; `hadolint` for container
+   images.
 3. Run the formatter before the linter. Formatting noise mixed into a lint fix makes the
    diff unreadable.
 4. Fix findings at the cause. Never disable a rule repository wide to silence one finding.

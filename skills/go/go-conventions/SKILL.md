@@ -46,8 +46,8 @@ Baseline conventions for Go code in services, CLIs and libraries.
 - `log/slog` only. Built once in `main`, injected everywhere else.
 - No package level logger, no `slog.Default()` in library code.
 - Key value pairs, not formatted strings.
-- `Info` for lifecycle, `Warn` for degradation, `Error` for a handled failure. No `Fatal` outside
-  `main`.
+- `Info` for lifecycle, `Warn` for degradation, `Error` for a handled failure. No `log.Fatal`
+  (the standard library `log` package) outside `main`.
 - Never log a secret, a token or a request body.
 
 ### Config and state

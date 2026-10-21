@@ -53,10 +53,14 @@ class SkillReminderTest(unittest.TestCase):
         )
         self.assertIn("security-review", message)
 
-    def test_go_test_matches_go_tests_before_go_conventions(self):
+    def test_go_tests_and_go_lint_outrank_their_generic_counterpart(self):
         message = context(run_hook("skill_reminder.py", prompt_payload("please run go test")))
-        self.assertIn("go-tests", message)
-        self.assertNotIn("go-conventions", message)
+        names = message.split(": ", 1)[1].split(". Load")[0].split(", ")
+        self.assertLess(names.index("go-tests"), names.index("test"))
+
+        message = context(run_hook("skill_reminder.py", prompt_payload("run golangci-lint")))
+        names = message.split(": ", 1)[1].split(". Load")[0].split(", ")
+        self.assertLess(names.index("go-lint"), names.index("lint"))
 
     def test_stays_quiet_without_a_match(self):
         for prompt in ["what time is it", "explain this function to me", ""]:
