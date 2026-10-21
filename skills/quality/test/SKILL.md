@@ -28,10 +28,8 @@ Run the repository's tests and make sure changed behaviour is covered.
 4. Cover deliberately: the happy path, boundaries (empty, zero, one, maximum, unicode,
    very large), failure paths (errors, timeouts, cancelled context, denied permission,
    malformed input), and idempotency for a reconciler or a migration.
-5. Keep tests deterministic: no sleep as synchronization, no dependency on wall clock or
-   network, fixed seeds, temporary directories instead of shared state.
-6. Assert behaviour, not implementation details.
-7. Run the suite again. Report the real output. If something still fails, show the
+5. Assert behaviour, not implementation details.
+6. Run the suite again. Report the real output. If something still fails, show the
    failure and state whether it relates to the change.
 
 Never delete or skip a failing test to make a run pass. Fix the cause or report it.
@@ -47,3 +45,4 @@ Never delete or skip a failing test to make a run pass. Fix the cause or report 
 ## References
 
 - `lint` for formatting and static checks before the suite runs.
+- `testing-conventions` for when a test is written, what earns one and test form.

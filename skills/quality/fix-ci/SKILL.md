@@ -51,3 +51,4 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
 ## References
 
 - `lint` and `test` for the checks CI actually runs.
+- `testing-conventions` for the environment rule behind many first-run-only failures.
