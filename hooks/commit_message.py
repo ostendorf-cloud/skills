@@ -2,8 +2,9 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 """PreToolUse hook on Bash. Denies a `git commit` whose subject is not a Conventional
-Commit, whose subject exceeds 72 characters, or whose body carries an attribution line
-or a generated-by marker.
+Commit, whose subject exceeds 72 characters, or whose message carries an attribution
+trailer, a generated-by marker at the start of a line, or a link to Claude or
+Anthropic outside the allowed documentation hosts.
 """
 
 import os
@@ -23,9 +24,16 @@ HEADER = re.compile(
 SUBJECT_LIMIT = 72
 
 MESSAGE_SOURCE = re.compile(r"(?:^|\s)(-m\b|--message\b|-F\b|--file\b)")
-FORBIDDEN_BODY = re.compile(
-    r"co-authored-by:|generated with|claude\.ai|anthropic\.com", re.IGNORECASE
-)
+
+TRAILER = re.compile(r"co-authored-by:", re.IGNORECASE)
+GENERATED_WITH = re.compile(r"(?m:^[^\w\n]*Generated with\b)")
+DOMAIN_LINK = re.compile(r"(?i)\b((?:[a-z0-9-]+\.)*(?:claude\.com|claude\.ai|anthropic\.com))\b")
+ALLOWED_DOC_HOSTS = {
+    "docs.claude.com",
+    "code.claude.com",
+    "platform.claude.com",
+    "docs.anthropic.com",
+}
 
 HEREDOC_MESSAGE = re.compile(r"<<[-~]?['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", re.DOTALL)
 MESSAGE_FLAG = re.compile(r"(?:^|\s)(?:-m|--message=?)\s*(['\"])(.*?)(?<!\\)\1", re.DOTALL)
@@ -77,6 +85,20 @@ def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
     return "\n\n".join(values)
 
 
+def carries_forbidden_text(text: str) -> bool:
+    """Whether text holds an attribution trailer, a generated-by marker at the start
+    of a line, or a Claude or Anthropic link outside the allowed documentation hosts.
+    """
+    if TRAILER.search(text):
+        return True
+    if GENERATED_WITH.search(text):
+        return True
+    for match in DOMAIN_LINK.finditer(text):
+        if match.group(1).lower() not in ALLOWED_DOC_HOSTS:
+            return True
+    return False
+
+
 def message_violation(message: str) -> Optional[str]:
     """The deny reason for a commit message, or None when it is fine."""
     lines = message.strip("\n").splitlines()
@@ -84,15 +106,15 @@ def message_violation(message: str) -> Optional[str]:
         return None
 
     subject = lines[0]
-    body = "\n".join(lines[1:])
 
     if len(subject) > SUBJECT_LIMIT or not HEADER.match(subject):
         return f"Commit subject {subject!r} is not a Conventional Commit. {FORMAT_HINT}"
 
-    if FORBIDDEN_BODY.search(body):
+    if carries_forbidden_text(message):
         return (
-            "Commit body carries an attribution line or a generated-by marker. Drop it, "
-            "commits read as human work."
+            "Commit message carries an attribution line, a generated-by marker or a link "
+            "to Claude or Anthropic. The baseline forbids attribution lines, session links "
+            "or tool names in commits, pull requests and comments."
         )
 
     return None
