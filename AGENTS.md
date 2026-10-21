@@ -93,6 +93,9 @@ task doctor
 - Strict JSON, no comments. A non obvious entry is explained in the commit and in an ADR when it
   is a decision.
 - Paths use `~/`. The file works on every machine.
+- A file rule is written as `Edit(path)` or `Read(path)`. `Edit` covers every file editing
+  tool. A path rule on `Write`, `NotebookEdit`, `MultiEdit` or `Glob` is never matched and
+  `validate` rejects it, in the overlay example too.
 - `ask` outranks `allow` and forces a prompt even in auto mode. Keep `ask` to merge, release,
   apply, delete class commands.
 - Personal values such as organisation names and extra domains live in the local overlay, never

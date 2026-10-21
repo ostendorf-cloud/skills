@@ -161,10 +161,7 @@
       "Read(~/.zshenv)",
       "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/CLAUDE.md)",
-      "Edit(~/.config/agent-skills/**)",
-      "Write(~/.claude/settings.json)",
-      "Write(~/.claude/CLAUDE.md)",
-      "Write(~/.config/agent-skills/**)"
+      "Edit(~/.config/agent-skills/**)"
     ]
   },
   "sandbox": {

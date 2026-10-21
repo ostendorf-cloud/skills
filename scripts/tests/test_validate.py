@@ -316,6 +316,60 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("is in both permissions.allow and permissions.deny", output)
 
+    def test_detects_write_rule_that_the_harness_never_matches(self) -> None:
+        write(
+            self.root / "settings" / "claude.json",
+            json.dumps({"permissions": {"allow": [], "deny": ["Write(~/.claude/settings.json)"]}}),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "'Write(~/.claude/settings.json)' in permissions.deny is never matched", output
+        )
+
+    def test_detects_permissions_that_are_not_an_object(self) -> None:
+        write(self.root / "settings" / "claude.json", json.dumps({"permissions": ["Bash(ls:*)"]}))
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("claude.json: permissions must be an object", output)
+
+    def test_detects_ask_list_that_is_not_an_array(self) -> None:
+        write(
+            self.root / "settings" / "claude.json",
+            json.dumps({"permissions": {"allow": [], "ask": "Bash(gh pr merge:*)", "deny": []}}),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("claude.json: permissions.ask must be an array", output)
+
+    def test_detects_notebook_edit_rule_in_the_ask_list(self) -> None:
+        write(
+            self.root / "settings" / "claude.json",
+            json.dumps(
+                {"permissions": {"allow": [], "ask": ["NotebookEdit(docs/**)"], "deny": []}}
+            ),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("'NotebookEdit(docs/**)' in permissions.ask is never matched", output)
+
+    def test_detects_write_rule_in_the_local_overlay_example(self) -> None:
+        write(
+            self.root / "settings" / "local.example.json",
+            json.dumps({"permissions": {"deny": ["Write(~/notes/**)"]}}),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("local.example.json: 'Write(~/notes/**)' in permissions.deny", output)
+
+    def test_allows_a_bare_write_tool_rule(self) -> None:
+        write(
+            self.root / "settings" / "claude.json",
+            json.dumps({"permissions": {"allow": [], "deny": ["Write"]}}),
+        )
+        _, output = run(self.root)
+        self.assertNotIn("is never matched", output)
+
     def test_detects_missing_license_header(self) -> None:
         write(self.root / "scripts" / "helper.py", "print('hi')\n")
         code, output = run(self.root)
