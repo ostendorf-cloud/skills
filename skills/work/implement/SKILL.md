@@ -42,6 +42,8 @@ Take one issue from label to a pushed, reviewable pull request.
 ## Guardrails
 
 - Claim (`working`) before any implementation work starts.
+- Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
+  remains after the move.
 - Never review this skill's own output, never set `done`.
 - On failure or ambiguity: `blocked` with the reason as a comment, never a silent stop.
 - The subagent gets a bounded file scope and the house style, not the full transcript.

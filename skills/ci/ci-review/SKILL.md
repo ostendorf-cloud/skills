@@ -86,6 +86,8 @@ Verdict: approve
 - The comment is the verdict. A formal review only adds the same body through the review
   API, never replaces the comment.
 - `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
+- Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
+  remains after the move.
 - A verdict comment posted, never a merge or a push.
 - Limits of the review stated in the output.
 
