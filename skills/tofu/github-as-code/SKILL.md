@@ -66,13 +66,13 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 
 ### Rulesets
 
-- `github_repository_ruleset`, never the legacy branch protection resource.
-- `enforcement` is required: `active` enforces, `evaluate` logs without blocking and is
-  organisation owners only, `disabled` keeps the ruleset inert.
+- `github_repository_ruleset`, never the legacy `github_branch_protection` resources.
+- `enforcement` is required: `active` enforces, `evaluate` logs without blocking and exists
+  for organisation owned repositories only, `disabled` keeps the ruleset inert.
 - `target = "branch"`, `conditions.ref_name` required with both `include` and `exclude`:
   `~DEFAULT_BRANCH` or an explicit ref in `include`, `exclude = []` as the default.
 - `bypass_actors` typed by `actor_type` (`RepositoryRole` for the admin role, `Integration` for
-  an app) and timed by `bypass_mode`: `always`, `pull_request`, or `exempt` for a merge gate.
+  an app) and timed by `bypass_mode`: `pull_request` for a merge gate, `always` only for admins.
 - Split one ruleset into several when a bypass should cover only part of the rules, for example a
   merge gate an app may bypass versus signature and deletion rules nobody bypasses.
 
@@ -81,9 +81,9 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 - Organisation secrets are `github_actions_organization_secret`; the value attribute is `value`
   or `value_encrypted`, wrapped in `sensitive()` unless already sensitive. Never
   `plaintext_value` or `encrypted_value`, both deprecated.
-- `visibility` is `all`, `private`, or `selected`; `selected` needs
-  `github_actions_organization_secret_repositories`. `selected_repository_ids` on the secret
-  resource is deprecated.
+- `visibility = "selected"` plus `github_actions_organization_secret_repositories` scopes a
+  secret to the repositories that need it. `all` only for a secret every repository needs.
+  `selected_repository_ids` on the secret resource is deprecated.
 
 ### Membership
 
