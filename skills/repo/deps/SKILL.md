@@ -47,7 +47,7 @@ Get dependency updates in without turning them into an incident.
 ## Config
 
 - `labels.dependencies`: label marking a dependency pull request. Default: `dependencies`.
-- `verify`: command used to confirm an update is safe. Default: `task lint && task test`.
+- `verify`: command used to confirm an update is safe. Default: `task check`.
 
 ## References
 

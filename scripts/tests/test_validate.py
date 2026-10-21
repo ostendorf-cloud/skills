@@ -223,6 +223,57 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("unknown decision 'ask'", output)
 
+    def test_detects_unknown_key_in_the_repository_config(self) -> None:
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps(
+                {
+                    "$schema": "x",
+                    "additionalProperties": False,
+                    "properties": {
+                        "verify": {"type": "string"},
+                        "pr": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {"draft": {"type": "boolean"}},
+                        },
+                    },
+                }
+            ),
+        )
+        write(
+            self.root / ".agent-skills.json",
+            json.dumps({"verify": "task check", "pr": {"draft": "yes"}, "colour": "red"}),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(".agent-skills.json: unknown key colour", output)
+        self.assertIn(".agent-skills.json.pr.draft: expected boolean", output)
+
+    def test_accepts_a_repository_config_matching_the_schema(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps(
+                {
+                    "$schema": "x",
+                    "additionalProperties": False,
+                    "properties": {
+                        "verify": {"type": "string"},
+                        "work": {
+                            "oneOf": [{"type": "boolean", "const": False}, {"type": "object"}]
+                        },
+                    },
+                }
+            ),
+        )
+        write(self.root / ".agent-skills.json", json.dumps({"verify": "task check", "work": False}))
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
     def test_detects_adr_numbering_gap(self) -> None:
         write(self.root / "docs" / "adr" / "0001-first.md", "# First\n")
         write(self.root / "docs" / "adr" / "0003-third.md", "# Third\n")

@@ -49,7 +49,7 @@ Open a pull request a reviewer can judge without reading the whole diff first.
 - `stacks`: map of label to path globs, used to set a stack label. Default: none.
 - `types`: type labels an issue may carry, one of which is copied onto the pull request. Default:
   `bug`, `feature`, `improvement`, `documentation`, `security`.
-- `verify`: command that proves the change is good. Default: `task lint && task test`.
+- `verify`: command that proves the change is good. Default: `task check`.
 
 ## References
 

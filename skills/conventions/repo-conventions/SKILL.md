@@ -111,8 +111,8 @@ The baseline every repository follows, independent of language.
 
 ## Config
 
-- `verify`: command that proves a change is good. Default: `task lint && task test` when a
-  Taskfile exists, else detected.
+- `verify`: command that proves a change is good. Default: `task check` when a Taskfile exists,
+  else detected.
 - `iac`: infrastructure as code tool. Default: `opentofu`.
 - `docs.adr`: path for decision records. Default: `docs/adr`.
 - `docs.concepts`: path for concept docs. Default: `docs/concepts`.

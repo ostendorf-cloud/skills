@@ -52,6 +52,19 @@ tasks:
     cmds:
       - python3 scripts/validate.py
 
+  check:
+    desc: Every check, one after another
+    cmds:
+      - task: lint:ruff
+      - task: lint:ruff-format
+      - task: lint:markdown
+      - task: lint:yaml
+      - task: lint:actions
+      - task: lint:secrets
+      - task: test:hooks
+      - task: test:scripts
+      - task: validate
+
   fmt:
     desc: Format Python
     cmds:

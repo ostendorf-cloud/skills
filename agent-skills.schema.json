@@ -8,7 +8,7 @@
   "properties": {
     "$schema": { "type": "string" },
     "verify": {
-      "description": "Command that proves a change is good. Default: task lint && task test when a Taskfile exists, else detected.",
+      "description": "Command that proves a change is good. Default: task check when a Taskfile exists, else detected.",
       "type": "string"
     },
     "iac": {

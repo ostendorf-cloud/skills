@@ -20,7 +20,7 @@ Run the repository's own formatters and linters and fix what they report.
 ## Steps
 
 1. Detect the tooling from `mise.toml` first, then the task runner, then config files.
-   Prefer `task lint` over calling a tool directly when the task exists.
+   Prefer the `lint:<tool>` task targets over calling a tool directly when they exist.
 2. Match the tool to the file type: `gofmt`, `go vet`, `golangci-lint` for Go; `ruff check`,
    `ruff format` for Python; `eslint` or `oxlint` for JavaScript and TypeScript; `shellcheck`,
    `shfmt` for shell; `yamllint` for YAML; `markdownlint` for Markdown; `actionlint` for
