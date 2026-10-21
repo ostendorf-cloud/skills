@@ -39,12 +39,12 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 ### Repositories
 
 - Repositories of one organisation are one map variable, keyed by repository name, fed to
-  `github_repository` with `for_each`; each value carries the settings that vary per repository:
-  `visibility`, topics, merge methods, the label groups it opts into.
+  `github_repository` with `for_each`; each value carries what varies: `visibility`, the label
+  groups it opts into. Fixed for every repository: `allow_merge_commit = true`,
+  `allow_squash_merge = false`, `allow_rebase_merge = false`, `delete_branch_on_merge = true`.
 - Branch protection and required status checks are ruleset input, not `github_repository`
   attributes: they feed `github_repository_ruleset`, keyed the same way.
-- `lifecycle { prevent_destroy = true }` on every repository, so removing a key from the map
-  fails until the lifecycle block is edited first.
+- `lifecycle { prevent_destroy = true }` on every repository: removing a map key fails first.
 
 ### Labels
 
