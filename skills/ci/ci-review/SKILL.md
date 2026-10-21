@@ -28,7 +28,7 @@ A pull request review a human can act on without rereading the diff.
    then anything that looks like drift instead of the change itself, then the plan output
    for a secret value that should have stayed masked. A touched module with no comment
    means the plan job failed or posted nothing: ask for that run, do not judge the diff
-   alone.
+   alone. A pull request from a fork gets no plan, say so and review the diff only.
 4. Review in order: correctness, security, operational impact, conventions, tests,
    documentation.
 5. Verify what is verifiable in the runner: tests, linters, build. Report the real
