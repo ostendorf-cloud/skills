@@ -1,10 +1,11 @@
 ---
 name: github-as-code
-description: GitHub repositories, labels, rulesets and organisation secrets written as OpenTofu
-  with the github provider, instead of changed by hand with gh or the web UI. Use when writing or
-  reviewing OpenTofu that manages a repository, a label, a ruleset, an organisation secret or an
-  organisation setting, or when asked to change one of those by hand. Trigger phrases: github
-  provider, repository settings, rulesets, labels as code, org settings, Repo-Einstellungen.
+description: GitHub repositories, labels, rulesets, organisation secrets and the GitHub Apps of
+  the automation written as OpenTofu with the github provider, instead of changed by hand with gh
+  or the web UI. Use when writing or reviewing OpenTofu that manages a repository, a label, a
+  ruleset, a secret, an app or an organisation setting, or when asked to change one of those by
+  hand. Trigger phrases: github provider, repository settings, rulesets, labels as code, org
+  settings, github app, app permissions, Repo-Einstellungen, GitHub-App anlegen.
 ---
 
 # github-as-code
@@ -32,10 +33,12 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 
 - One GitHub App per purpose, named `<org>-<purpose>`, with the rights that purpose needs and
   nothing more, installed only on the repositories that need it.
-- Purposes: `infrastructure` (this provider: administration, secrets, members read), `release`
-  (release-please: contents, pull requests, issues), `review` (agents' review identity: pull
-  requests, issues, checks read), `dependencies` (self hosted Renovate: contents, pull requests,
-  issues, workflows), `backup` (read only), `queue` (workflows that push or open pull requests).
+- Purposes, write unless marked read: `infrastructure` (this provider: administration, issues
+  for labels, secrets, variables), `release` (release-please: contents, pull requests, issues),
+  `review` (agents' review identity: pull requests, issues, checks read, contents read),
+  `dependencies` (self hosted Renovate: contents, pull requests, issues, workflows, checks read),
+  `backup` (contents read), `queue` (contents, pull requests: workflows that push or open pull
+  requests so that checks still trigger).
 - Created in the web UI. App id and installation id are organisation variables, the private key
   an organisation secret, both managed here and read from the secret manager.
 - Review and author are never the same identity. Implementation commits carry the person,
@@ -54,8 +57,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
   `github_repository` with `for_each`; each value carries what varies: `visibility`, the label
   groups it opts into. Fixed for every repository: `allow_merge_commit = true`,
   `allow_squash_merge = false`, `allow_rebase_merge = false`, `delete_branch_on_merge = true`.
-- Branch protection and required status checks are ruleset input, not `github_repository`
-  attributes: they feed `github_repository_ruleset`, keyed the same way.
+- Branch protection and required checks are ruleset input, not `github_repository` attributes.
 - `lifecycle { prevent_destroy = true }` on every repository: removing a map key fails first.
 
 ### Labels
@@ -65,8 +67,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
   for `ai`, `dependencies` and `priority` come from `skills/README.md` and the schema.
 - `base` holds config `types`, `needs triage` (config `labels.needsTriage`), `duplicate`,
   `question`, and the context labels `breaking-change`, `deprecated`, `research`, `upstream`.
-- `release` holds `autorelease: pending` and `autorelease: tagged`, set only by release-please;
-  the catalog keeps both so the authoritative resource below does not delete them.
+- `release` holds the two `autorelease:` labels release-please sets, kept so an apply keeps them.
 - `community` holds `good first issue` and `help wanted` for public repositories, `stack` exactly
   the keys of config `stacks`.
 - `github_issue_labels` is authoritative per repository, built from its chosen groups; an unlisted
@@ -87,7 +88,8 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 ### Secrets
 
 - Organisation secrets are `github_actions_organization_secret` with `value` or `value_encrypted`
-  in `sensitive()`. `plaintext_value` and `encrypted_value` are deprecated.
+  in `sensitive()`. `plaintext_value`, `encrypted_value` and `selected_repository_ids` are
+  deprecated.
 - `visibility = "selected"` plus `github_actions_organization_secret_repositories` scopes a
   secret to the repositories that need it. `all` only when every repository needs it.
 
@@ -115,8 +117,9 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 ## Config
 
 - `types` (default `bug`, `feature`, `improvement`, `documentation`, `security`): `base` types.
-- `labels.needsTriage` and `labels.dependencies` (defaults `needs triage`, `dependencies`), and
-  `labels.ready` through `labels.blocked` (defaults in `skills/README.md`): `base`, `ai`.
+- `labels.needsTriage` (default `needs triage`): `base`. `labels.dependencies` (default
+  `dependencies`): `dependencies`. `labels.ready` through `labels.blocked` (defaults in
+  `skills/README.md`): `ai`.
 - `priority` (default urgent, high, medium, low with the `priority:` prefix): `priority` group.
 - `stacks` (default none): the `stack` group's names.
 
