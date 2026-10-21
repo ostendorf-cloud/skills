@@ -73,6 +73,11 @@ task validate
 
 One target per check, one CI job per target. `check` only calls the small targets.
 
+Releases come from release-please. Every merge to `main` updates the release pull request,
+merging that creates the tag, the release and the changelog. The workflow runs with the token
+of the release app: the variable `GH_APP_RELEASE_APP_ID` and the secret
+`GH_APP_RELEASE_PRIVATE_KEY`, set on the repository or the organisation as infrastructure code.
+
 ## License
 
 Apache-2.0. See `LICENSE`.
