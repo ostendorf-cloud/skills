@@ -172,6 +172,12 @@
     "autoAllowBashIfSandboxed": true,
     "excludedCommands": [
       "gh *",
+      "git fetch",
+      "git fetch *",
+      "git pull",
+      "git pull *",
+      "git push",
+      "git push *",
       "tofu init",
       "tofu init *",
       "tofu validate",
