@@ -24,9 +24,10 @@ Ansible configures a host that already exists and that no declarative tool reach
 - Hard rule: every play runs clean under `--check` before it ever runs for real.
 - A module with check mode support simulates a change under `--check` and reports what it would
   do. A module without support, `command`, `shell`, a custom module, reports nothing.
-- A task without check mode support sets `check_mode: false` only when a later task branches on
-  its registered result. Without that, the result is empty under `--check`, and the branch
-  reports nonsense without saying so.
+- A task without check mode support sets `check_mode: false` only when it reads and does not
+  change anything, and a later task branches on its registered result. Without that, the result
+  is empty under `--check`, and the branch reports nonsense without saying so. A task that
+  changes something never gets `check_mode: false`.
 - `changed_when` reflects the real result of the task, never a module's default guess.
 - `--check --diff` runs before every run against real hosts. Read the diff, then run for real.
 
@@ -54,12 +55,11 @@ Ansible configures a host that already exists and that no declarative tool reach
   code's state. A committed script under `inventory/` builds it from that state's outputs, with a
   unit test against a fixture file covering its grouping logic.
 - The person or the CI job holding the credentials runs `tofu output -json` and hands the script
-  that JSON, on stdin or from a path. An agent in a session never runs that command, see
-  `opentofu-conventions`: outputs can carry secrets even where the host addresses in them do not.
-- The script itself takes the JSON on stdin or from a path, needs no credential and no network. An
-  unapplied module means an empty inventory, and the script says so instead of failing.
-- In a session, work against the fixture or an inventory file the user supplies, never against a
-  live `tofu output`.
+  that JSON on stdin or from a path. An agent never runs that command, see `opentofu-conventions`:
+  outputs can carry secrets. In a session the agent works against the fixture or a file the user
+  supplies.
+- The script needs no credential and no network. An unapplied module means an empty inventory,
+  and the script says so instead of failing.
 - A static, hand written inventory still needs a reason in the pull request once the hosts could
   have been generated instead.
 
