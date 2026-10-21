@@ -78,6 +78,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Commit subject plus a few short lines when the why is not obvious. No paragraphs.
 - Rebase onto the default branch to update a branch. Force push afterwards only with `--force-with-lease`.
 - Parallel sessions on one repository use a worktree under `.worktrees/<branch>`. One checkout, one session.
+- A worktree lives as long as its pull request. After the merge: `git worktree remove`, `git branch -d`, `git worktree prune`. A session that ends checks for its own stale worktrees first.
 - Secrets never enter a repository, log, commit message, issue or pull request.
 
 ## Repositories
