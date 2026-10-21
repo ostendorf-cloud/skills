@@ -33,6 +33,7 @@ value=$(printf '%s' "$cfg" | jq -r '.work.branch // empty'); [ -n "$value" ] || 
 | blocked          | `ai: blocked`           |
 | needsTriage      | `needs triage`          |
 | dependencies     | `dependencies`          |
+| story            | `story`                 |
 
 A label missing on the tracker is reported. Skills never create labels, infrastructure code does.
 
