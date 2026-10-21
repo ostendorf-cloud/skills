@@ -40,6 +40,21 @@ Behaviour when nobody is there to answer a question.
 - Post findings as a review comment or an issue comment, matching what the workflow
   triggered. Never as a commit message or a file in the repository.
 
+## Workflow files
+
+- Name the file after what it does: `lint.yaml`, `test.yaml`, `release.yaml`, `plan.yaml`,
+  `apply.yaml`. Never `ci.yaml` or `main.yaml`.
+- One concern per file. A workflow that lints stays separate from one that deploys.
+- One job per check: `fmt`, `lint`, `test` and `validate` run as separate jobs, never bundled
+  into a single job that calls an umbrella task. A failing job names the check that failed.
+- A matrix runs the same check over several targets, for example several chart or Kubernetes
+  versions, instead of a repeated job for each one.
+- Every workflow sets its own `permissions` block, scoped to what its jobs need. None relies on
+  the repository default.
+- Every action is pinned to a commit digest, with the version kept as the comment Renovate
+  maintains. A moving major tag alone is never the only pin.
+- Workflow files end in `.yaml`.
+
 ## Guardrails
 
 - No interactive prompts used anywhere in the run.

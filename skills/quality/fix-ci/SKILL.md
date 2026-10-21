@@ -37,7 +37,7 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
 6. Push the fix, then `gh run rerun --failed` to rerun the corrected run, or watch the
    new run the push triggers. Report the outcome.
 7. If the same failure happened before, propose a durable fix: a pinned version, a
-   cache, a reusable workflow change, or a new `conformance-checks` rule.
+   cache, or a new `conformance-checks` rule.
 
 ## Guardrails
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
-"""Check this repository: skill style, hooks, settings, groupings, ADRs, license headers."""
+"""Check this repository: skill style, hooks, settings, groupings, ADRs, license headers,
+YAML extensions."""
 
 from __future__ import annotations
 
@@ -376,6 +377,16 @@ def check_license_headers(root: Path) -> list[str]:
     return findings
 
 
+def check_yaml_extension(root: Path) -> list[str]:
+    findings: list[str] = []
+    for path in sorted(root.rglob("*.yml")):
+        if ".worktrees" in path.parts or ".git" in path.parts:
+            continue
+        rel = path.relative_to(root)
+        findings.append(f"{rel}: uses the .yml extension, rename to .yaml")
+    return findings
+
+
 CHECKS = (
     check_skills,
     check_characters,
@@ -386,6 +397,7 @@ CHECKS = (
     check_schema,
     check_adrs,
     check_license_headers,
+    check_yaml_extension,
 )
 
 

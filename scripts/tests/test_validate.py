@@ -255,6 +255,27 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("missing license header", output)
 
+    def test_detects_yml_file(self) -> None:
+        write(self.root / ".github" / "workflows" / "lint.yml", "name: lint\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(
+            ".github/workflows/lint.yml: uses the .yml extension, rename to .yaml", output
+        )
+
+    def test_ignores_yml_file_inside_worktrees(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps({"$schema": "x", "properties": {}}),
+        )
+        write(self.root / ".worktrees" / "feat-x" / "mise.yml", "tools: {}\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
 
 if __name__ == "__main__":
     unittest.main()
