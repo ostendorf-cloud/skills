@@ -23,6 +23,7 @@ TRIGGERS = (
     ("work-queue", r"\b(work[- ]?queue|drain the queue|queue abarbeiten)\b"),
     ("security-review", r"\b(security review|vulnerabilit(y|ies)|sicherheit|security check|cve)\b"),
     ("ci-review", r"\b(ci review|review in ci)\b"),
+    ("post-mortem", r"\b(post[- ]?mortem|incident|outage|vorfall|ausfall)\b"),
     ("review", r"\b(review|durchsehen|code review)\b"),
     ("commit", r"\b(commit|commits|committen|einchecken|stage and commit)\b"),
     ("pr", r"\b(pull request|\bpr\b|merge request)\b"),
