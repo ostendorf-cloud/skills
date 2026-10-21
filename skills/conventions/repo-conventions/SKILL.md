@@ -28,9 +28,10 @@ The baseline every repository follows, independent of language.
 - `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
 - `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
 - `mise.toml` pinning every tool the repository needs.
-- `Taskfile.yaml` over a Makefile, exposing at least `test`, `lint`, `build` and `fmt`. One task
-  target per check, never an umbrella target such as `check` or `ci` that hides which part
-  failed. An existing repository keeps whatever task runner it already has.
+- `Taskfile.yaml` over a Makefile. One task target per check, `lint:<tool>`, `test:<suite>`,
+  `validate`, plus `fmt` and `build` where they apply. A `check` target may aggregate the small
+  targets and holds no command of its own. CI calls the small targets, never `check`. An
+  existing repository keeps whatever task runner it already has.
 - `renovate.json`, referencing the organisation's shared preset where one exists.
 - `release-please-config.json` and `.release-please-manifest.json` for anything that is released.
   `CHANGELOG.md` is generated from them and never hand edited.
