@@ -23,7 +23,10 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   task's model and states why in one line, tokens and time against capability.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
-- Every spawned agent reports status back to the session that spawned it.
+- Every spawned agent reports status back to the session that spawned it. The report ends with
+  baseline feedback: a rule that blocked or misled, a rule that was missing, or "none".
+- The session collects that feedback and raises what is worth a change through `propose-rule`,
+  one issue per rule, never silently.
 - Agent output is a claim, not a fact: verify files, run tests, read the diff before relying on
   it.
 - Terminate every agent whose work is done, or that is stale or stuck. Idle is not done: an agent
