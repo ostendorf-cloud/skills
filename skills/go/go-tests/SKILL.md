@@ -55,7 +55,6 @@ Procedure and conventions for adding tests to a Go module.
   input, a cancelled context, a dependency error, a dependency timeout, concurrent access when
   concurrency is part of the contract.
 - Test behavior, not implementation. A behavior preserving refactor must not change a test.
-- Fix a bug by adding the failing test first.
 
 ### CI
 
@@ -89,4 +88,5 @@ Procedure and conventions for adding tests to a Go module.
 ## References
 
 - `test` for detecting the runner and extending coverage for changed code.
+- `testing-conventions` for when a test is written and what earns one.
 - `httptest`: <https://pkg.go.dev/net/http/httptest>

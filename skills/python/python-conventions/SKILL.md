@@ -68,7 +68,6 @@ Python is for tooling, glue and hook scripts, not the default application langua
 - `unittest` for a standalone script with no dependencies, `pytest` for a project
   with `uv`, tests next to the package under `tests/`.
 - Parametrise instead of copying a test. Fixtures for setup, not module level state.
-- Test names state the behaviour in plain words. Fixtures look like real data.
 - A hook script gets tests that feed it a payload on stdin and assert the decision,
   with no network and no git repository required unless the hook needs one.
 
@@ -89,3 +88,4 @@ Python is for tooling, glue and hook scripts, not the default application langua
 ## References
 
 - `lint` for running `ruff` as part of the repository's checks.
+- `testing-conventions` for when a test is written, what earns one and test form.
