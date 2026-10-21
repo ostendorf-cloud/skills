@@ -154,6 +154,67 @@ class TrackerBodyTest(unittest.TestCase):
         self.assertEqual(_common.command_name("gh pr comment 1"), "gh")
         self.assertEqual(_common.command_name(""), "")
 
+    def test_allows_a_quoted_trailer_in_a_code_span(self):
+        command = (
+            "gh pr comment 45 --body "
+            "'Quoting the pattern the hook denies: "
+            "`Co-Authored-By: Claude <noreply@anthropic.com>`.'"
+        )
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_allows_a_quoted_generated_with_marker_in_a_fence(self):
+        command = (
+            "gh issue comment 45 --body "
+            "'The hook should deny this line:\n\n```\nGenerated with Claude Code\n```'"
+        )
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
+    def test_denies_a_trailer_that_follows_a_fence(self):
+        command = (
+            "gh pr create --title 'fix: quote the attribution pattern in the review body' "
+            "--body '```\nexample output\n```\n\nCo-Authored-By: Claude <noreply@anthropic.com>'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_inside_an_unterminated_fence(self):
+        command = "gh pr comment 45 --body '```\nCo-Authored-By: Claude <noreply@anthropic.com>'"
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_sitting_between_a_stray_backtick_and_a_real_span(self):
+        command = (
+            "gh pr comment 45 --body "
+            "'Won`t rerun until the Co-Authored-By: Claude <noreply@anthropic.com> issue in "
+            "``extract_message`` is fixed.'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_quoted_in_a_span_that_crosses_a_line_break(self):
+        command = (
+            "gh issue comment 45 --body "
+            "'Quoting the pattern the hook denies: `Co-Authored-By:\n"
+            "Claude <noreply@anthropic.com>`.'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_between_two_stray_backticks_on_separate_lines(self):
+        command = (
+            "gh pr comment 45 --body "
+            "'Won`t forget: the next line has the trailer.\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            "This isn`t done yet.'"
+        )
+        output = run_hook("tracker_body.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
 
 if __name__ == "__main__":
     unittest.main()
