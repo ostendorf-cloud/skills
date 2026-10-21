@@ -12,6 +12,8 @@ Make an existing issue ready to implement. Do not implement it.
 - An issue is picked up and does not say enough to start.
 - Asked to refine, groom, scope or break down an issue.
 - A brand new issue: use `issue`. An implementation plan: use `plan`.
+- The issue carries the story label (config `labels.story`, default `story`): use `user-story`
+  instead.
 
 ## Steps
 
@@ -63,6 +65,7 @@ Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 
 - `labels.needsTriage`: default `needs triage`.
 - `labels.ready`: default `ai: ready`.
+- `labels.story`: default `story`. An issue carrying this label is handed to `user-story`.
 
 ## References
 
