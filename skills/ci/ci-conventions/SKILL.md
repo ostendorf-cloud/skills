@@ -6,10 +6,13 @@ description: >-
   only through the workflow, never a push or a merge from CI. Also how a
   workflow file inside .github/workflows/ is named and shaped: workflow
   naming, one job per check, matrix, permissions, pinned actions, the
-  .yaml extension. Use when the session runs non interactively in a
-  workflow, when naming or reviewing a workflow file, Agent laeuft in
+  .yaml extension, and how an OpenTofu plan and apply pipeline runs
+  across several modules: changed module detection, matrix plan, one
+  sticky comment per module, apply on merge. Use when the session runs
+  non interactively in a workflow, when naming or reviewing a workflow
+  file, when setting up a tofu plan or apply pipeline, Agent laeuft in
   CI, unbeaufsichtigt in der Pipeline, Workflow benennen, GitHub Actions
-  Workflow.
+  Workflow, Tofu Pipeline, mehrere Module planen.
 disallowed-tools: AskUserQuestion
 ---
 
@@ -60,6 +63,46 @@ shaped.
   digest is what runs, the tag comment is for readers, and Renovate keeps both updated.
 - Workflow files end in `.yaml`.
 
+## OpenTofu
+
+- A detect job checks out with history (`fetch-depth: 0`), diffs the pull request against
+  the merge base of the base branch, or the push against the commit before the push
+  (`github.event.before`), and lists every root module whose files changed. A changed
+  shared module, or a file every root module reads, maps to every root module that
+  references it. Every later job reads that list, none recomputes it.
+- The plan and apply jobs run only when the detect job's module list is not empty, guarded
+  by an `if` on that output. Neither runs with an empty matrix: a pull request or push
+  that touches no module stays green.
+- A matrix plan job runs one `tofu plan` per changed module on a pull request from a
+  branch of the repository. A fork pull request gets a read only token and no secrets, so
+  its plan job does not run. Each matrix cell posts or updates one sticky comment for its
+  own module, the marker carries the module path so cells never overwrite each other's
+  comment, with the plan grouped by create, update, replace, destroy and import.
+- No plan artifact. A plan file holds every value in clear, secrets included, so it is
+  never uploaded anywhere. The pull request plan is review input only.
+- On merge to the default branch a matrix apply job runs one `tofu plan` followed by
+  `tofu apply` of that plan, in the same job, per module that was touched, same module
+  list, same grouping in the job summary.
+- One job per check: `fmt`, `validate`, `tflint`, `trivy config`, `test`, `plan`, `apply`.
+  `tflint` and `trivy config` both check the same written code but run as separate jobs,
+  one scanner per job. The apply job is the one exception that runs two commands: its
+  plan is the input of its apply, not a check of its own.
+- `tofu test` is its own job, on the pull request and on the push to the default branch.
+  Mock providers on a pull request by default. A real provider test runs only in a
+  dedicated test workspace the repository names in its `AGENTS.md`, never against
+  resources that exist for another purpose.
+- `validate` and a mock provider `test` need no backend: `tofu init -backend=false`.
+  `tflint` needs `tflint --init`, `fmt` and `trivy config` need no init at all. `plan`,
+  `apply` and a real provider `test` need the backend and its credentials.
+- Concurrency is set at workflow level, not per job. One group per pull request for the
+  plan workflow, `cancel-in-progress` true. One group per default branch for the apply
+  workflow, `cancel-in-progress` false: an apply never gets cancelled halfway through.
+- No allowlist of modules or directories. Every root module the diff touches is in scope.
+- No manual trigger. `pull_request` and `push` to the default branch are the only events.
+- The Rules above bind an agent running inside CI, not the workflow's own jobs. The apply
+  job is the pipeline's gate: the merge is the approval, so it runs `tofu apply` where no
+  agent session may.
+
 ## Guardrails
 
 - No interactive prompts used anywhere in the run.
@@ -70,6 +113,7 @@ shaped.
 
 ## References
 
-- `ci-review` for the review output format.
+- `ci-review` for the review output format, including how to read a sticky plan comment.
+- `tofu-plan` and `opentofu-conventions` for the plan and apply rules this pipeline enforces.
 - `repo-conventions` for where a workflow file sits among a repository's required files.
 - `release-conventions` for the Renovate rules that keep a pinned action current.

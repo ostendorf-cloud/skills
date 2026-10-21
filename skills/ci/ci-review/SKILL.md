@@ -4,8 +4,9 @@ description: >-
   Reviews a pull request from CI as a GitHub review grouped by severity
   with file and line references, approving when nothing blocks and never
   merging or pushing. Use when a workflow triggers an automated pull
-  request review, Pull Request aus der CI pruefen, automatisierte
-  Review.
+  request review, including an infrastructure pull request with a sticky
+  plan comment to read, Pull Request aus der CI pruefen, automatisierte
+  Review, Infrastruktur Pull Request, Plan Kommentar pruefen.
 disallowed-tools: AskUserQuestion
 ---
 
@@ -22,23 +23,29 @@ A pull request review a human can act on without rereading the diff.
 1. Read the pull request body and the linked issue for intent. No intent means the
    first finding is the missing description.
 2. Get the diff with `gh pr diff` and read the changed files in context.
-3. Review in order: correctness, security, operational impact, conventions, tests,
+3. On an infrastructure pull request, read the sticky plan comment the OpenTofu pipeline
+   posted for every touched module: replace and destroy rows first with their reason,
+   then anything that looks like drift instead of the change itself, then the plan output
+   for a secret value that should have stayed masked. A touched module with no comment
+   means the plan job failed or posted nothing: ask for that run, do not judge the diff
+   alone. A pull request from a fork gets no plan, say so and review the diff only.
+4. Review in order: correctness, security, operational impact, conventions, tests,
    documentation.
-4. Verify what is verifiable in the runner: tests, linters, build. Report the real
+5. Verify what is verifiable in the runner: tests, linters, build. Report the real
    output. Never claim a check that did not run.
-5. Classify findings: blocking (defect, security issue, data loss, breaking change
+6. Classify findings: blocking (defect, security issue, data loss, breaking change
    without migration), should fix (convention violation, missing test, unclear naming,
    missing docs), nit (optional improvement). Drop anything a linter already owns.
-6. Post the review with `gh pr review`: `--approve` when nothing blocks,
+7. Post the review with `gh pr review`: `--approve` when nothing blocks,
    `--request-changes` with concrete items when something does, `--comment` otherwise.
    Inline comments reference file and line through the API.
-7. End the body with the limits of the review: what was not reviewed, what could not
+8. End the body with the limits of the review: what was not reviewed, what could not
    be verified.
-8. Never merge, never push to the branch, unless the workflow explicitly asked for a
+9. Never merge, never push to the branch, unless the workflow explicitly asked for a
    fix commit.
-9. When the work loop is in use, move the label from the config: `reviewing` while the
-   review runs, `changesRequested` on request changes, `done` or `needsHuman` per the
-   workflow's outcome. A missing label on the tracker is reported, never created.
+10. When the work loop is in use, move the label from the config: `reviewing` while the
+    review runs, `changesRequested` on request changes, `done` or `needsHuman` per the
+    workflow's outcome. A missing label on the tracker is reported, never created.
 
 ## Output format
 
@@ -58,6 +65,8 @@ A pull request review a human can act on without rereading the diff.
 
 ## Guardrails
 
+- On an infrastructure pull request, the sticky plan comment read at step 3, for replace,
+  destroy and secrets, before judging the change from the diff alone.
 - Intent read before judging. Diff read in full, not sampled.
 - Findings reference file and line and name a concrete fix.
 - Severity separated, linter owned style dropped.
@@ -73,4 +82,5 @@ A pull request review a human can act on without rereading the diff.
 
 ## References
 
-- `ci-conventions` for the run itself.
+- `ci-conventions` for the run itself and the OpenTofu pipeline that posts the plan
+  comment.
