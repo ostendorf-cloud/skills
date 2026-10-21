@@ -38,6 +38,8 @@ How versions, changelogs and dependency updates get produced.
 - `bump-minor-pre-major` stays `true` until the deliberate `1.0.0` decision.
 - The flow: commits land on the default branch, release-please maintains a release
   pull request, merging it creates the tag, the release and the changelog entry.
+- The workflow runs release-please with the token of the release app, see the Apps section
+  of `github-as-code`. A pull request opened with `GITHUB_TOKEN` triggers no checks.
 - A feature pull request merges as a merge commit, never squashed: every `feat` and `fix`
   commit stays visible to release-please on its own, instead of collapsing into one line
   release-please reads from the pull request title alone. release-please recommends squash
