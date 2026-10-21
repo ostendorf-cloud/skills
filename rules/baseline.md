@@ -94,6 +94,8 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Taskfile is the task runner. One task target per check. A `check` target may aggregate them and holds no command of its own.
 - CI runs one check per job. No umbrella job. Everything that can run in CI runs in CI.
 - YAML files end in `.yaml` where the tool accepts it.
+- A command written into a skill or a README runs under the CI profile. Check it against the allow list before documenting it.
+- A command built from variables is printed, and the printed line is run, so the permission rule sees the literal text.
 - OpenTofu, not Terraform, unless the repository is clearly Terraform based.
 - Apache-2.0 for new repositories, with a license header in source files.
 
