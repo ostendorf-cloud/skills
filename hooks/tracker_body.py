@@ -54,7 +54,11 @@ REASON = (
 def carries_forbidden_text(text: str) -> bool:
     """Whether text holds an attribution trailer, a generated-by marker at the start
     of a line, or a Claude or Anthropic link outside the allowed documentation hosts.
+
+    Matches run on the text with its fenced blocks and inline code spans stripped, so
+    a quotation of the pattern inside a span or a fence is not denied.
     """
+    text = _common.strip_code(text)
     if TRAILER.search(text):
         return True
     if GENERATED_WITH.search(text):

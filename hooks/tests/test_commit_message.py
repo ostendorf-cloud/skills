@@ -105,6 +105,85 @@ class CommitMessageTest(unittest.TestCase):
         command = f"git -C {directory} commit -m 'added some stuff'"
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
+    def test_allows_a_quoted_trailer_in_a_code_span(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "fix: quote the attribution pattern in the review reply\n\n"
+            "Mentions the pattern the hook denies, `Co-Authored-By: Claude "
+            "<noreply@anthropic.com>`, as an example.\n"
+            'EOF\n)"'
+        )
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
+    def test_allows_a_quoted_generated_with_marker_in_a_fence(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "docs: document the generated-with marker the hook checks for\n\n"
+            "```\nGenerated with Claude Code\n```\n"
+            'EOF\n)"'
+        )
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
+    def test_denies_a_trailer_that_follows_a_fence(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "fix: close the fence before the attribution trailer\n\n"
+            "```\nexample output\n```\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_inside_an_unterminated_fence(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "fix: close the fence in the review reply template\n\n"
+            "```\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_sitting_between_a_stray_backtick_and_a_real_span(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "fix: handle the stray backtick before a real span\n\n"
+            "Won`t rerun until the Co-Authored-By: Claude <noreply@anthropic.com> issue in "
+            "``extract_message`` is fixed.\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_quoted_in_a_span_that_crosses_a_line_break(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "docs: quote the multi-line trailer pattern in the template\n\n"
+            "Quoting the pattern the hook denies: `Co-Authored-By:\n"
+            "Claude <noreply@anthropic.com>`.\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_trailer_between_two_stray_backticks_on_separate_lines(self):
+        command = (
+            "git commit -m \"$(cat <<'EOF'\n"
+            "fix: stop two stray backticks swallowing the trailer between them\n\n"
+            "Won`t forget: the next line has the trailer.\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            "This isn`t done yet.\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
 
 if __name__ == "__main__":
     unittest.main()
