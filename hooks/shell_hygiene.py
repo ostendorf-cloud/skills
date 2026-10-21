@@ -19,11 +19,11 @@ import _common  # noqa: E402
 EVENT = "PreToolUse"
 
 INTERPRETERS = r"python3?|node|perl|ruby"
-INLINE_FLAG = re.compile(r"(^|[;&|]\s*)(python3?\s+-c|node\s+-e|perl\s+-e|ruby\s+-e)\b")
-STDIN_SCRIPT = re.compile(r"(^|[;&|]\s*)(" + INTERPRETERS + r")\s+(-\s*)?<<")
+INLINE_FLAG = re.compile(r"^(python3?\s+-c|node\s+-e|perl\s+-e|ruby\s+-e)\b")
+STDIN_SCRIPT = re.compile(r"^(" + INTERPRETERS + r")\s+(-\s*)?<<")
 HEREDOC = re.compile(r"<<-?\s*[\"']?\w+")
 IN_PLACE = re.compile(r"\b(sed|perl)\s+(-[a-zA-Z]*i\S*|--in-place\S*)")
-TEE = re.compile(r"(^|[;&|]\s*)tee\b")
+TEE = re.compile(r"^tee\b")
 
 WRITE_REDIRECT = re.compile(r"(?<![0-9<>])(>{1,2})\s*(?P<target>[^\s;&|()]+)")
 ALLOWED_TARGETS = re.compile(
@@ -58,14 +58,16 @@ def inline_calls(command: str) -> list:
 
     The interpreter is anchored to the start of its part, the same position
     `INLINE_FLAG` anchors to, so a mention inside another command's argument, such as
-    `echo python3 -c '...'`, is not an inline call. A leading environment assignment is
-    stripped first, so `FOO=bar python3 -c '...'` still anchors. A part that cannot be
-    split into shell tokens is skipped rather than failing the whole command.
+    `echo python3 -c '...'`, is not an inline call. A leading wrapper, such as an
+    environment assignment, `env`, `mise exec --` or `time`, is stripped first
+    through `_common.strip_wrappers`, so `mise exec -- python3 -c '...'` still
+    anchors. A part that cannot be split into shell tokens is skipped rather than
+    failing the whole command.
     """
     calls = []
     for part in _common.command_parts(command):
         try:
-            tokens = shlex.split(_common.strip_env_prefix(part))
+            tokens = shlex.split(_common.strip_wrappers(part))
         except ValueError:
             continue
         if len(tokens) < 3:
@@ -113,24 +115,47 @@ def _split_args(args: str) -> list:
     return [part.strip() for part in parts]
 
 
+MODULE_OPEN_RECEIVERS = {"io", "codecs", "gzip", "bz2", "lzma"}
+RECEIVER_NAME = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\.$")
+
+
+def _bound_receiver(code: str, start: int) -> bool:
+    """Whether the call at start in code is a bound `.open(mode)` method on an
+    object that already carries a path, such as `Path('a').open(`, `p.open(` or
+    `self.path.open(`, rather than a module level free function such as
+    `io.open(` that takes the path as its first argument.
+
+    Not dotted at all, a bare `open(`, is never a bound receiver. Dotted and
+    immediately preceded by a bare name that names one of the standard library
+    modules exposing a free `open` function is the free function, not a bound
+    method. Anything else immediately before the dot, a different bare name or the
+    closing paren or bracket of a call or a subscript, is a bound method call.
+    """
+    if start == 0 or code[start - 1] != ".":
+        return False
+    receiver = RECEIVER_NAME.search(code[:start])
+    return not (receiver and receiver.group(1) in MODULE_OPEN_RECEIVERS)
+
+
 def _open_call_writes(code: str, call: str) -> bool:
     """Whether a call such as open( or File.open( in code opens a file for writing,
-    from its second positional argument or a mode= keyword argument.
+    from its second positional argument, a mode= keyword argument, or the sole
+    positional argument of a bound `.open(mode)` method call.
 
     The lookbehind only excludes a preceding identifier character, not a preceding
-    dot, so a dotted receiver such as `io.open(` or `pathlib.Path(p).open(` is caught
-    too, alongside the bare `open(` call it is written to also match. A path object's
-    `.open(mode)` takes the mode as its only argument, so for a dotted call a single
-    argument is checked too, not only the second positional argument of the builtin
-    `open(path, mode)`.
+    dot, so a dotted receiver such as `io.open(` or `Path('a').open(` is caught too,
+    alongside the bare `open(` call it is written to also match. The mode is read
+    from the first argument only for a bound method call, `_bound_receiver`, so a
+    module level free function with a single argument, such as `io.open('ab')`,
+    where that argument is a path rather than a mode, is never mistaken for a
+    write.
     """
     pattern = re.compile(r"(?<!\w)" + re.escape(call) + r"\s*\(([^()]*)\)")
     for match in pattern.finditer(code):
-        dotted = match.start() > 0 and code[match.start() - 1] == "."
         args = _split_args(match.group(1))
         if len(args) >= 2 and _is_write_mode(args[1]):
             return True
-        if dotted and len(args) == 1 and _is_write_mode(args[0]):
+        if len(args) == 1 and _bound_receiver(code, match.start()) and _is_write_mode(args[0]):
             return True
         for arg in args:
             kwarg = MODE_KWARG.match(arg)
@@ -196,12 +221,13 @@ def offending_redirect(command: str) -> Optional[str]:
     return None
 
 
-def tee_target(command: str) -> Optional[str]:
-    """The file tee writes to, or None when tee is absent or the target is a flag."""
-    match = TEE.search(command)
+def tee_target(part: str) -> Optional[str]:
+    """The file tee writes to in a stripped command part, or None when tee is absent
+    or the target is a flag."""
+    match = TEE.search(part)
     if not match:
         return None
-    for token in command[match.end() :].split():
+    for token in part[match.end() :].split():
         if token.startswith("-"):
             continue
         return token
@@ -214,7 +240,9 @@ def main() -> int:
     if not command:
         return _common.emit_empty()
 
-    if STDIN_SCRIPT.search(command):
+    stripped_parts = [_common.strip_wrappers(part) for part in _common.command_parts(command)]
+
+    if any(STDIN_SCRIPT.search(part) for part in stripped_parts):
         return _common.deny(
             EVENT,
             "This feeds a program to an interpreter through stdin or a heredoc, which "
@@ -226,9 +254,10 @@ def main() -> int:
             EVENT, f"sed -i and perl -i edit a file in place through the shell. {USE_FILE_TOOLS}"
         )
 
-    target = tee_target(command)
-    if target and not is_allowed_target(target):
-        return _common.deny(EVENT, f"tee writes {target} through the shell. {USE_FILE_TOOLS}")
+    for part in stripped_parts:
+        target = tee_target(part)
+        if target and not is_allowed_target(target):
+            return _common.deny(EVENT, f"tee writes {target} through the shell. {USE_FILE_TOOLS}")
 
     redirect = offending_redirect(command)
     if redirect:
@@ -250,7 +279,7 @@ def main() -> int:
                 f"file authoring through the shell. {USE_FILE_TOOLS}",
             )
 
-    inline = INLINE_FLAG.search(command)
+    inline = any(INLINE_FLAG.search(part) for part in stripped_parts)
     if inline and ("\n" in command or len(command) > INLINE_LIMIT):
         return _common.deny(
             EVENT,
