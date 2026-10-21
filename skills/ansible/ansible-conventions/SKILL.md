@@ -22,11 +22,11 @@ Ansible configures a host that already exists and that no declarative tool reach
 ### Check mode safety
 
 - Hard rule: every play runs clean under `--check` before it ever runs for real.
-- A task that only reads sets `check_mode: false`, so it also runs under `--check`. Without it, a
-  registered result is empty in check mode, and anything branching on it reports nonsense without
-  saying so.
-- A task that changes something is never forced to run in check mode. Let Ansible skip it, decide
-  what it would do from a fact a read-only task already set, and print that decision.
+- A module with check mode support simulates a change under `--check` and reports what it would
+  do. A module without support, `command`, `shell`, a custom module, reports nothing.
+- A task without check mode support sets `check_mode: false` only when a later task branches on
+  its registered result. Without that, the result is empty under `--check`, and the branch
+  reports nonsense without saying so.
 - `changed_when` reflects the real result of the task, never a module's default guess.
 - `--check --diff` runs before every run against real hosts. Read the diff, then run for real.
 
@@ -41,7 +41,7 @@ Ansible configures a host that already exists and that no declarative tool reach
 
 ### Layout
 
-- `ansible/` holds `inventory/`, `playbooks/`, `roles/`, `group_vars/`.
+- `ansible/` holds `inventory/`, `playbooks/`, `roles/`, `group_vars/`, `host_vars/`.
 - One playbook per outcome, named for what it achieves, not for the host it targets.
 - A role declares its inputs in `defaults/main.yaml`, one comment per variable. Files end in
   `.yaml`, Ansible reads both spellings.
@@ -51,10 +51,15 @@ Ansible configures a host that already exists and that no declarative tool reach
 ### Dynamic inventory
 
 - Inventory is generated, not hand maintained, whenever the hosts already live in infrastructure
-  code's state. A committed script under `inventory/` builds it from that state, with a unit test
-  covering its grouping logic.
-- The script reads outputs only: no provider call, no credential, no network. An unapplied module
-  means an empty inventory, and the script says so instead of failing.
+  code's state. A committed script under `inventory/` builds it from that state's outputs, with a
+  unit test against a fixture file covering its grouping logic.
+- The person or the CI job holding the credentials runs `tofu output -json` and hands the script
+  that JSON, on stdin or from a path. An agent in a session never runs that command, see
+  `opentofu-conventions`: outputs can carry secrets even where the host addresses in them do not.
+- The script itself takes the JSON on stdin or from a path, needs no credential and no network. An
+  unapplied module means an empty inventory, and the script says so instead of failing.
+- In a session, work against the fixture or an inventory file the user supplies, never against a
+  live `tofu output`.
 - A static, hand written inventory still needs a reason in the pull request once the hosts could
   have been generated instead.
 
@@ -88,14 +93,18 @@ Ansible configures a host that already exists and that no declarative tool reach
 
 ### Environment and CI
 
-- `ansible-core` and `ansible-lint` are pinned in `mise.toml` like any other tool. A virtualenv
-  built from a separate pinned requirements file is a gap, not a pattern to copy forward.
+- `ansible-core` and `ansible-lint` are pinned in `mise.toml` like any other tool. `ansible-lint`
+  has no short name in the registry, pin it backend qualified: `"pypi:ansible-lint"`.
+- A virtualenv built from a separate pinned requirements file is a gap, not a pattern to copy
+  forward.
 - `--syntax-check` and `ansible-lint` run in CI on every change, against no host.
 - CI never runs a playbook against a real host. A real run needs a person at the keyboard.
 
 ## Guardrails
 
 - Never run a play against real hosts without `--check --diff` having run first.
+- Never run `tofu output` or `tofu state show` to build the inventory. Take the JSON from the
+  person or the CI job that ran it.
 - Never let a destructive task skip its pre-flight guard, with or without `force`.
 - Never put a secret in a vars file. Read it from the secret store at run time instead.
 - Never run `ansible-playbook` against real hosts in CI.

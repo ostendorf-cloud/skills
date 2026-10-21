@@ -62,7 +62,7 @@ TRIGGERS = (
     ("kubernetes-conventions", r"\b(kubernetes|k8s|kubectl|helm)\b"),
     ("k8s-debug", r"\b(debug (the )?(pod|cluster)|crashloop|kubectl debug)\b"),
     ("talos-ops", r"\b(talos|talosctl)\b"),
-    ("ansible-conventions", r"\b(ansible|playbooks?|inventory|ansible-lint)\b"),
+    ("ansible-conventions", r"\b(ansible|playbooks?|inventory)\b"),
     ("python-conventions", r"\b(python|pytest|ruff|uv run)\b"),
     ("secrets-handling", r"\b(secret|credential|token|kubeconfig|talosconfig)\b"),
     ("conformance-checks", r"\b(conftest|helm-unittest|conformance)\b"),
