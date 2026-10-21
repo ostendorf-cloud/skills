@@ -38,7 +38,7 @@
     {
       "title": "Languages",
       "description": "Language conventions.",
-      "skills": ["python-conventions"]
+      "skills": ["python-conventions", "go-conventions", "go-tests", "go-lint"]
     },
     {
       "title": "CI agents",

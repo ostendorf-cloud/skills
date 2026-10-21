@@ -33,6 +33,14 @@ class SkillReminderTest(unittest.TestCase):
             ("we need new rulesets on the default branch", "github-as-code"),
             ("can you write an ansible playbook for this", "ansible-conventions"),
             ("write up the post mortem for last night's outage", "post-mortem"),
+            ("I need to review this golang package", "go-conventions"),
+            ("writing some go code for a cli", "go-conventions"),
+            ("adding a new go module to the repo", "go-conventions"),
+            ("let's write a go test for this function", "go-tests"),
+            ("switch this to a table driven test", "go-tests"),
+            ("testing in go with httptest", "go-tests"),
+            ("golangci-lint is failing in ci", "go-lint"),
+            ("run gofumpt on this file", "go-lint"),
         ]
         for prompt, skill in cases:
             self.assertIn(
@@ -44,6 +52,15 @@ class SkillReminderTest(unittest.TestCase):
             run_hook("skill_reminder.py", prompt_payload("do a security review of this PR"))
         )
         self.assertIn("security-review", message)
+
+    def test_go_tests_and_go_lint_outrank_their_generic_counterpart(self):
+        message = context(run_hook("skill_reminder.py", prompt_payload("please run go test")))
+        names = message.split(": ", 1)[1].split(". Load")[0].split(", ")
+        self.assertLess(names.index("go-tests"), names.index("test"))
+
+        message = context(run_hook("skill_reminder.py", prompt_payload("run golangci-lint")))
+        names = message.split(": ", 1)[1].split(". Load")[0].split(", ")
+        self.assertLess(names.index("go-lint"), names.index("lint"))
 
     def test_stays_quiet_without_a_match(self):
         for prompt in ["what time is it", "explain this function to me", ""]:
