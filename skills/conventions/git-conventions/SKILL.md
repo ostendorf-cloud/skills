@@ -49,16 +49,17 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Merge commit by default. No squash: every atomic commit survives, `git revert <sha>` reverts
   one step alone, `git revert -m 1 <merge>` reverts the whole pull request, `git log
   --first-parent` reads as the pull request history. Rebase merge only where a repository opts
-  in through config `pr.merge`, and only once it has no use for a merge commit at all.
+  in through config `pr.merge` and its repository settings allow it.
 
 ### History
 
 - Update a branch by rebasing onto the default branch. Never merge the default branch into it.
 - A force push is allowed only on a feature branch the current session rebased, and only with
   `--force-with-lease`. Never on the default branch.
-- Revert a published mistake with `git revert`. Never reset and force push over published history.
-- Fix up an unpushed commit with `git commit --amend` or an interactive rebase, before it is
-  pushed, not after.
+- Revert a mistake on the default branch with `git revert`. Never reset and force push over the
+  default branch or a merged branch.
+- Fix up a commit on the own branch with `git commit --amend` or an interactive rebase before the
+  merge, under the rules in Review fixes.
 
 ### Review fixes
 

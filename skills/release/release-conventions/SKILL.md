@@ -40,7 +40,8 @@ How versions, changelogs and dependency updates get produced.
   pull request, merging it creates the tag, the release and the changelog entry.
 - A feature pull request merges as a merge commit, never squashed: every `feat` and `fix`
   commit stays visible to release-please on its own, instead of collapsing into one line
-  release-please reads from the pull request title alone.
+  release-please reads from the pull request title alone. release-please recommends squash
+  merges. The merge commit is a deliberate deviation, the atomic commits matter more.
 - Never push a tag by hand. A manual tag desynchronizes the manifest.
 - `CHANGELOG.md` is generated. Hand edits are lost on the next release.
 
