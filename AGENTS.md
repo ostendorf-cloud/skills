@@ -53,6 +53,8 @@ task doctor
 - Generic within the conventions: no person, account, organisation, host or repository name. Say
   "the skills repository", "the infrastructure repository", "the shared scripts repository". The
   git remote and the config supply names at run time.
+- No product name where more than one tool fits. Describe the shape: "the secret manager", "the
+  object store", "the tracker". A tool specific rule belongs in a tool skill named after the tool.
 - A skill reads `.agent-skills.json` with `jq` through the snippet in `skills/README.md`. Absent
   config means defaults. A key may be `false` and that is not absent.
 - Skills that run unattended set `disallowed-tools: AskUserQuestion` and record questions on the
