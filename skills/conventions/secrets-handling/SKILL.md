@@ -23,6 +23,8 @@ chat answer.
 
 - Tokens, passwords, private keys, certificates with their key, kubeconfigs, talosconfigs.
 - `.env` files. Commit `.env.example` with empty or obviously fake values instead.
+- `secrets.tfvars`, `secrets.auto.tfvars` and their `.json` forms. Every other tfvars file
+  holds configuration and may be read, edited and committed.
 - OpenTofu state and state backups. State lives in a remote backend.
 - Anything a secret scanner would flag. A fake value looks fake, for example `token: changeme`.
 

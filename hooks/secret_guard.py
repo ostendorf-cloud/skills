@@ -40,7 +40,7 @@ KUBECTL_OUTPUT_FORMAT = re.compile(r"(-o|--output)[\s=]+([A-Za-z-]+)")
 FILE_READERS = {"cat", "head", "tail", "less", "grep"}
 SECRET_FILENAME = re.compile(
     r"^(\.env(\..+)?|.*\.pem|.*\.key|id_rsa|id_ed25519|kubeconfig|talosconfig|"
-    r".*\.tfstate(\..+)?|.*\.tfvars|secrets\.ya?ml|\.netrc)$"
+    r".*\.tfstate(\..+)?|secrets(\.auto)?\.tfvars(\.json)?|secrets\.ya?ml|\.netrc)$"
 )
 
 ECHO_LIKE = re.compile(r"^(echo|printf)\b")

@@ -101,10 +101,23 @@ class SecretGuardTest(unittest.TestCase):
             "tail -f talosconfig",
             "less id_rsa",
             "grep -r password .env.production",
+            "cat secrets.tfvars",
+            "cat environments/prod/secrets.auto.tfvars",
+            "head secrets.tfvars.json",
+            "cat secrets.auto.tfvars.json",
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
+
+    def test_allows_reading_a_configuration_tfvars_file(self):
+        for command in [
+            "cat nodes.tfvars",
+            "head environments/prod/dns.auto.tfvars",
+            "grep count terraform.tfvars",
+            "cat mysecrets.tfvars",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
     def test_denies_echoing_a_credential_variable(self):
         for command in [

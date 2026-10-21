@@ -23,13 +23,12 @@ Infrastructure as code is written with OpenTofu. Terraform only where configured
 ### Tooling
 
 - `tofu` is the binary. `terraform` only in a repository whose config sets `iac: terraform`.
-- `tofu fmt` and `tofu validate` before every commit. `tflint` runs too.
-- `tofu plan`, `tofu validate`, `tflint` and `trivy config` run freely, no confirmation needed.
+- `tofu fmt`, `tofu validate` and `tflint` before every commit. They, `tofu plan` and
+  `trivy config` (the misconfiguration scan) run freely, no confirmation needed.
 - `tofu apply` asks for confirmation first. `tofu destroy` is never run by an agent.
 - `tofu output` and `tofu state show` are never run, both print secrets in clear. Read a secret
   through a `sensitive` aware path in code, or ask the user to read it themselves.
 - `required_version` is set, provider versions constrained with `~>`. Lock file committed.
-- `trivy config` is the HCL security scan, for misconfiguration and open exposure.
 
 ### Files
 
@@ -55,6 +54,7 @@ Infrastructure as code is written with OpenTofu. Terraform only where configured
 
 - Every variable has a `type` and a `description`. A default only where it is genuinely safe.
 - Secret variables and outputs carry `sensitive = true`. Never a secret as a literal default.
+- Values in named tfvars files, committed. Secrets only in `secrets.tfvars`, ignored by git.
 - A secret read from a provider that does not mark it sensitive is wrapped in `sensitive()` at
   every use.
 - No secret goes into an output in clear, marked sensitive or not: state keeps an output's value in
