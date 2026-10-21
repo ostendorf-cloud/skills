@@ -62,5 +62,19 @@ class StripCodeTest(unittest.TestCase):
         self.assertIn("Co-Authored-By", stripped)
 
 
+class StripWrappersTest(unittest.TestCase):
+    def test_strips_a_mise_exec_prefix_with_a_tool_spec(self):
+        self.assertEqual(
+            _common.strip_wrappers("mise exec python@3.11 -- python3 -c 'print(1)'"),
+            "python3 -c 'print(1)'",
+        )
+
+    def test_strips_chained_wrapper_prefixes_in_any_order(self):
+        self.assertEqual(
+            _common.strip_wrappers("time env FOO=1 BAR=2 mise exec -- python3 -c 'print(1)'"),
+            "python3 -c 'print(1)'",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

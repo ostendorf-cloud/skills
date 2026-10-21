@@ -225,6 +225,65 @@ def _looks_like_assignment(token: str) -> bool:
     )
 
 
+SIMPLE_WRAPPERS = ("time", "nice", "nohup", "command", "exec")
+
+
+def strip_wrappers(part: str) -> str:
+    """Removes leading wrapper prefixes from a command part, repeatedly, until none
+    apply.
+
+    Strips, in any combination and order: bare leading assignments through
+    strip_env_prefix, `mise exec --`, `mise x --`, `mise exec <tool> --` where the
+    tool spec is a single token with no spaces, `env` followed by zero or more
+    `NAME=value` assignments, and the single word wrappers `time`, `nice`, `nohup`,
+    `command` and `exec`. A wrapper that takes its own flags before the wrapped
+    command, such as `timeout 5`, is out of scope and is left in place.
+    """
+    previous = None
+    current = part
+    while current != previous:
+        previous = current
+        current = strip_env_prefix(current)
+        current = _strip_mise_exec(current)
+        current = _strip_env_command(current)
+        current = _strip_simple_wrapper(current)
+    return current
+
+
+def _strip_mise_exec(part: str) -> str:
+    """Removes a leading `mise exec --`, `mise x --` or `mise exec <tool> --` from
+    part, the tool a single token with no spaces."""
+    tokens = part.split()
+    if len(tokens) < 2 or tokens[0] != "mise":
+        return part
+    if tokens[1] in ("exec", "x") and len(tokens) >= 3 and tokens[2] == "--":
+        return " ".join(tokens[3:])
+    if tokens[1] == "exec" and len(tokens) >= 4 and tokens[3] == "--":
+        return " ".join(tokens[4:])
+    return part
+
+
+def _strip_env_command(part: str) -> str:
+    """Removes a leading `env` together with any `NAME=value` assignments that
+    follow it from part."""
+    tokens = part.split()
+    if not tokens or tokens[0] != "env":
+        return part
+    index = 1
+    while index < len(tokens) and _looks_like_assignment(tokens[index]):
+        index += 1
+    return " ".join(tokens[index:])
+
+
+def _strip_simple_wrapper(part: str) -> str:
+    """Removes a single leading wrapper word that takes no flags of its own, such as
+    `time` or `exec`, from part."""
+    tokens = part.split()
+    if tokens and tokens[0] in SIMPLE_WRAPPERS:
+        return " ".join(tokens[1:])
+    return part
+
+
 def command_name(part: str) -> str:
     """The basename of the first token in part, so `/opt/homebrew/bin/gh` and `gh`
     both resolve to "gh"."""
