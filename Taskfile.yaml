@@ -1,42 +1,62 @@
 version: "3"
 
 tasks:
-  default:
-    cmds:
-      - task: ci
-
   setup:
     desc: Install the pinned toolchain
     cmds:
       - mise trust
       - mise install
 
-  test:
-    desc: Hook and installer tests
-    cmds:
-      - python3 -m unittest discover -s hooks/tests -p "test_*.py"
-      - python3 -m unittest discover -s scripts/tests -p "test_*.py"
-
-  lint:
-    desc: Python, markdown, YAML and workflow lint
+  lint:ruff:
+    desc: Python lint
     cmds:
       - ruff check hooks scripts
+
+  lint:ruff-format:
+    desc: Python format check
+    cmds:
       - ruff format --check hooks scripts
+
+  lint:markdown:
+    desc: Markdown lint
+    cmds:
       - markdownlint-cli2 "**/*.md"
+
+  lint:yaml:
+    desc: YAML lint
+    cmds:
       - yamllint .
+
+  lint:actions:
+    desc: GitHub Actions workflow lint
+    cmds:
       - actionlint
+
+  lint:secrets:
+    desc: Secret scan over the git history
+    cmds:
       - gitleaks git --no-banner --redact
+
+  test:hooks:
+    desc: Hook tests
+    cmds:
+      - python3 -m unittest discover -s hooks/tests -p "test_*.py"
+
+  test:scripts:
+    desc: Installer and validator tests
+    cmds:
+      - python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
+  validate:
+    desc: Check skills, manifest, settings and rules in this checkout
+    cmds:
+      - python3 scripts/validate.py
 
   fmt:
     desc: Format Python
     cmds:
       - ruff format hooks scripts
       - ruff check --fix hooks scripts
-
-  validate:
-    desc: Check skills, manifest, settings and rules in this checkout
-    cmds:
-      - python3 scripts/validate.py
 
   install:
     desc: Install this checkout for Claude Code on this machine
@@ -57,10 +77,3 @@ tasks:
     desc: Check tools, links, settings and hooks of the installation
     cmds:
       - python3 scripts/install.py doctor
-
-  ci:
-    desc: Everything CI runs
-    cmds:
-      - task: lint
-      - task: test
-      - task: validate
