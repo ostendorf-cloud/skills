@@ -31,6 +31,7 @@ class SkillReminderTest(unittest.TestCase):
             ("bump the version using semver", "release-conventions"),
             ("update the repository settings for this org", "github-as-code"),
             ("we need new rulesets on the default branch", "github-as-code"),
+            ("can you write an ansible playbook for this", "ansible-conventions"),
         ]
         for prompt, skill in cases:
             self.assertIn(

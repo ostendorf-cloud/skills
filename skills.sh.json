@@ -33,7 +33,7 @@
     {
       "title": "Infrastructure",
       "description": "OpenTofu, Kubernetes, Helm and Talos.",
-      "skills": ["opentofu-conventions", "tofu-module", "tofu-plan", "github-as-code", "kubernetes-conventions", "helm-chart", "k8s-debug", "talos-ops"]
+      "skills": ["opentofu-conventions", "tofu-module", "tofu-plan", "github-as-code", "kubernetes-conventions", "helm-chart", "k8s-debug", "talos-ops", "ansible-conventions"]
     },
     {
       "title": "Languages",
