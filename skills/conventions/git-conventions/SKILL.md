@@ -41,11 +41,15 @@ How branches, commits, pull requests and history stay consistent and reversible.
 
 ### Pull requests
 
-- Title is a single Conventional Commits line. A squash merge takes it as the commit message.
+- Title is a single Conventional Commits line that frames the pull request for a reviewer.
 - Body states what changed, why, how it was verified and what the risk is.
 - Open as draft while checks run or work continues. Mark ready only once the pipeline is green.
-- Squash merge by default. Keep a merge commit only where the individual commits carry value on
-  their own.
+- Rebase the branch onto the default branch right before the merge, so the merge commit carries
+  no drift and the diff a reviewer last saw is the diff that lands.
+- Merge commit by default. No squash: every atomic commit survives, `git revert <sha>` reverts
+  one step alone, `git revert -m 1 <merge>` reverts the whole pull request, `git log
+  --first-parent` reads as the pull request history. Rebase merge only where a repository opts
+  in through config `pr.merge`, and only once it has no use for a merge commit at all.
 
 ### History
 
@@ -55,6 +59,16 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Revert a published mistake with `git revert`. Never reset and force push over published history.
 - Fix up an unpushed commit with `git commit --amend` or an interactive rebase, before it is
   pushed, not after.
+
+### Review fixes
+
+- A review fix on an already pushed commit lands in the commit it corrects when that commit is
+  unambiguous: `git commit --fixup <sha>`, then `git rebase --autosquash <base>` to fold it in,
+  then push with `--force-with-lease`.
+- Only on the own branch, and only before the merge. Never once the pull request has merged.
+- The target commit is not clear, or the fix changes something of its own: a new commit instead.
+- Never fold a fix into the last commit or an arbitrary one. The target is the commit it
+  corrects, found deliberately.
 
 ### Worktrees
 
@@ -68,12 +82,14 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Never force push a branch the current session did not rebase.
 - Never leave a merged or abandoned worktree behind.
 - Attribution lines for an assistant never go into a commit message or a pull request body.
+- Never fold a review fix into the last commit or an arbitrary one, and never once the pull
+  request has merged.
 
 ## Config
 
 - `pr.base`: base branch for a pull request. Default: the repository default branch.
 - `pr.draft`: open pull requests as draft. Default: `true`.
-- `pr.merge`: merge strategy. Default: `squash`.
+- `pr.merge`: merge strategy. Default: `merge`.
 
 ## References
 

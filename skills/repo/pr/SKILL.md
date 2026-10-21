@@ -22,8 +22,9 @@ Open a pull request a reviewer can judge without reading the whole diff first.
 2. Push the branch if it is not yet on the remote.
 3. Run the repository's verify command and report the real result. Never claim a green check
    that was not seen.
-4. Derive the title from the commits as one Conventional Commits line, because a squash merge
-   takes it as the commit message.
+4. Derive the title from the commits as one Conventional Commits line, the summary a reviewer
+   reads before the diff. The merge is a merge commit by default, so the atomic commits
+   underneath stay in history on their own.
 5. Write the body in four sections: What, Why, Verification, Risk, each a short list of bullets.
    Link an issue with `Closes #123`.
 6. Set labels: the type label matching the linked issue's type, and a stack label for every
@@ -41,6 +42,11 @@ Open a pull request a reviewer can judge without reading the whole diff first.
 - A label missing on the tracker is reported, never created.
 - Opening a draft or ready pull request needs no confirmation. Merging it does, and belongs to
   a different skill.
+- A review fix goes into the commit it corrects when that commit is unambiguous: `git commit
+  --fixup <sha>`, `git rebase --autosquash` onto the base, push with `--force-with-lease`. Only
+  on the own branch, only before the merge.
+- The target commit is not clear, or the fix changes something of its own: a new commit instead.
+  Never fold a fix into the last commit or an arbitrary one.
 
 ## Config
 
