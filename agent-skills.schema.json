@@ -67,7 +67,8 @@
       "properties": {
         "plan": { "type": "string", "default": "opus" },
         "implement": { "type": "string", "default": "sonnet" },
-        "review": { "type": "string", "default": "opus" }
+        "review": { "type": "string", "default": "sonnet" },
+        "reviewBoundary": { "type": "string", "default": "opus" }
       }
     },
     "work": {

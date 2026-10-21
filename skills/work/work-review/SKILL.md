@@ -5,7 +5,7 @@ description: Reviews the pull request of one issue in review requested as a fres
   human or blocked. Use when asked to review, check or sign off the AI implementation of an
   issue. Trigger phrases: review issue 42, check the PR for issue 42, Issue 42 review, PR
   gegenpruefen.
-model: opus
+model: sonnet
 context: fork
 disallowed-tools:
   - AskUserQuestion
@@ -53,6 +53,9 @@ Judge one pushed pull request as a different agent than the one that built it.
 - Review only: no edits, no commits, no merges.
 - Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
   remains after the move.
+- The supervising session picks the model before it spawns this review: `models.reviewBoundary`
+  for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
+  `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
 - A different agent than the implementer, every time.
 - `done` is a real acceptance. When unsure, `needs human`, never a rubber stamp.
 - The round cap is a floor for a human decision, never a ceiling that waves through unfinished
@@ -67,6 +70,7 @@ Judge one pushed pull request as a different agent than the one that built it.
 Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 
 - `work.reviewRounds`: review rounds before escalating to `needs human`. Default `2`.
+- `models.review`: default `sonnet`. `models.reviewBoundary`: default `opus`.
 - `labels.reviewing`, `labels.done`, `labels.changesRequested`, `labels.needsHuman`,
   `labels.blocked`: defaults in `skills/README.md`.
 - `review.token`: environment variable holding a token of the review app, see the Apps section

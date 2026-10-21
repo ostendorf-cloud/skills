@@ -54,10 +54,14 @@ Review a change the way a peer does who has to maintain it afterwards.
   never replaces the comment.
 - `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
 - Posting a review needs no confirmation. It is a comment, reversible like any other.
+- The supervising session picks the model before it spawns a review: `models.reviewBoundary`
+  for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
+  `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
 
 ## Config
 
 - `verify`: command used to check a claim about tests or lint. Default: `task check`.
+- `models.review`: default `sonnet`. `models.reviewBoundary`: default `opus`.
 - `review.token`: environment variable holding a token of a review identity, for the formal
   review upgrade. Default: unset, the verdict stands as a comment.
 
