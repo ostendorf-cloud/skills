@@ -67,8 +67,8 @@ Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 - `work.reviewRounds`: review rounds before escalating to `needs human`. Default `2`.
 - `labels.reviewing`, `labels.done`, `labels.changesRequested`, `labels.needsHuman`,
   `labels.blocked`: defaults in `skills/README.md`.
-- `review.token`: environment variable holding a token of a review identity, for the formal
-  review upgrade. Default: unset, the verdict stands as a comment.
+- `review.token`: environment variable holding a token of the review app, see the Apps section
+  of `github-as-code`. Default: unset, the verdict stands as a comment.
 - `verify`: command that proves a change is good.
 
 ## References
