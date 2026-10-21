@@ -1,6 +1,6 @@
 ---
 name: review
-description: Reviews a diff, a branch or a pull request and posts the result as a GitHub review
+description: Reviews a diff, a branch or a pull request and posts the verdict as a comment
   with findings grouped by severity. Use when asked to review code, before merging a pull request,
   or before approving your own earlier work from a different session. Trigger phrases: review this,
   review the pull request, request changes, Code Review, PR reviewen.
@@ -33,7 +33,7 @@ Review a change the way a peer does who has to maintain it afterwards.
 5. Compare the change's author to the current session's own work. Never approve your own work.
 6. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`.
 7. On a pull request, post the verdict with `gh pr comment`: first line `Verdict: <verdict>`,
-   then findings grouped blocker, should fix, nit, each naming the file, the line, the problem
+   then findings grouped `Blocker`, `Should`, `Nit`, each naming the file, the line, the problem
    and a concrete fix. This comment is the verdict. Without a pull request, report the same
    structure as the response.
 8. Upgrade to a formal review only when config `review.token` names an environment variable

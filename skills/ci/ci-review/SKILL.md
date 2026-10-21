@@ -46,14 +46,15 @@ A pull request review a human can act on without rereading the diff.
    same body: on a runner the workflow's own token is already a different identity than the
    pull request's author, so this is the normal path here, not the exception. Config
    `review.token` names an environment variable to read `GH_TOKEN` from instead, when the
-   runner's default identity is the author.
+   runner's default identity is the author. The workflow sets `GH_TOKEN` at job level,
+   never as a command prefix: the CI profile allows the bare `gh pr review` and nothing else.
 10. GitHub refuses the review call when the identity still matches the author, or no
     variable resolves: the comment from step 8 already stands, name the fallback in the
     report.
 11. Never merge, never push to the branch, unless the workflow explicitly asked for a
     fix commit.
 12. When the work loop is in use, move the label from the config: `reviewing` while the
-    review runs, `changesRequested` on request changes, `done` or `needsHuman` per the
+    review runs, then `done`, `changesRequested`, `needsHuman` or `blocked` per the
     verdict. A missing label on the tracker is reported, never created.
 
 ## Output format
@@ -61,13 +62,13 @@ A pull request review a human can act on without rereading the diff.
 ```markdown
 Verdict: approve
 
-## Blocking
+## Blocker
 - path/file.ext:42 problem, fix
 
-## Should fix
+## Should
 - path/file.ext:88 problem, fix
 
-## Nits
+## Nit
 - path/file.ext:12 problem, fix
 
 ## Not verified
@@ -85,13 +86,13 @@ Verdict: approve
 - The comment is the verdict. A formal review only adds the same body through the review
   API, never replaces the comment.
 - `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
-- Approve or request changes posted, never a merge or a push.
+- A verdict comment posted, never a merge or a push.
 - Limits of the review stated in the output.
 
 ## Config
 
-- `labels.reviewing`, `labels.changesRequested`, `labels.done`, `labels.needsHuman`:
-  label names for the work loop. Defaults in the skills README. A missing label is
+- `labels.reviewing`, `labels.changesRequested`, `labels.done`, `labels.needsHuman`,
+  `labels.blocked`: label names for the work loop. Defaults in the skills README. A missing label is
   reported, never created.
 - `review.token`: environment variable holding a token of a review identity, for the
   formal review upgrade. Default: unset, the runner's own identity applies.

@@ -40,7 +40,8 @@ Judge one pushed pull request as a different agent than the one that built it.
    the comment from step 7 already stands, name the fallback in the report.
 10. Verdict approve: move the label to `done`, mark the pull request ready for review with
     `gh pr ready`.
-11. Verdict changes requested: move the label to `changes requested`.
+11. Verdict changes requested: move the label to `changes requested`. The pull request stays
+    a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
 12. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
     label to `needs human`.
 13. Verdict blocked: move the label to `blocked`.
