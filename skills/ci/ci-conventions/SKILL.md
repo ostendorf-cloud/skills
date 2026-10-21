@@ -3,15 +3,20 @@ name: ci-conventions
 description: >-
   Rules for running as an agent inside CI with no human in the loop: no
   questions, bounded steps, read plus review and comment only, secrets
-  only through the workflow, never a push or a merge from CI. Use when
-  the session runs non interactively in a workflow, Agent laeuft in CI,
-  unbeaufsichtigt in der Pipeline.
+  only through the workflow, never a push or a merge from CI. Also how a
+  workflow file inside .github/workflows/ is named and shaped: workflow
+  naming, one job per check, matrix, permissions, pinned actions, the
+  .yaml extension. Use when the session runs non interactively in a
+  workflow, when naming or reviewing a workflow file, Agent laeuft in
+  CI, unbeaufsichtigt in der Pipeline, Workflow benennen, GitHub Actions
+  Workflow.
 disallowed-tools: AskUserQuestion
 ---
 
 # CI conventions
 
-Behaviour when nobody is there to answer a question.
+Behaviour when nobody is there to answer a question, and how workflow files are named and
+shaped.
 
 ## When to use
 
@@ -40,6 +45,21 @@ Behaviour when nobody is there to answer a question.
 - Post findings as a review comment or an issue comment, matching what the workflow
   triggered. Never as a commit message or a file in the repository.
 
+## Workflow files
+
+- Name the file after what it does: `lint.yaml`, `test.yaml`, `release.yaml`, `plan.yaml`,
+  `apply.yaml`. Never `ci.yaml` or `main.yaml`.
+- One concern per file. A workflow that lints stays separate from one that deploys.
+- One job per check: `fmt`, `lint`, `test` and `validate` run as separate jobs, never bundled
+  into a single job that calls an umbrella task. A failing job names the check that failed.
+- A matrix runs the same check over several targets, for example several chart or Kubernetes
+  versions, instead of a repeated job for each one.
+- Every workflow sets its own `permissions` block, scoped to what its jobs need. None relies on
+  the repository default.
+- Every action is pinned to a commit digest: `uses: owner/action@<commit sha> # v<tag>`. The
+  digest is what runs, the tag comment is for readers, and Renovate keeps both updated.
+- Workflow files end in `.yaml`.
+
 ## Guardrails
 
 - No interactive prompts used anywhere in the run.
@@ -51,3 +71,5 @@ Behaviour when nobody is there to answer a question.
 ## References
 
 - `ci-review` for the review output format.
+- `repo-conventions` for where a workflow file sits among a repository's required files.
+- `release-conventions` for the Renovate rules that keep a pinned action current.

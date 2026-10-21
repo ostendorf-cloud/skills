@@ -43,9 +43,8 @@ How versions, changelogs and dependency updates get produced.
 
 ### Actions and workflow tags
 
-- A reusable or third party action is pinned to a commit digest. A moving major tag,
-  for example `uses: owner/action@v4`, is acceptable only alongside the digest comment
-  Renovate maintains, never as the only pin.
+- Every action is pinned to a commit digest: `uses: owner/action@<commit sha> # v<tag>`. The
+  digest is what runs, the tag comment is for readers, and Renovate keeps both updated.
 
 ### Renovate
 
@@ -73,6 +72,7 @@ How versions, changelogs and dependency updates get produced.
 
 ## References
 
+- `ci-conventions` for workflow files and the action pinning rule.
 - <https://github.com/googleapis/release-please>
 - <https://www.conventionalcommits.org/en/v1.0.0/>
 - <https://docs.renovatebot.com/configuration-options/>

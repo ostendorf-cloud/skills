@@ -28,13 +28,18 @@ The baseline every repository follows, independent of language.
 - `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
 - `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
 - `mise.toml` pinning every tool the repository needs.
-- `Taskfile.yaml` exposing at least `test`, `lint`, `build` and `fmt`. An existing repository keeps
-  whatever task runner it already has instead of adding a second one.
+- `Taskfile.yaml` over a Makefile. One task target per check, `lint:<tool>`, `test:<suite>`,
+  `validate`, plus `fmt` and `build` where they apply. A `check` target may aggregate the small
+  targets and holds no command of its own. CI calls the small targets, never `check`. An
+  existing repository keeps whatever task runner it already has.
 - `renovate.json`, referencing the organisation's shared preset where one exists.
 - `release-please-config.json` and `.release-please-manifest.json` for anything that is released.
   `CHANGELOG.md` is generated from them and never hand edited.
-- `.github/workflows/` calling the organisation's reusable workflows where they exist. Until then
-  keep workflows minimal and explicit.
+- `.github/workflows/` with one file per purpose, named after what it checks or releases, for
+  example `lint.yaml` and `test.yaml` rather than one `ci.yaml`. See `ci-conventions`.
+- Every YAML file ends in `.yaml` wherever the tool reading it accepts that extension. Known
+  exceptions: `.github/FUNDING.yml` and `.github/dependabot.yml`, where GitHub reads only that
+  exact name.
 
 ### Layout
 
@@ -76,6 +81,7 @@ The baseline every repository follows, independent of language.
 
 - Repository and organisation settings, rulesets, secrets and labels are infrastructure as code in
   the organisation's infrastructure repository. Never change them with a CLI or a web interface.
+  See `github-as-code` for turning a setting into committed configuration.
 - A label missing on the tracker is reported. Skills never create one.
 
 ### Scope
@@ -101,3 +107,5 @@ The baseline every repository follows, independent of language.
 
 - `conformance-checks` for a rule that belongs in a declarative suite rather than a script.
 - `secrets-handling` for what never belongs in any of these files.
+- `github-as-code` for repository and organisation settings as committed configuration.
+- `ci-conventions` for how a workflow file inside `.github/workflows/` is named and shaped.
