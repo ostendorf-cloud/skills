@@ -38,6 +38,10 @@ How versions, changelogs and dependency updates get produced.
 - `bump-minor-pre-major` stays `true` until the deliberate `1.0.0` decision.
 - The flow: commits land on the default branch, release-please maintains a release
   pull request, merging it creates the tag, the release and the changelog entry.
+- A feature pull request merges as a merge commit, never squashed: every `feat` and `fix`
+  commit stays visible to release-please on its own, instead of collapsing into one line
+  release-please reads from the pull request title alone. release-please recommends squash
+  merges. The merge commit is a deliberate deviation, the atomic commits matter more.
 - Never push a tag by hand. A manual tag desynchronizes the manifest.
 - `CHANGELOG.md` is generated. Hand edits are lost on the next release.
 
@@ -73,6 +77,7 @@ How versions, changelogs and dependency updates get produced.
 ## References
 
 - `ci-conventions` for workflow files and the action pinning rule.
+- `git-conventions` for the merge strategy that keeps commits visible to release-please.
 - <https://github.com/googleapis/release-please>
 - <https://www.conventionalcommits.org/en/v1.0.0/>
 - <https://docs.renovatebot.com/configuration-options/>

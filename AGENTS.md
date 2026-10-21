@@ -64,6 +64,8 @@ task doctor
 - Every label the skill touches comes from the config with the documented default. A missing
   label on the tracker is reported, never created.
 - No ASCII art, no emoji, no typographic quotes, no long dashes.
+- A rule that narrows or reverses an existing one edits that rule in the same commit. Two
+  sections never state opposite instructions.
 
 ## Writing a hook
 

@@ -23,7 +23,7 @@
       "properties": {
         "base": { "description": "Base branch for pull requests. Default: the repository default branch.", "type": "string" },
         "draft": { "description": "Open pull requests as draft.", "type": "boolean", "default": true },
-        "merge": { "type": "string", "enum": ["squash", "merge", "rebase"], "default": "squash" }
+        "merge": { "description": "Merge method. Squash is not offered, it drops the atomic commits.", "type": "string", "enum": ["merge", "rebase"], "default": "merge" }
       }
     },
     "labels": {
