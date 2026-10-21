@@ -24,6 +24,8 @@ Understand what a change does to real infrastructure before it happens.
 2. `tofu fmt -check`, `tofu init` if needed, then `tofu validate` and `tflint`. All three run
    without asking.
 3. `tofu plan -out=tfplan`. Keep the plan file, the apply must use exactly what was reviewed.
+   CI keeps the same discipline as a build artifact: the plan job uploads `tfplan`, and the
+   apply job downloads and applies that exact artifact after merge, see `ci-conventions`.
 4. Read the plan completely and group the changes by blast radius:
    - create
    - update in place
@@ -53,3 +55,5 @@ Understand what a change does to real infrastructure before it happens.
 ## References
 
 - `opentofu-conventions` for the conventions a plan is checked against.
+- `ci-conventions` for the OpenTofu section: changed module detection, matrix plan with a
+  sticky comment per module, and apply of every touched module on merge.

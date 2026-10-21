@@ -6,10 +6,13 @@ description: >-
   only through the workflow, never a push or a merge from CI. Also how a
   workflow file inside .github/workflows/ is named and shaped: workflow
   naming, one job per check, matrix, permissions, pinned actions, the
-  .yaml extension. Use when the session runs non interactively in a
-  workflow, when naming or reviewing a workflow file, Agent laeuft in
+  .yaml extension, and how an OpenTofu plan and apply pipeline runs
+  across several modules: changed module detection, matrix plan, one
+  sticky comment per module, apply on merge. Use when the session runs
+  non interactively in a workflow, when naming or reviewing a workflow
+  file, when setting up a tofu plan or apply pipeline, Agent laeuft in
   CI, unbeaufsichtigt in der Pipeline, Workflow benennen, GitHub Actions
-  Workflow.
+  Workflow, Tofu Pipeline, mehrere Module planen.
 disallowed-tools: AskUserQuestion
 ---
 
@@ -60,6 +63,35 @@ shaped.
   digest is what runs, the tag comment is for readers, and Renovate keeps both updated.
 - Workflow files end in `.yaml`.
 
+## OpenTofu
+
+- A detect job diffs the pull request, or the push, against the default branch and lists
+  every root module whose files changed. Every later job reads that list, none recomputes
+  it.
+- A matrix plan job runs one `tofu plan` per changed module on a pull request. Each matrix
+  cell posts or updates one sticky comment for its own module, with the plan grouped by
+  create, update, replace, destroy and import.
+- On merge to the default branch a matrix apply job runs one `tofu apply` per module that
+  was touched, same module list, same grouping in the job summary.
+- One job per check: `fmt`, `validate`, `lint`, `test`, `plan`, `apply`. `lint` runs
+  `tflint` and `trivy config` together, both check the same written code. No job bundles
+  plan with apply, and no job covers more than one check.
+- `tofu test` is its own job, on the pull request and on the push to the default branch.
+  Mock providers where a real provider would cost money or need credentials, real
+  providers only where the repository's config says so.
+- `fmt`, `validate`, `lint` and a mock provider `test` need no backend: `tofu init
+  -backend=false`. `plan`, `apply` and a real provider `test` need the backend and its
+  credentials.
+- Concurrency is one group per pull request for the plan jobs, one group per default
+  branch for the apply jobs. `cancel-in-progress` is true for plan, false for apply: an
+  apply never gets cancelled halfway through.
+- The target shape: apply consumes the plan artifact its matching plan job produced and
+  applies it unchanged, instead of planning again after merge. The trade-off is named,
+  not hidden: a plan that aged between review and merge still gets applied as reviewed,
+  so drift between merge and apply is applied too, rather than caught by a fresh plan.
+- No allowlist of modules or directories. Every root module the diff touches is in scope.
+- No manual trigger. `pull_request` and `push` to the default branch are the only events.
+
 ## Guardrails
 
 - No interactive prompts used anywhere in the run.
@@ -70,6 +102,7 @@ shaped.
 
 ## References
 
-- `ci-review` for the review output format.
+- `ci-review` for the review output format, including how to read a sticky plan comment.
+- `tofu-plan` and `opentofu-conventions` for the plan and apply rules this pipeline enforces.
 - `repo-conventions` for where a workflow file sits among a repository's required files.
 - `release-conventions` for the Renovate rules that keep a pinned action current.
