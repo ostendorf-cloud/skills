@@ -67,8 +67,9 @@ shaped.
 
 - A detect job checks out with history (`fetch-depth: 0`), diffs the pull request against
   the merge base of the base branch, or the push against the commit before the push
-  (`github.event.before`), and lists every root module whose files changed. A changed shared module, or a file every root module reads, maps to every root
-  module that references it. Every later job reads that list, none recomputes it.
+  (`github.event.before`), and lists every root module whose files changed. A changed
+  shared module, or a file every root module reads, maps to every root module that
+  references it. Every later job reads that list, none recomputes it.
 - The plan and apply jobs run only when the detect job's module list is not empty, guarded
   by an `if` on that output. Neither runs with an empty matrix: a pull request or push
   that touches no module stays green.
@@ -91,8 +92,8 @@ shaped.
   dedicated test workspace the repository names in its `AGENTS.md`, never against
   resources that exist for another purpose.
 - `validate` and a mock provider `test` need no backend: `tofu init -backend=false`.
-  `tflint` needs `tflint --init`, `fmt` and `trivy config` need no init at all. `plan`, `apply` and a real provider
-  `test` need the backend and its credentials.
+  `tflint` needs `tflint --init`, `fmt` and `trivy config` need no init at all. `plan`,
+  `apply` and a real provider `test` need the backend and its credentials.
 - Concurrency is set at workflow level, not per job. One group per pull request for the
   plan workflow, `cancel-in-progress` true. One group per default branch for the apply
   workflow, `cancel-in-progress` false: an apply never gets cancelled halfway through.
