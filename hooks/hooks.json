@@ -56,6 +56,15 @@
       "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where release-please is configured, and gh repo rename, set-default, alias or extension."
     },
     {
+      "id": "label-move",
+      "script": "label_move.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "context",
+      "description": "gh issue edit or gh pr edit that adds an ai: label without removing another: reminds that exactly one ai: state label must remain."
+    },
+    {
       "id": "session-lock",
       "script": "session_lock.py",
       "event": "SessionStart",
