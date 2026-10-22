@@ -105,11 +105,22 @@ class ShellHygieneTest(unittest.TestCase):
     def test_denies_dotted_open_receivers_with_a_write_mode(self):
         for command in [
             """python3 -c "import io; io.open('a', 'w').write('x')" """.strip(),
-            """python3 -c "from pathlib import Path; Path('a').open('w').write('x')" """.strip(),
+            """python3 -c "from pathlib import Path; """
+            """Path('a').open('w').write('x')" """.strip(),
+            """python3 -c "from pathlib import Path; """
+            """Path('a').open(mode='w').write('x')" """.strip(),
         ]:
             self.assertEqual(
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
             )
+
+    def test_allows_a_single_argument_open_call_whose_argument_is_a_path(self):
+        command = """python3 -c "import io; io.open('ab')" """.strip()
+        self.assertIsNone(decision(run_hook("shell_hygiene.py", bash_payload(command))))
+
+    def test_denies_a_bound_open_call_whose_sole_argument_is_a_mode(self):
+        command = """python3 -c "from pathlib import Path; Path('a').open('ab')" """.strip()
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
 
     def test_denies_perl_open_without_parentheses(self):
         command = """perl -e 'open my $fh, ">", "notes.md"; print $fh "x"'"""
@@ -117,6 +128,22 @@ class ShellHygieneTest(unittest.TestCase):
 
     def test_allows_an_interpreter_mentioned_as_another_commands_argument(self):
         command = """echo python3 -c 'open("a", "w")'"""
+        self.assertIsNone(decision(run_hook("shell_hygiene.py", bash_payload(command))))
+
+    def test_denies_an_inline_write_through_a_mise_exec_wrapper(self):
+        command = """mise exec -- python3 -c 'open("a", "w").write("x")'"""
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_an_inline_write_through_an_env_assignment_wrapper(self):
+        command = """env FOO=1 python3 -c 'open("a", "w").write("x")'"""
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_an_inline_write_through_a_time_wrapper(self):
+        command = """time python3 -c 'open("a", "w").write("x")'"""
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_allows_a_read_only_inline_call_through_a_mise_exec_wrapper(self):
+        command = 'mise exec -- python3 -c "print(1)"'
         self.assertIsNone(decision(run_hook("shell_hygiene.py", bash_payload(command))))
 
 
