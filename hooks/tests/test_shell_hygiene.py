@@ -21,6 +21,18 @@ class ShellHygieneTest(unittest.TestCase):
             'git commit -m "feat: handle a > b"',
             'gh pr comment 1 --body "latency 10 -> 5"',
             'jq ".a > 1" x.json',
+            "sed -n '1,5p' x.go",
+            "perl -ne 'print' x.go",
+            'gh pr comment 1 --body "never use sed -i"',
+            "python3 report.py <<EOF\n1\nEOF",
+            "python3 -c 'print(1 << 3)'",
+            "perl deploy.pl -i config.yaml",
+            "perl -Ilib -ne 'print' x.go",
+            "perl -MFile::Basename -e 'print basename($ARGV[0])' x.go",
+            "sed -n '1p' -- -input.txt",
+            "curl -d 'user=sed' -i https://example.com/api/login",
+            "curl --data tool=perl -i https://example.com/api/tools",
+            "cat <<'SQL' | psql service | python3 report.py\nselect 1;\nSQL",
         ]:
             self.assertIsNone(
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), command
@@ -48,6 +60,48 @@ class ShellHygieneTest(unittest.TestCase):
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_in_place_editing_regardless_of_flag_order(self):
+        for command in [
+            "perl -p -i -e 's/a/b/' x.go",
+            "sed -e 's/a/b/' -i x.go",
+            "perl -0pi -e 's/a/b/' x.go",
+            "sed 's/a/b/' x.go -i",
+            "perl -i.bak -pe 's/a/b/' x.go",
+            "sed --in-place 's/a/b/' x.go",
+            "sed --in-place=.bak 's/a/b/' x.go",
+            "sed --in 's/a/b/' x.go",
+            "sed -I '' -e 's/a/b/' x.go",
+            "sed '-i' -e 's/a/b/' x.go",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_in_place_editing_wherever_the_call_sits(self):
+        for command in [
+            "find . -name '*.go' | xargs sed -i '' -e 's/a/b/'",
+            "git ls-files -z | xargs -0 perl -pi -e 's/a/b/'",
+            "for f in *.go; do sed -i '' 's/a/b/' $f; done",
+            "if true; then sed -i '' 's/a/b/' x.go; fi",
+            "(sed -i '' 's/a/b/' x.go)",
+            "bash -c 'sed -i \"\" -e s/a/b/ x.go'",
+            "while read f; do sed -i '' 's/a/b/' \"$f\"; done < files.txt",
+            "out=$(sed -i '' 's/a/b/' x.go)",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_in_place_editing_under_another_command_name(self):
+        for command in [
+            "gsed -i 's/a/b/' x.go",
+            "perl5.34 -pi -e 's/a/b/' x.go",
+            "/usr/bin/sed -i '' 's/a/b/' x.go",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
     def test_denies_heredoc_into_a_file(self):
         command = "cat > internal/sync/skills.go <<'GO'\npackage sync\nGO"
         self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
@@ -56,6 +110,57 @@ class ShellHygieneTest(unittest.TestCase):
         for command in [
             "python3 - <<'PY'\nopen('x', 'w').write('1')\nPY",
             "python3 <<PY\nprint(1)\nPY",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_heredoc_fed_to_an_interpreter_given_by_path(self):
+        command = "/usr/bin/python3 <<PY\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_heredoc_fed_to_an_interpreter_with_flags_before_it(self):
+        command = "python3 -u <<PY\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_behind_a_cd_in_the_same_command(self):
+        command = "cd /tmp && python3 <<PY\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_piped_into_an_interpreter(self):
+        command = "cat <<'PY' | python3\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_piped_into_an_interpreter_behind_a_wrapper(self):
+        command = "cat <<'PY' | mise exec -- python3\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_piped_into_an_interpreter_mid_pipeline(self):
+        command = "cat <<'PY' | python3 - | grep 1\nprint(1)\nPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_fed_to_an_interpreter_inside_a_nested_shell(self):
+        command = "bash -c 'python3 <<PY\nprint(1)\nPY'"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_fed_to_an_interpreter_in_a_subshell(self):
+        for command in [
+            "(python3 <<PY\nprint(1)\nPY\n)",
+            "out=$(python3 <<PY\nprint(1)\nPY\n)",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_dash_heredoc_fed_to_an_interpreter(self):
+        command = "python3 <<-PY\n\tprint(1)\n\tPY"
+        self.assertEqual(decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny")
+
+    def test_denies_a_heredoc_fed_to_an_interpreter_through_a_wrapper(self):
+        for command in [
+            "mise exec -- python3 <<PY\nprint(1)\nPY",
+            "env FOO=1 python3 <<PY\nprint(1)\nPY",
+            "time python3 <<PY\nprint(1)\nPY",
         ]:
             self.assertEqual(
                 decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command

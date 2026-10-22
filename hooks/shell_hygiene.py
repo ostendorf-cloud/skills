@@ -2,8 +2,9 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 """PreToolUse hook on Bash. Denies file content written through the shell: a heredoc or
-redirect into a file, `tee`, `sed -i`, `perl -i`, a heredoc fed to an interpreter, an
-inline interpreter one liner that spans lines or is too long to review, and an inline
+redirect into a file, `tee`, an in place edit of `sed` or `perl` in any flag order or
+spelling, a heredoc fed to an interpreter directly or through a pipe, an inline
+interpreter one liner that spans lines or is too long to review, and an inline
 interpreter one liner that opens a file for writing.
 """
 
@@ -18,12 +19,17 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-INTERPRETERS = r"python3?|node|perl|ruby"
 INLINE_FLAG = re.compile(r"^(python3?\s+-c|node\s+-e|perl\s+-e|ruby\s+-e)\b")
-STDIN_SCRIPT = re.compile(r"^(" + INTERPRETERS + r")\s+(-\s*)?<<")
 HEREDOC = re.compile(r"<<-?\s*[\"']?\w+")
-IN_PLACE = re.compile(r"\b(sed|perl)\s+(-[a-zA-Z]*i\S*|--in-place\S*)")
 TEE = re.compile(r"^tee\b")
+
+IN_PLACE_COMMAND = re.compile(r"^(g?sed|perl[0-9.]*)$")
+IN_PLACE_LONG = "--in-place"
+IN_PLACE_CHARS = {"sed": set("iI"), "perl": set("i")}
+VALUE_CHARS = {"sed": set("ef"), "perl": set("IemMEFxD")}
+WORD_SPLIT = re.compile(r"[$(){};`&|]")
+NESTED_SHELLS = ("bash", "sh", "zsh", "dash", "ksh")
+MAX_PARTS = 64
 
 WRITE_REDIRECT = re.compile(r"(?<![0-9<>])(>{1,2})\s*(?P<target>[^\s;&|()]+)")
 ALLOWED_TARGETS = re.compile(
@@ -48,6 +54,7 @@ FLAG_FOR_INTERPRETER = {
     "perl": "-e",
     "ruby": "-e",
 }
+INTERPRETER_NAMES = set(FLAG_FOR_INTERPRETER)
 MODE_CHARS = set("rwaxbt+")
 MODE_KWARG = re.compile(r"^mode\s*=\s*(.+)$")
 
@@ -77,6 +84,258 @@ def inline_calls(command: str) -> list:
         if flag and tokens[1] == flag:
             calls.append((name, tokens[2]))
     return calls
+
+
+def shell_tokens(part: str) -> list:
+    """The shell words of part, quotes removed, so a quoted flag such as `'-i'`
+    reads as the flag it is and a quoted sentence stays one word.
+
+    Falls back to splitting a quote masked copy when part cannot be tokenized,
+    for example because a quote is left open by a heredoc body.
+    """
+    try:
+        return shlex.split(part, comments=False, posix=True)
+    except ValueError:
+        return _common.mask_quoted(part).split()
+
+
+def command_word(token: str) -> str:
+    """The command name token carries, free of a path and of the shell punctuation
+    a command word can sit behind, so `/usr/bin/python3`, `(python3` and
+    `out=$(python3` all resolve to "python3".
+
+    An `=` alone does not introduce a command: `out=$(sed` is a substitution and
+    resolves to "sed", while the data argument `user=sed` of an unrelated command
+    resolves to nothing and is never read as a call.
+    """
+    segments = [segment for segment in WORD_SPLIT.split(token) if segment]
+    if not segments:
+        return ""
+    return os.path.basename(segments[-1])
+
+
+def _interpreter_token(part: str) -> Optional[str]:
+    """The interpreter name part starts with, or None when part does not start
+    with one of the supported interpreters. The name is read through
+    `command_word`, so a path and a leading subshell or substitution paren do not
+    hide it."""
+    tokens = part.split()
+    if not tokens:
+        return None
+    name = command_word(tokens[0])
+    return name if name in INTERPRETER_NAMES else None
+
+
+def nested_shell_code(part: str) -> Optional[str]:
+    """The code a nested shell call in part runs, the argument of `bash -c` and
+    its relatives, or None when part holds no such call.
+
+    A nested shell hides its code from every check that reads the outer command,
+    so the code is scanned as commands of its own.
+    """
+    tokens = shell_tokens(part)
+    for index, token in enumerate(tokens):
+        if command_word(token) not in NESTED_SHELLS:
+            continue
+        for position in range(index + 1, len(tokens)):
+            if tokens[position] == "-c":
+                if position + 1 < len(tokens):
+                    return tokens[position + 1]
+                break
+            if not tokens[position].startswith("-"):
+                break
+    return None
+
+
+def scan_parts(command: str) -> list:
+    """Every command part worth scanning: each part as written, the same part with
+    its wrapper prefixes stripped where that differs, and the parts of the code a
+    nested `bash -c` payload runs.
+
+    A wrapper prefix hides a call from a check that anchors on the first token,
+    and stripping one drops a leading assignment, which hides a call written as
+    `out=$(sed ...)`. Keeping both forms means neither spelling escapes.
+    """
+    parts: list = []
+    queue = list(_common.command_parts(command))
+    while queue and len(parts) < MAX_PARTS:
+        part = queue.pop(0)
+        stripped = _common.strip_wrappers(part)
+        parts.append(part)
+        if stripped != part:
+            parts.append(stripped)
+        code = nested_shell_code(part)
+        if code:
+            queue.extend(_common.command_parts(code))
+    return parts
+
+
+def consumes_script_via_stdin(part: str) -> bool:
+    """Whether part is an interpreter call whose program comes from a heredoc or a
+    bare stdin redirect rather than from a file argument.
+
+    The interpreter, given by name or by path, may be followed by any number of
+    flag tokens and an optional bare `-` before the heredoc operator, in any flag
+    order, so `python3 -u <<PY` and `python3 - <<PY` both match the same way as
+    the bare `python3 <<PY`. A script file argument before the heredoc, such as
+    `python3 report.py <<EOF`, runs an existing, reviewable file with the heredoc
+    only feeding its stdin, and stays allowed.
+
+    The tokens come from `_common.mask_quoted`, so a `<<` inside a quoted argument,
+    such as the shift in `python3 -c 'print(1 << 3)'`, is never read as a heredoc
+    operator.
+    """
+    tokens = _common.mask_quoted(part).split()
+    if not tokens or _interpreter_token(part) is None:
+        return False
+    for token in tokens[1:]:
+        if "<<" in token:
+            return True
+        if token != "-" and not token.startswith("-"):
+            return False
+    return False
+
+
+def _reads_program_from_stdin(part: str) -> bool:
+    """Whether part is an interpreter call with no script file argument, so the
+    program it runs can only come from its stdin. `python3 -` and `python3 -u`
+    qualify, `python3 analyze.py` does not."""
+    tokens = _common.mask_quoted(part).split()
+    if not tokens or _interpreter_token(part) is None:
+        return False
+    return all(token == "-" or token.startswith("-") for token in tokens[1:])
+
+
+def _real_lines(command: str, masked: str) -> list:
+    """Splits command into its own newline separated source lines, wherever masked
+    has an unquoted newline, slicing the real text so a newline inside a quoted
+    span is never mistaken for a line break."""
+    parts = []
+    start = 0
+    for index, char in enumerate(masked):
+        if char == "\n":
+            parts.append(command[start:index])
+            start = index + 1
+    parts.append(command[start:])
+    return parts
+
+
+def _real_pipe_stages(line: str, masked_line: str) -> list:
+    """Splits line into pipeline stages on a single unquoted `|`, leaving a doubled
+    `||` in place, slicing the real text so quoted content is preserved verbatim."""
+    parts = []
+    start = 0
+    index = 0
+    length = len(masked_line)
+    while index < length:
+        if masked_line[index] == "|":
+            if masked_line[index + 1 : index + 2] == "|":
+                index += 2
+                continue
+            parts.append(line[start:index])
+            start = index = index + 1
+            continue
+        index += 1
+    parts.append(line[start:])
+    return parts
+
+
+def heredoc_piped_to_interpreter(command: str) -> bool:
+    """Whether a line of command sends a heredoc through a pipe into an
+    interpreter, such as `cat <<'PY' | python3`.
+
+    Lines are matched on a copy of command with quoted spans masked, so a heredoc
+    operator or a pipe mentioned only inside a quoted string, such as the `-m`
+    argument of a `git commit`, is never mistaken for the real operator. A line
+    counts when it carries a heredoc operator and any later pipeline stage, after
+    stripping a wrapper prefix such as `mise exec --` or `env FOO=1`, is an
+    interpreter that reads its program from stdin. A stage that names a script
+    file, such as `python3 analyze.py`, runs a reviewable file and does not count.
+    """
+    masked = _common.mask_quoted(command)
+    for line, masked_line in zip(_real_lines(command, masked), masked.split("\n")):
+        if "<<" not in masked_line:
+            continue
+        stages = _real_pipe_stages(line, masked_line)
+        for stage in stages[1:]:
+            if _reads_program_from_stdin(_common.strip_wrappers(stage.strip())):
+                return True
+    return False
+
+
+def _in_place_family(token: str) -> Optional[str]:
+    """The tool family token names, "sed" or "perl", or None when token is no
+    command word of either. Reads the name through `command_word`, so a path, a
+    subshell paren, a command substitution and a `g` prefixed `gsed` or version
+    suffixed `perl5.34` spelling all resolve to the family."""
+    name = command_word(token)
+    if not IN_PLACE_COMMAND.match(name):
+        return None
+    return "sed" if name.endswith("sed") else "perl"
+
+
+def _is_in_place_long(token: str) -> bool:
+    """Whether token is `--in-place`, `--in-place=<suffix>` or an unambiguous
+    abbreviation of it, which GNU's option parser accepts the same way."""
+    name = token.split("=", 1)[0]
+    return len(name) >= 4 and IN_PLACE_LONG.startswith(name)
+
+
+def _scans_to_in_place(args: list, family: str) -> bool:
+    """Whether the argument list of a sed or perl call carries an in place edit
+    flag: `-i`, `-i<suffix>`, `-I` for sed, `--in-place[=<suffix>]`, or a combined
+    short group holding one of those, such as `-0pi`.
+
+    A flag that takes a value swallows it: the rest of its own token when
+    something is attached, as in `perl -Ilib`, and the next token otherwise, as in
+    `sed -e 's/a/b/' -i x.go`, so neither is read as a flag or as an operand. `--`
+    ends the options. `sed` permutes its options, so every token is scanned and
+    `sed 's/a/b/' x.go -i` is caught. `perl` stops reading options at its first
+    operand, so a later `-i` belongs to the script and the scan stops there.
+    """
+    in_place = IN_PLACE_CHARS[family]
+    values = VALUE_CHARS[family]
+    skip_next = False
+    for token in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "--":
+            return False
+        if token == "-" or not token.startswith("-"):
+            if family == "perl":
+                return False
+            continue
+        if token.startswith("--"):
+            if _is_in_place_long(token):
+                return True
+            continue
+        body = token[1:]
+        for position, char in enumerate(body):
+            if char in in_place:
+                return True
+            if char in values:
+                skip_next = position == len(body) - 1
+                break
+    return False
+
+
+def has_in_place_flag(part: str) -> bool:
+    """Whether part holds a `sed` or `perl` call that edits a file in place.
+
+    Every token of part is a candidate command word, not only the first, so a
+    call behind `xargs`, inside a loop body, after a `then`, or in a subshell is
+    found too. The tokens come from `shell_tokens`, so a quoted flag such as
+    `sed '-i'` reads as the flag it is, while a quoted sentence, such as the
+    `--body` of a comment that mentions `sed -i`, stays one word and matches
+    nothing.
+    """
+    tokens = shell_tokens(part)
+    for index, token in enumerate(tokens):
+        family = _in_place_family(token)
+        if family and _scans_to_in_place(tokens[index + 1 :], family):
+            return True
+    return False
 
 
 def _strip_quotes(text: str) -> str:
@@ -240,18 +499,24 @@ def main() -> int:
     if not command:
         return _common.emit_empty()
 
-    stripped_parts = [_common.strip_wrappers(part) for part in _common.command_parts(command)]
+    stripped_parts = scan_parts(command)
+    nested_codes = [code for code in map(nested_shell_code, stripped_parts) if code]
 
-    if any(STDIN_SCRIPT.search(part) for part in stripped_parts):
+    feeds_a_program = any(consumes_script_via_stdin(part) for part in stripped_parts)
+    pipes_a_program = any(heredoc_piped_to_interpreter(text) for text in [command, *nested_codes])
+    if feeds_a_program or pipes_a_program:
         return _common.deny(
             EVENT,
-            "This feeds a program to an interpreter through stdin or a heredoc, which "
-            f"cannot be reviewed in an approval prompt. {USE_FILE_TOOLS} {SCRIPT_FILE}",
+            "This feeds a program to an interpreter through a heredoc, directly or "
+            "through a pipe, which cannot be reviewed in an approval prompt. "
+            f"{USE_FILE_TOOLS} {SCRIPT_FILE}",
         )
 
-    if IN_PLACE.search(command):
+    if any(has_in_place_flag(part) for part in stripped_parts):
         return _common.deny(
-            EVENT, f"sed -i and perl -i edit a file in place through the shell. {USE_FILE_TOOLS}"
+            EVENT,
+            "sed -i and perl -i, in any flag order or spelling, edit a file in place "
+            f"through the shell. {USE_FILE_TOOLS}",
         )
 
     for part in stripped_parts:
