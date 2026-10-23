@@ -29,29 +29,40 @@ Review a change the way a peer does who has to maintain it afterwards.
    - tests: do the new paths have coverage, do the tests assert behaviour
    - documentation: README, docs, ADR or concept doc where the decision deserves one
 4. Verify claims instead of asserting them. Run the verify command, run the linter, check the
-   symbol that is supposedly unused.
+   symbol that is supposedly unused. A finding of the shape "does this write happen" is verified
+   by counting the write at its source, a reflog entry, a call count on a fake, a log line,
+   never by comparing state before and after: an identical write leaves the result identical.
 5. Compare the change's author to the current session's own work. Never approve your own work.
 6. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`.
-7. On a pull request, post the verdict with `gh pr comment`: first line `Verdict: <verdict>`,
-   then findings grouped `Blocker`, `Should`, `Nit`, each naming the file, the line, the problem
-   and a concrete fix. This comment is the verdict. Without a pull request, report the same
-   structure as the response.
-8. Upgrade to a formal review only when config `review.token` names an environment variable
-   holding a token of a reviewer that differs from the pull request's author: run
-   `GH_TOKEN=$<that variable> gh pr review --approve` or `--request-changes` with the same
-   body.
-9. GitHub refuses the review call on a self-authored pull request, or the variable is absent:
-   the comment from step 7 already stands, name the fallback in the response.
+7. Review only, per Guardrails: no file edit and no commit of its own, whichever posting path
+   follows. On a pull request where this review's identity differs from the author: post the
+   verdict as a formal review, `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through
+   `gh api`, with
+   `event` from the verdict, `commit_id` the pull request's full 40 character head SHA (a short
+   SHA fails with 422), and `comments`: one entry per finding, `{path, line, side: "RIGHT",
+   body: "<Blocker|Should|Nit>: <problem and fix>"}`, severity as the first word. This formal
+   review is the verdict; post no separate comment. A line outside every diff hunk: anchor at
+   the nearest changed line in the same file and name the real location in the body, or, with
+   no changed line in that file, put the finding in the top level review body instead.
+8. The review is of the current session's own earlier work, or config `review.token`'s
+   environment variable is absent: GitHub refuses the review call. Post the verdict with
+   `gh pr comment` instead, same structure: first line `Verdict: <verdict>`, then findings
+   grouped `Blocker`, `Should`, `Nit`, each naming the file, the line, the problem and a
+   concrete fix. Without a pull request, report the same structure as the response.
+9. A rework re-review: resolve every open review thread whose finding is now fixed, one
+   GraphQL `resolveReviewThread` mutation per thread, before posting the new verdict. A finding
+   that still stands keeps its thread open and is restated in the new verdict.
 10. State plainly what was not reviewed and what could not be verified.
 11. Approve only when no blocker and no should fix finding remains.
 
 ## Guardrails
 
+- Review only: no file edit, no commit, no merge. It posts the verdict, nothing else.
 - Never approve a change authored by the current session.
 - Never approve while a blocker or a should fix finding stands.
 - A claim about test results or a symbol's use is verified by running something, not recalled.
-- The comment is the verdict. A formal review only adds the same body through the review API,
-  never replaces the comment.
+- A formal review or a `gh pr comment`, never both, for the same verdict. Resolving a thread
+  never substitutes for restating whether its finding passed in the new verdict.
 - `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
 - Posting a review needs no confirmation. It is a comment, reversible like any other.
 - The supervising session picks the model before it spawns a review: `models.reviewBoundary`
@@ -69,3 +80,5 @@ Review a change the way a peer does who has to maintain it afterwards.
 
 - `git-conventions` for the conventions a review checks against.
 - `ci-review` for a review that runs non interactively in CI.
+- `gh api`: <https://cli.github.com/manual/>. GraphQL `resolveReviewThread`:
+  <https://docs.github.com/en/graphql/reference/mutations#resolvereviewthread>.

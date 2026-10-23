@@ -15,6 +15,8 @@ One checkout, one session, without disturbing a branch another session already h
 - Starting a session that needs its own checkout alongside an existing one.
 - A branch merged and its worktree is no longer needed.
 - The worktree list has grown and needs pruning.
+- An investigation or a reproduction needs a checkout to build or run in, with no branch and no
+  pull request of its own.
 
 ## Steps
 
@@ -29,12 +31,23 @@ One checkout, one session, without disturbing a branch another session already h
 6. List existing worktrees with `git worktree list` and prune one left behind by a merged or
    abandoned branch.
 
+## Investigation worktrees
+
+- A reproduction or an investigation with no branch and no pull request gets a detached
+  worktree instead: `git worktree add --detach <path> <base>`, outside every repository under
+  the session's scratch directory, never under `.worktrees/`.
+- It carries no branch and is never pushed. Nothing written there is committed from the parent
+  checkout.
+- Remove it with `git worktree remove <path>` in the same task that created it.
+
 ## Guardrails
 
 - One branch, one worktree, one session. Never point two sessions at the same worktree.
 - Never remove a worktree whose branch still has unmerged work without checking first.
 - `.worktrees/` stays in `.gitignore`. Never commit a worktree's contents from the parent
   checkout.
+- A detached investigation worktree lives outside the repository and outside `.worktrees/`,
+  carries no branch, and is removed before the task ends.
 
 ## Config
 

@@ -34,8 +34,8 @@ Open a pull request a reviewer can judge without reading the whole diff first.
    A stacked pull request has another branch as base. GitHub links `Closes #123` only against
    the default branch, so comment the pull request number on the issue, and edit the body once
    the base has moved to the default branch.
-8. Mark it ready only once the verify command is green and either the user asked for it or the
-   work loop calls for it.
+8. Mark it ready once the ready condition in Guardrails holds, or the user asks for it
+   directly.
 9. Report the URL, the merge strategy and what a reviewer should look at first.
 
 ## Guardrails
@@ -45,6 +45,9 @@ Open a pull request a reviewer can judge without reading the whole diff first.
 - A label missing on the tracker is reported, never created.
 - Opening a draft or ready pull request needs no confirmation. Merging it does, and belongs to
   a different skill.
+- Ready condition: every blocker and should finding resolved, the verify command and the
+  pipeline green, the body matching the diff. Holds with or without an `approve` verdict.
+- A pull request already ready never goes back to draft.
 - A review fix goes into the commit it corrects when that commit is unambiguous: `git commit
   --fixup <sha>`, `git rebase --autosquash` onto the base, push with `--force-with-lease`. Only
   on the own branch, only before the merge.

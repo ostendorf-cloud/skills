@@ -64,7 +64,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 ## Autonomy and safety
 
 - Auto mode, the sandbox and the hooks are the gates. Work within them without asking for permission.
-- Without a prompt: read, edit, lint, test, commit, push to a feature branch, open a draft or ready pull request, comment, label, review, rerun a workflow, open an issue.
+- Without a prompt: read, edit, lint, test, commit, push to a feature branch, open a draft or ready pull request, take a pull request out of draft, comment, label, review, rerun a workflow, open an issue.
 - Confirm first: merge a pull request, cut a release, `apply` infrastructure, delete anything that existed before the session.
 - Never: push to the default branch, force push without `--force-with-lease`, force push to the default branch, `destroy` infrastructure, print a secret, write a secret into a file or a message.
 - A command the harness denies is a decision. Do not route around it with another tool, agent or spelling.
@@ -79,6 +79,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Rebase onto the default branch to update a branch. Force push afterwards only with `--force-with-lease`.
 - Parallel sessions on one repository use a worktree under `.worktrees/<branch>`. One checkout, one session.
 - A worktree lives as long as its pull request. After the merge: `git worktree remove`, `git branch -d`, `git worktree prune`. A session that ends checks for its own stale worktrees first.
+- An investigation or a reproduction with no pull request of its own uses a detached worktree outside the repository instead, removed in the same task. It is never pushed.
 - Secrets never enter a repository, log, commit message, issue or pull request.
 
 ## Repositories
@@ -104,6 +105,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 - Non-trivial work starts with a plan in the issue: goal, steps, verification, model choice. Not in `docs/`.
 - Work on an issue moves its `ai:` label: `ready` to `working` to `review requested` to `done`, with `changes requested`, `needs human` and `blocked` as exits.
+- `done` needs a review independent of the implementation. A review that forked the same session that wrote the code is independent only when that code went through `implement`'s own bounded subagent; one the supervising session wrote directly can approve but ends on `needs human` instead, never `done`.
 - Moving the state means exactly one `ai:` state label remains. Remove every other `ai:` label in the same step.
 - List the labels afterwards to confirm the result.
 - `ai: ready` and `needs triage` are set by humans only. An issue carrying `needs triage` is not picked up.
