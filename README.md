@@ -59,7 +59,7 @@ npx skills add ostendorf-cloud/skills -g
 | `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit message carrying an attribution trailer, a "Generated with" line or a vendor link outside the documentation hosts. |
 | `tracker-body` | deny | A `gh` pull request, issue, review or API body carrying the same attribution patterns, from `--body`, a body file or piped stdin. |
 | `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
-| `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where release-please is configured, and `gh repo` rename, set-default, alias or extension. |
+| `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where the release tool (release-me or release-please) is configured, and `gh repo` rename, set-default, alias or extension. |
 | `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |
 | `session-lock` | context | Records the session for the checkout and warns when another live session already works in it. |
 | `session-unlock` | context | Removes the session record at session end. |
@@ -93,7 +93,7 @@ task validate
 
 One target per check, one CI job per target. `check` only calls the small targets.
 
-Releases come from release-please. Every merge to `main` updates the release pull request,
+Releases come from release-me. Every merge to `main` updates the release pull request,
 merging that creates the tag, the release and the changelog. The workflow runs with the token
 of the release app: the variable `GH_APP_RELEASE_APP_ID` and the secret
 `GH_APP_RELEASE_PRIVATE_KEY`, set on the repository or the organisation as infrastructure code.

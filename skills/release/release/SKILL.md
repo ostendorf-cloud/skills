@@ -42,7 +42,8 @@ Cut a release through the repository's release tool, never around it.
    touched.
 8. Ask for confirmation, then merge it.
 9. Verify the result: tag created, release published, changelog updated, release
-   artifacts built.
+   artifacts built, the pull request's label swapped to tagged (`release: tagged` or
+   `autorelease: tagged`).
 10. Report the version, the release URL and anything that did not complete.
 
 ## Guardrails
