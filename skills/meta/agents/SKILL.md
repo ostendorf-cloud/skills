@@ -15,8 +15,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 
 ## Rules
 
-- Doing it directly is faster than delegating for sequential or small work: delegate only when
-  it pays.
+- Direct work stays narrow: a read, a lookup, a one line nit. Every change that alters behaviour
+  goes through a subagent, however small it looks.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
 - Model routing by role: plan `opus`, implement `sonnet`, review `opus`. A plan may override one
@@ -49,7 +49,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 
 ## Steps
 
-1. Decide whether delegation pays. Not: do it directly.
+1. Decide whether the work is a read, a lookup or a one line nit. Anything else goes to a
+   subagent.
 2. Split the work so results do not overlap, name the output of each agent.
 3. Spawn with scope, files, style and a reporting instruction.
 4. Collect results, verify them, resolve conflicts between agents.
