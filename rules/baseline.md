@@ -113,7 +113,8 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Subagents and models
 
-- Use subagents for parallel work or an independent review, not for work that is faster done directly.
+- The supervising session does itself: plan, verify a claim, run the verify command, route labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one line nit.
+- Everything else that changes behaviour runs in a subagent: an implementation, a review fix at should or blocker level included, however small it looks.
 - Give each one a bounded scope, the files it may touch and these rules. Results are claims. Verify before relying on them.
 - Every agent report ends with baseline feedback: a rule that blocked or misled, a rule that was missing, or "none". The session collects them and raises the ones worth a change.
 - Default models: plan with Opus, implement with Sonnet. The plan may choose another model for a task and says why.
