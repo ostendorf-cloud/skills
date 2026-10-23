@@ -34,11 +34,11 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 - One GitHub App per purpose, named `<org>-<purpose>`, with the rights that purpose needs and
   nothing more, installed only on the repositories that need it.
 - Purposes, write unless marked read: `infrastructure` (this provider: administration, issues
-  for labels, secrets, variables), `release` (release-please: contents, pull requests, issues),
-  `review` (agents' review identity: pull requests, issues, checks read, contents read),
-  `dependencies` (self hosted Renovate: contents, pull requests, issues, workflows, checks read),
-  `backup` (contents read), `queue` (contents, pull requests: workflows that push or open pull
-  requests so that checks still trigger).
+  for labels, secrets, variables), `release` (release-me or release-please: contents, pull
+  requests, issues), `review` (agents' review identity: pull requests, issues, checks read,
+  contents read), `dependencies` (self hosted Renovate: contents, pull requests, issues,
+  workflows, checks read), `backup` (contents read), `queue` (contents, pull requests:
+  workflows that push or open pull requests so that checks still trigger).
 - Created in the web UI. App id and installation id are organisation variables, the private key
   an organisation secret, both managed here and read from the secret manager.
 - Review and author are never the same identity. Implementation commits carry the person,
@@ -67,7 +67,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
   for `ai`, `dependencies` and `priority` come from `skills/README.md` and the schema.
 - `base` holds config `types`, `needs triage` (config `labels.needsTriage`), `duplicate`,
   `question`, and the context labels `breaking-change`, `deprecated`, `research`, `upstream`.
-- `release` holds the two `autorelease:` labels release-please sets, kept so an apply keeps them.
+- `release` holds release-me's and release-please's pending/tagged labels, so an apply keeps them.
 - `community` holds `good first issue` and `help wanted` for public repositories, `stack` exactly
   the keys of config `stacks`.
 - `github_issue_labels` is authoritative per repository, built from its chosen groups; an unlisted
