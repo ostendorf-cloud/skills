@@ -26,7 +26,7 @@ Judge one pushed pull request as a different agent than the one that built it.
   `implement` ran the code through its own bounded subagent for this issue, never when the
   supervising session wrote the code directly. The fork would otherwise inherit that work.
 - Not independent: `approve` can still be the judgment, but the label never reaches `done`
-  through it, see step 10.
+  through it, see step 12.
 
 ## Steps
 
@@ -43,9 +43,11 @@ Judge one pushed pull request as a different agent than the one that built it.
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
    second thread for the same problem.
-8. The pull request's author differs from this review's identity, or config `review.token`
-   names an environment variable holding a token of such a reviewer: post the verdict as a
-   formal review, `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through `gh api`, with
+8. Review only, per Guardrails: no edit and no commit of its own, whichever posting path
+   follows. The pull request's author differs from this review's identity, or config
+   `review.token` names an environment variable holding a token of such a reviewer: post the
+   verdict as a formal review, `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through
+   `gh api`, with
    `event` from the verdict, `commit_id` the pull request's full 40 character head SHA (a short
    SHA fails with 422), and `comments`: one entry per finding, `{path, line, side: "RIGHT",
    body: "<Blocker|Should|Nit>: <problem and fix>"}`. This formal review is the verdict; post no
@@ -65,14 +67,15 @@ Judge one pushed pull request as a different agent than the one that built it.
     a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
 14. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
     label to `needs human`. The round count is the number of this skill's own verdict comments
-    and formal reviews already on the pull request, including the one just posted. Mark the
-    pull request ready with `gh pr ready` when the `pr` skill's ready condition holds and only
-    a human decision is left. Leave it a draft otherwise.
-15. Verdict blocked: move the label to `blocked`.
-16. Changes requested or blocked: point the issue comment at the `implement` skill for the
+    and formal reviews already on the pull request, including the one just posted.
+15. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
+    skill's ready condition holds and only a human decision is left. Leave it a draft
+    otherwise.
+16. Verdict blocked: move the label to `blocked`.
+17. Changes requested or blocked: point the issue comment at the `implement` skill for the
     rework round.
-17. Never merge the pull request.
-18. Never approve a pull request implemented in this same session, formal review included.
+18. Never merge the pull request.
+19. Never approve a pull request implemented in this same session, formal review included.
 
 ## Guardrails
 
