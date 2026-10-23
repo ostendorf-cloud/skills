@@ -43,7 +43,8 @@ How branches, commits, pull requests and history stay consistent and reversible.
 
 - Title is a single Conventional Commits line that frames the pull request for a reviewer.
 - Body states what changed, why, how it was verified and what the risk is.
-- Open as draft while checks run or work continues. Mark ready only once the pipeline is green.
+- Open as draft while checks run or work continues. Mark ready once the `pr` skill's ready
+  condition holds.
 - Rebase the branch onto the default branch right before the merge, so the merge commit carries
   no drift and the diff a reviewer last saw is the diff that lands.
 - Merge commit by default. No squash: every atomic commit survives, `git revert <sha>` reverts
