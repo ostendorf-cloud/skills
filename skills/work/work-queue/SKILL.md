@@ -40,6 +40,9 @@ Drain the ready and changes-requested issues unattended, one at a time, under a 
 ## Guardrails
 
 - `disallowed-tools: AskUserQuestion`. This skill never asks, it comments on the issue instead.
+- The queue is built from `ready` and `changes requested` only. An issue parked at `needs human`
+  or `blocked` is never in it, so a non-independent review's terminal state stops the loop for
+  real instead of spinning on the same issue.
 - One lock per checkout. A held lock stops the run, it is never broken.
 - A `refreshed` timestamp older than three hours marks the lock stale: `rm -rf` it and retake.
   Younger: the run is live, stop and report.
