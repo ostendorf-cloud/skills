@@ -45,8 +45,9 @@ Write a chart that renders correctly for every documented combination of values.
      own documentation so a machine and CI use the same one.
 6. Document the chart `README.md`: purpose, prerequisites, the values table, upgrade notes, and
    the uninstall behaviour including what stays behind.
-7. Version the chart with release-please. Chart version and application version are separate
-   fields and both stay current.
+7. Version the chart with the repository's release tool: release-me's helm updater writes
+   `Chart.yaml` directly, release-please names it under `extra-files`. Chart version and
+   application version are separate fields and both stay current.
 8. Publish the chart as an OCI artifact from this repository's own release workflow, named and
    shaped per `ci-conventions`. Where no publish step exists yet, reference the chart inline or
    by path, and say so.

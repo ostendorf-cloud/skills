@@ -274,7 +274,7 @@
     "soft_deny": [
       "$defaults",
       "Never change repository, organisation or label settings with gh or the web API: they are infrastructure as code",
-      "Never cut a release with gh release in a repository that has release-please configured"
+      "Never cut a release with gh release in a repository that has a release tool (release-me or release-please) configured"
     ]
   }
 }

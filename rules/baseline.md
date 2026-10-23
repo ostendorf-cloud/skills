@@ -91,7 +91,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - New code gets tests. Changes get documentation where a reader needs it.
 - A bug fix starts with the test that reproduces it.
 - ADR in `docs/adr` only for a decision worth remembering. Concept doc in `docs/concepts` only before a new service or major feature. Both are bullet lists, one screen.
-- Changelogs and versions belong to release-please. Never hand edit. Never cut a release with the CLI where release-please exists.
+- Changelogs and versions belong to the repository's release tool, release-me by default, release-please where a repository still runs it. Never hand edit. Never cut a release with the CLI where the release tool is configured.
 - Conventions name no product where several are in use. The repository config and the tools present supply the vendor.
 - Taskfile is the task runner. One task target per check. A `check` target may aggregate them and holds no command of its own.
 - CI runs one check per job. No umbrella job. Everything that can run in CI runs in CI.

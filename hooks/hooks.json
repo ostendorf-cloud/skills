@@ -62,7 +62,7 @@
       "matcher": "Bash",
       "timeout": 10,
       "decision": "deny",
-      "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where release-please is configured, and gh repo rename, set-default, alias or extension."
+      "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where the repository's release tool (release-me or release-please) is configured, and gh repo rename, set-default, alias or extension."
     },
     {
       "id": "label-move",

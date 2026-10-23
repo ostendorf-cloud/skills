@@ -52,7 +52,8 @@ names, `TODO`, scaffold URLs), install steps that no longer work, sections out o
 - Only commands that exist in the repository and were run.
 - Configuration table matches the code, defaults included.
 - All links resolve. Depth linked to `docs/`, not inlined.
-- Releases are described as release-please driven. `CHANGELOG.md` is never hand edited.
+- Releases are described as driven by the repository's release tool (release-me or
+  release-please). `CHANGELOG.md` is never hand edited.
 
 ## References
 
