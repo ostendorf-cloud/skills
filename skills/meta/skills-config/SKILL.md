@@ -21,7 +21,8 @@ Create or validate the per repository skills configuration, never the tracker's 
 4. Detect `verify`: `task check` when the Taskfile has a `check` target. Without one, the
    small targets (`lint:*`, `test:*`, `validate`) joined with `&&`. Without a Taskfile, the
    detected tool commands joined the same way.
-5. Detect `release` from release-please config file presence.
+5. Detect `release.tool` from `release-me.yaml` or release-please's config file, whichever
+   exists. Neither existing leaves `release` unset.
 6. Confirm every configured label exists on the tracker with `gh label list`.
 7. A label the config names but the tracker lacks: report it as missing for the infrastructure
    repository to create. Never create it here.

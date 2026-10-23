@@ -111,7 +111,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "tool": { "type": "string", "enum": ["release-please"], "default": "release-please" }
+            "tool": { "type": "string", "enum": ["release-me", "release-please"], "default": "release-me" }
           }
         }
       ]

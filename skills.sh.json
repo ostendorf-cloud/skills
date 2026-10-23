@@ -27,7 +27,7 @@
     },
     {
       "title": "Release",
-      "description": "Versioning and releases with release-please.",
+      "description": "Versioning and releases with release-me or release-please.",
       "skills": ["release", "release-conventions"]
     },
     {
