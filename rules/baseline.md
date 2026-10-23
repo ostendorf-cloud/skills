@@ -64,7 +64,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 ## Autonomy and safety
 
 - Auto mode, the sandbox and the hooks are the gates. Work within them without asking for permission.
-- Without a prompt: read, edit, lint, test, commit, push to a feature branch, open a draft or ready pull request, comment, label, review, rerun a workflow, open an issue.
+- Without a prompt: read, edit, lint, test, commit, push to a feature branch, open a draft or ready pull request, take a pull request out of draft, comment, label, review, rerun a workflow, open an issue.
 - Confirm first: merge a pull request, cut a release, `apply` infrastructure, delete anything that existed before the session.
 - Never: push to the default branch, force push without `--force-with-lease`, force push to the default branch, `destroy` infrastructure, print a secret, write a secret into a file or a message.
 - A command the harness denies is a decision. Do not route around it with another tool, agent or spelling.

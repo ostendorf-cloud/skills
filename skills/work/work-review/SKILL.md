@@ -43,7 +43,9 @@ Judge one pushed pull request as a different agent than the one that built it.
 11. Verdict changes requested: move the label to `changes requested`. The pull request stays
     a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
 12. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
-    label to `needs human`.
+    label to `needs human`. Mark the pull request ready with `gh pr ready` when the `pr`
+    skill's ready condition holds and only a human decision is left. Leave it a draft
+    otherwise.
 13. Verdict blocked: move the label to `blocked`.
 14. Never merge the pull request.
 15. Never approve a pull request implemented in this same session, token upgrade included.
@@ -80,3 +82,4 @@ Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 ## References
 
 - `gh pr review`, `gh pr comment`, `gh pr ready`: <https://cli.github.com/manual/>
+- `pr` skill: the ready condition for leaving draft.
