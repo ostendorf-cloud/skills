@@ -10,7 +10,7 @@ import unittest
 from helper import bash_payload, decision, run_hook
 
 
-def git_repo(with_release_please: bool = False) -> str:
+def git_repo(with_release_please: bool = False, with_release_me: bool = False) -> str:
     path = tempfile.mkdtemp(prefix="iac-first-")
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True, capture_output=True)
     if with_release_please:
@@ -18,6 +18,9 @@ def git_repo(with_release_please: bool = False) -> str:
             os.path.join(path, "release-please-config.json"), "w", encoding="utf-8"
         ) as handle:
             handle.write("{}\n")
+    if with_release_me:
+        with open(os.path.join(path, "release-me.yaml"), "w", encoding="utf-8") as handle:
+            handle.write("initial-version: 0.1.0\n")
     return path
 
 
@@ -130,8 +133,15 @@ class IacFirstTest(unittest.TestCase):
                 decision(run_hook("iac_first.py", bash_payload(command, repo))), "deny", command
             )
 
-    def test_allows_gh_release_without_release_please(self):
-        repo = git_repo(with_release_please=False)
+    def test_denies_gh_release_when_release_me_is_configured(self):
+        repo = git_repo(with_release_me=True)
+        for command in ["gh release create v1.0.0", "gh release edit v1.0.0"]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_allows_gh_release_without_a_release_tool_configured(self):
+        repo = git_repo(with_release_please=False, with_release_me=False)
         self.assertIsNone(
             decision(run_hook("iac_first.py", bash_payload("gh release create v1.0.0", repo)))
         )

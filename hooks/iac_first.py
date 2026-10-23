@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """PreToolUse hook on Bash. Denies repository, organisation, label, ruleset or secret
 changes made through `gh` or the API, a pull request write through the API, a GraphQL
-mutation through `gh api graphql`, `gh release` where release-please owns releases, and
-`gh repo rename`, `gh repo set-default`, `gh alias` or `gh extension`, which run
-arbitrary code or point the CLI somewhere else entirely.
+mutation through `gh api graphql`, `gh release` where the repository's release tool
+(release-me or release-please) owns releases, and `gh repo rename`, `gh repo
+set-default`, `gh alias` or `gh extension`, which run arbitrary code or point the CLI
+somewhere else entirely.
 """
 
 import os
@@ -61,8 +62,8 @@ IAC_REASON = (
     "instead of changing it with gh."
 )
 RELEASE_REASON = (
-    "release-please owns releases here. The release pull request cuts the release; do "
-    "not run gh release directly."
+    "The repository's release tool (release-me or release-please) owns releases "
+    "here. The release pull request cuts the release; do not run gh release directly."
 )
 PULLS_REASON = (
     "This changes a pull request directly through the API, routing around gh pr "
@@ -133,10 +134,14 @@ def graphql_violation(part: str) -> Optional[str]:
 
 
 def release_violation(part: str, root: Optional[str]) -> Optional[str]:
-    """The deny reason for a `gh release` part when release-please is configured."""
+    """The deny reason for a `gh release` part when the repository's release tool,
+    release-me or release-please, is configured."""
     if not GH_RELEASE.match(part):
         return None
-    if root and os.path.isfile(os.path.join(root, "release-please-config.json")):
+    if root and (
+        os.path.isfile(os.path.join(root, "release-me.yaml"))
+        or os.path.isfile(os.path.join(root, "release-please-config.json"))
+    ):
         return RELEASE_REASON
     return None
 
