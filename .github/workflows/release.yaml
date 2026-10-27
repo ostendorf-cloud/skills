@@ -40,7 +40,7 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.sha }}
           fetch-depth: 0
 
-      - uses: ostendorf-cloud/release-me/action@1dbb9d456ee6017b078e573e63db8a01e78e0c96  # v0.1.1
+      - uses: ostendorf-cloud/release-me/action@12e8a8b82127bebe679f36c465d5d3fb5dfb5af4  # v0.2.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           app-slug: ${{ steps.app-token.outputs.app-slug }}
@@ -48,4 +48,4 @@ jobs:
           # the tag the trailing comment names, and the action's own version
           # resolution falls back to that ref, so the version needs stating
           # explicitly here.
-          version: "0.1.1"
+          version: "0.2.1"
