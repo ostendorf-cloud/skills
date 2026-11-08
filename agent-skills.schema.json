@@ -126,6 +126,17 @@
         }
       }
     },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "critique": {
+          "description": "Gates an optional multi-perspective critique pass for a plan judged large or cross-cutting.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
     "docs": {
       "type": "object",
       "additionalProperties": false,

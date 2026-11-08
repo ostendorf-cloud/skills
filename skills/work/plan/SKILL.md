@@ -30,12 +30,23 @@ Produce a short plan in the issue that can be approved or corrected before code 
    model; state tokens and time against capability in one line.
 9. List open questions: anything unclear, anything that could additionally be implemented, every
    assumption made.
-10. One screen. No plan content in `docs/`.
-11. Write the plan as a `## Plan` section via `gh issue edit --body-file <file>`, appended to the
+10. Runs only when config `plan.critique` is enabled, and the plan is large or cross-cutting:
+    crosses modules or services, touches a security boundary, touches a shared or public
+    interface.
+    Spawn two or three short-lived critic subagents, each on a distinct angle: security, data
+    and schema, architecture and interfaces.
+    Give each critic only the draft plan, not the issue or conversation history. Each critic
+    returns objections or gaps.
+    Fold genuine objections into the existing Risks and Open questions sections. No new template
+    section for this.
+    Critics run on `models.review` (default sonnet), not `models.plan`: this is a review task,
+    not a planning authority task.
+11. One screen. No plan content in `docs/`.
+12. Write the plan as a `## Plan` section via `gh issue edit --body-file <file>`, appended to the
     existing body, when the body already follows this repository's template.
-12. Body does not follow that template: post the plan as a comment with `gh issue comment`
+13. Body does not follow that template: post the plan as a comment with `gh issue comment`
     instead, to avoid breaking a structure this skill does not own.
-13. Stop at the plan. Do not implement here.
+14. Stop at the plan. Do not implement here.
 
 ## Template
 
@@ -72,6 +83,8 @@ Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 
 - `verify`: command that proves a change is good. Default `task check` when a Taskfile exists.
 - `models.plan`: default `opus`. `models.implement`: default `sonnet`.
+- `plan.critique`: boolean, default `false`. Runs the critic subagent step on a large or
+  cross-cutting plan.
 
 ## References
 
