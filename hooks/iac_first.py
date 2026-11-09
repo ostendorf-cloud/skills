@@ -8,8 +8,9 @@ mutation through `gh api graphql`, `gh release` where the repository's release t
 set-default`, `gh alias` or `gh extension`, which run arbitrary code or point the CLI
 somewhere else entirely.
 
-Every `gh` check finds the subcommand behind the flags in front of it, so a flag
-placed between the noun and the subcommand does not hide the command.
+Every `gh` check finds the subcommand behind the flags in front of it, so neither a
+flag placed in front of the noun nor one placed between the noun and the subcommand
+hides the command.
 """
 
 import os
@@ -22,8 +23,6 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-GH_API = re.compile(r"^gh\s+api\b")
-GH_API_GRAPHQL = re.compile(r"^gh\s+api\s+graphql\b")
 GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
 
 API_VALUE_FLAGS = {
@@ -90,7 +89,12 @@ ALIAS_EXTENSION_REASON = (
 
 
 def gh_api_method(tokens: list[str]) -> str:
-    """The HTTP method `gh api` sends: the one named, else GET."""
+    """The HTTP method `gh api` sends: the one named, else GET.
+
+    tokens are every argument after `gh`, not only the ones after `api`, because gh
+    applies a flag of `api` whichever side of the word it sits on and the subcommand
+    lookup consumes `--method PATCH` in front of it as a flag and its value.
+    """
     for index, token in enumerate(tokens):
         if token in ("-X", "--method"):
             return (tokens[index + 1] if index + 1 < len(tokens) else "").upper()
@@ -111,17 +115,33 @@ def gh_api_path(tokens: list[str]) -> str:
     return ""
 
 
+def gh_dispatch(tokens: list[str]) -> list[str]:
+    """tokens from gh's own subcommand onwards, a noun such as "label" or a command such
+    as "api", the flags placed in front of it skipped.
+
+    gh is built on cobra, which applies the same lookup at every level of its command
+    tree, the root included: it skips the flags in front of the subcommand and treats a
+    flag it does not know at that level as taking the following token as its value. So
+    `gh --repo owner/repo secret list` and `gh --method PATCH api repos/o/r/rulesets/1`
+    both dispatch past the flag, and the rule subcommand_tokens already applies one
+    level down applies here too.
+    """
+    if not tokens or tokens[0] != "gh":
+        return []
+    return _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
+
+
 def gh_api_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api` part that writes a repository or org setting."""
-    if not GH_API.match(part):
-        return None
     tokens = _common.shell_tokens(part)
-    rest = tokens[tokens.index("api") + 1 :] if "api" in tokens else tokens[2:]
-    method = gh_api_method(rest)
+    dispatch = gh_dispatch(tokens)
+    if not dispatch or dispatch[0] != "api":
+        return None
+    method = gh_api_method(tokens[1:])
     if method not in WRITE_METHODS:
         return None
 
-    path = gh_api_path(rest)
+    path = gh_api_path(dispatch[1:])
     if PULLS_WRITE_PATH.match(path):
         return f"gh api {method} {path} changes a pull request. {PULLS_REASON}"
     if API_WRITE_PATH.match(path):
@@ -130,21 +150,20 @@ def gh_api_violation(part: str) -> Optional[str]:
 
 
 def gh_noun_subcommand(part: str, noun: str) -> str:
-    """The subcommand a `gh <noun>` part dispatches to, the flags between the noun and
-    the subcommand skipped. "" when part is not `gh <noun>`, or names no subcommand.
+    """The subcommand a `gh <noun>` part dispatches to, the flags in front of the noun
+    itself and the flags between the noun and the subcommand both skipped. "" when part
+    does not dispatch to noun, or names no subcommand under it.
 
-    gh is built on cobra, which skips flags while it looks up the subcommand and
-    treats a flag it does not know at that level as taking the following token as its
-    value. `gh label -R owner/repo create bug`, `gh secret --repo=owner/repo set X`
-    and `gh auth --hostname example.com token` all reach their subcommand that way, so
-    the check cannot be a regex anchored on `gh <noun> <subcommand>`. No gh noun
-    carries a persistent flag that takes no value, so there is no exception to that
-    rule.
+    cobra applies the same lookup at both levels, so `gh --repo owner/repo secret set X`,
+    `gh label -R owner/repo create bug` and `gh secret --repo=owner/repo set X` all reach
+    their subcommand and the check cannot be a regex anchored on `gh <noun>
+    <subcommand>`. No gh noun carries a persistent flag that takes no value, so there is
+    no exception to that rule.
     """
-    tokens = _common.shell_tokens(part)
-    if len(tokens) < 3 or tokens[0] != "gh" or tokens[1] != noun:
+    dispatch = gh_dispatch(_common.shell_tokens(part))
+    if not dispatch or dispatch[0] != noun:
         return ""
-    return _common.subcommand_after(tokens[2:], space_form_takes_value=True)
+    return _common.subcommand_after(dispatch[1:], space_form_takes_value=True)
 
 
 def gh_noun_violation(part: str) -> Optional[str]:
@@ -161,7 +180,10 @@ def gh_noun_violation(part: str) -> Optional[str]:
 
 def graphql_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api graphql` part whose body runs a mutation."""
-    if not GH_API_GRAPHQL.match(part):
+    dispatch = gh_dispatch(_common.shell_tokens(part))
+    if not dispatch or dispatch[0] != "api":
+        return None
+    if gh_api_path(dispatch[1:]) != "graphql":
         return None
     if GRAPHQL_MUTATION.search(part):
         return GRAPHQL_REASON
@@ -196,7 +218,8 @@ def main() -> int:
             continue
 
         reason = (
-            gh_noun_violation(part)
+            _common.malformed_quoting_violation(part)
+            or gh_noun_violation(part)
             or graphql_violation(part)
             or gh_api_violation(part)
             or release_violation(part, root)

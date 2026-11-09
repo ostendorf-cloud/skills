@@ -121,6 +121,46 @@ class SecretGuardTest(unittest.TestCase):
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_gh_auth_token_with_flag_before_the_noun(self):
+        for command in [
+            "gh --hostname example.com auth token",
+            "gh --hostname=example.com auth token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_auth_status_with_flag_before_the_noun(self):
+        command = "gh --hostname example.com auth status"
+        self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))
+
+    def test_denies_kubectl_get_secret_with_global_flag_before_the_verb(self):
+        for command in [
+            "kubectl -n default get secret db-credentials -o yaml",
+            "kubectl --namespace=default get secret db-credentials -o yaml",
+            "kubectl --namespace kube-system get secrets -o json",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_kubectl_reads_with_global_flag_before_the_verb(self):
+        for command in [
+            "kubectl -n default get secret db-credentials",
+            "kubectl -n default get secrets",
+            "kubectl --namespace=default get pods -o yaml",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
+    def test_denies_a_policed_part_whose_quoting_does_not_parse(self):
+        for command in [
+            'gh repo edit owner/repo --description "unclosed',
+            'cat "secrets.yaml',
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
     def test_denies_reading_a_secret_file(self):
         for command in [
             "cat .env",
