@@ -88,6 +88,21 @@ ALIAS_EXTENSION_REASON = (
 )
 
 
+def gh_command_name(part: str) -> str:
+    """The name of the command part runs, resolved the way the checks below resolve it.
+
+    The checks all tokenise with shell_tokens, so the gate in front of them has to see
+    the same first token they do: `'gh' label create bug` runs gh, and a gate that
+    splits on whitespace alone reads the quotes as part of the name and lets it past.
+    Falls back to command_name when the quoting does not parse, so a malformed part
+    still reaches malformed_quoting_violation rather than being skipped here.
+    """
+    tokens = _common.shell_tokens(part)
+    if not tokens:
+        return _common.command_name(part)
+    return _common.token_name(tokens[0])
+
+
 def gh_api_method(tokens: list[str]) -> str:
     """The HTTP method `gh api` sends: the one named, else GET.
 
@@ -198,7 +213,7 @@ def main() -> int:
 
     for raw_part in _common.command_parts(command):
         part = _common.strip_env_prefix(raw_part)
-        if not part.startswith("gh "):
+        if gh_command_name(part) != "gh":
             continue
 
         reason = (

@@ -288,13 +288,26 @@ def _strip_simple_wrapper(part: str) -> str:
     return part
 
 
+def token_name(token: str) -> str:
+    """The basename of an already split command token, so `/opt/homebrew/bin/gh` and
+    `gh` both resolve to "gh".
+
+    A check that compares the first token of a command to a tool name resolves it
+    through this, or through command_name when it still holds the raw string, so an
+    absolute path does not bypass it. Most checks in secret_guard and iac_first do;
+    git_guard, commit_message, and secret_guard's own commit credential scan through
+    strip_global_git_options still match the literal `git` prefix and are not covered
+    yet."""
+    return os.path.basename(token)
+
+
 def command_name(part: str) -> str:
     """The basename of the first token in part, so `/opt/homebrew/bin/gh` and `gh`
     both resolve to "gh"."""
     tokens = part.split()
     if not tokens:
         return ""
-    return os.path.basename(tokens[0])
+    return token_name(tokens[0])
 
 
 def shell_tokens(part: str) -> list[str]:
@@ -378,6 +391,16 @@ def subcommand_tokens(
     following token, which is how a flag of the target subcommand can sit in front of
     it.
 
+    The grammar is generic, so a boolean flag that takes no value in this mode
+    swallows the token behind it. kubectl has exactly four such global flags,
+    `--disable-compression`, `--insecure-skip-tls-verify`, `--match-server-version`
+    and `--warnings-as-errors`, all of them presence-only booleans that default to
+    false, so their absence rather than their presence is the secure default. No
+    caller can tell this walk that a particular flag never takes a value: value_flags
+    records the opposite. A caller that needs one of them walked correctly drops it
+    from the tokens before calling, and a case that bites in practice is the point to
+    add a boolean_flags collection here instead.
+
     Everything after `--` is an operand rather than a subcommand, so a `--` ends the
     search.
     """
@@ -420,9 +443,11 @@ def gh_dispatch(tokens: list[str]) -> list[str]:
     both dispatch past the flag, and the rule subcommand_tokens already applies one
     level down applies here too.
 
-    Returns [] when tokens do not start with "gh" or name no subcommand at all.
+    Returns [] when tokens do not start with "gh" or name no subcommand at all. The
+    first token is resolved to its basename, so `/opt/homebrew/bin/gh` dispatches like
+    `gh`.
     """
-    if not tokens or tokens[0] != "gh":
+    if not tokens or token_name(tokens[0]) != "gh":
         return []
     return subcommand_tokens(tokens[1:], space_form_takes_value=True)
 
