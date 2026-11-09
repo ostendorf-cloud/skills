@@ -100,6 +100,50 @@ class CommitMessageTest(unittest.TestCase):
         command = "git commit -m 'feat: add thing' -m 'longer body explaining why'"
         self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))), command)
 
+    def test_denies_a_non_conventional_subject_when_git_is_called_by_absolute_path(self):
+        for command in [
+            "git commit -m 'added some stuff'",
+            "/usr/bin/git commit -m 'added some stuff'",
+            "/opt/homebrew/bin/git commit -m 'added some stuff'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_attribution_line_when_git_is_called_by_absolute_path(self):
+        command = (
+            "/usr/bin/git commit -m \"$(cat <<'EOF'\n"
+            "feat: add thing\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_commit_by_absolute_path_through_dash_c_path(self):
+        directory = tempfile.mkdtemp(prefix="commit-message-")
+        command = f"/usr/bin/git -C {directory} commit -m 'added some stuff'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
+    def test_allows_a_conventional_subject_when_git_is_called_by_absolute_path(self):
+        for command in [
+            "/usr/bin/git commit -m 'feat: add valkey module'",
+            "/usr/bin/git commit --amend --no-edit",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
+    def test_allows_another_command_whose_name_ends_in_git(self):
+        for command in [
+            "legit commit -m 'added some stuff'",
+            "/usr/local/bin/mygit commit -m 'added some stuff'",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
     def test_denies_commit_through_dash_c_path(self):
         directory = tempfile.mkdtemp(prefix="commit-message-")
         command = f"git -C {directory} commit -m 'added some stuff'"

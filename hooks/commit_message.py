@@ -124,6 +124,20 @@ def message_violation(message: str) -> Optional[str]:
     return None
 
 
+def resolve_command_name(part: str) -> str:
+    """part with the leading path stripped off its command name, so
+    `/usr/bin/git commit -m msg` becomes `git commit -m msg` and the check anchored on the
+    tool name matches it. Only the first token is touched, every argument stays as written.
+
+    strip_global_git_options and the `git commit` prefix check both expect the literal
+    `git`, so the resolution happens once in front of them.
+    """
+    tokens = part.split()
+    if not tokens:
+        return part
+    return " ".join([_common.command_name(part), *tokens[1:]])
+
+
 def main() -> int:
     payload = _common.read_payload()
     command = (payload.get("tool_input") or {}).get("command") or ""
@@ -132,7 +146,7 @@ def main() -> int:
     git_path: Optional[str] = None
     is_commit = False
     for raw_part in _common.command_parts(command):
-        part = _common.strip_env_prefix(raw_part)
+        part = resolve_command_name(_common.strip_env_prefix(raw_part))
         normalized, path = _common.strip_global_git_options(part)
         if normalized.startswith("git commit") or normalized == "git commit":
             is_commit = True
