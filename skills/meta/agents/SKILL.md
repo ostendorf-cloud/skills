@@ -32,6 +32,11 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 - Terminate every agent whose work is done, or that is stale or stuck. Idle is not done: an agent
   that finished a step and waits for the next instruction stays alive on purpose, judged by its
   reported state, never by idleness alone.
+- A conflict between two agents' changes, such as a merge conflict on overlapping files from
+  parallel work or a review finding that traces to one agent's change, is resolved by the agent
+  that caused it. Not by a third agent, and not absorbed silently by the supervising session.
+  Exception: the causing agent is already terminated, stale or stuck. Then the supervising
+  session resolves the conflict directly, or reassigns a fresh agent, and says so in its report.
 - Check the running agent list before spawning more, and again before ending the session. The
   list must be empty at the end.
 - Never ask an agent to do something that was denied in this session. Never route work through an
@@ -53,7 +58,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
    subagent.
 2. Split the work so results do not overlap, name the output of each agent.
 3. Spawn with scope, files, style and a reporting instruction.
-4. Collect results, verify them, resolve conflicts between agents.
+4. Collect results, verify them, resolve conflicts between agents per the rule above.
 5. Terminate every agent, confirm the list is empty.
 6. Report outcome per agent, including what was rejected.
 
