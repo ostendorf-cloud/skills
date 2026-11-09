@@ -290,8 +290,13 @@ def _strip_simple_wrapper(part: str) -> str:
 
 def token_name(token: str) -> str:
     """The basename of an already split command token, so `/opt/homebrew/bin/gh` and
-    `gh` both resolve to "gh". Every check that compares the first token of a command
-    to a tool name goes through this, so an absolute path never bypasses it."""
+    `gh` both resolve to "gh".
+
+    A check that compares the first token of a command to a tool name resolves it
+    through this, or through command_name when it still holds the raw string, so an
+    absolute path does not bypass it. The checks in secret_guard and iac_first all do.
+    git_guard and commit_message still match the literal `git` prefix and are not
+    covered yet."""
     return os.path.basename(token)
 
 
@@ -389,9 +394,11 @@ def subcommand_tokens(
     swallows the token behind it. kubectl has exactly four such global flags,
     `--disable-compression`, `--insecure-skip-tls-verify`, `--match-server-version`
     and `--warnings-as-errors`, all of them presence-only booleans that default to
-    false, so their absence rather than their presence is the secure default. A
-    caller that needs them walked correctly passes them as flags of its own rather
-    than relying on this grammar.
+    false, so their absence rather than their presence is the secure default. No
+    caller can tell this walk that a particular flag never takes a value: value_flags
+    records the opposite. A caller that needs one of them walked correctly drops it
+    from the tokens before calling, and a case that bites in practice is the point to
+    add a boolean_flags collection here instead.
 
     Everything after `--` is an operand rather than a subcommand, so a `--` ends the
     search.
