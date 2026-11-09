@@ -59,6 +59,20 @@ class IacFirstTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
 
+    def test_denies_gh_label_mutation_with_flag_before_subcommand(self):
+        for command in [
+            "gh label -R owner/repo create bug",
+            "gh label --repo=owner/repo delete bug --yes",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_label_list_with_flag_before_subcommand(self):
+        self.assertIsNone(
+            decision(run_hook("iac_first.py", bash_payload("gh label -R owner/repo list")))
+        )
+
     def test_denies_gh_api_writes_to_protected_paths(self):
         for command in [
             "gh api -X PATCH repos/ostendorf-cloud/skills",

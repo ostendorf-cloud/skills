@@ -21,7 +21,7 @@ import _common  # noqa: E402
 EVENT = "PreToolUse"
 
 GH_REPO = re.compile(r"^gh\s+repo\s+(edit|delete|create|rename|set-default)\b")
-GH_LABEL = re.compile(r"^gh\s+label\s+(create|edit|delete|clone)\b")
+GH_LABEL_PREFIX = re.compile(r"^gh\s+label\b")
 GH_SECRET = re.compile(r"^gh\s+secret\s+(set|delete|remove)\b")
 GH_VARIABLE = re.compile(r"^gh\s+variable\s+(set|delete)\b")
 GH_RELEASE = re.compile(r"^gh\s+release\s+(create|delete|edit|upload)\b")
@@ -49,6 +49,9 @@ API_VALUE_FLAGS = {
     "--cache",
 }
 WRITE_METHODS = {"PATCH", "PUT", "DELETE", "POST"}
+
+GH_LABEL_MUTATIONS = {"create", "edit", "delete", "clone"}
+GH_LABEL_VALUE_FLAGS = {"-R", "--repo"}
 
 API_WRITE_PATH = re.compile(
     r"^(/)?(repos/[^/]+/[^/]+(/labels|/rulesets|/branches/.*/protection|"
@@ -124,6 +127,34 @@ def gh_api_violation(part: str) -> Optional[str]:
     return None
 
 
+def gh_label_subcommand(tokens: list[str]) -> str:
+    """The subcommand `gh label` is given: its first operand, flag values skipped."""
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith("-"):
+            index += 2 if token in GH_LABEL_VALUE_FLAGS else 1
+            continue
+        return token
+    return ""
+
+
+def gh_label_violation(part: str) -> Optional[str]:
+    """The deny reason for a `gh label` part whose real subcommand mutates a label,
+    regardless of flags placed between `gh label` and the subcommand."""
+    if not GH_LABEL_PREFIX.match(part):
+        return None
+    try:
+        tokens = shlex.split(part)
+    except ValueError:
+        return None
+
+    rest = tokens[tokens.index("label") + 1 :] if "label" in tokens else tokens[2:]
+    if gh_label_subcommand(rest) in GH_LABEL_MUTATIONS:
+        return IAC_REASON
+    return None
+
+
 def graphql_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api graphql` part whose body runs a mutation."""
     if not GH_API_GRAPHQL.match(part):
@@ -160,18 +191,18 @@ def main() -> int:
         if not part.startswith("gh "):
             continue
 
-        if (
-            GH_REPO.match(part)
-            or GH_LABEL.match(part)
-            or GH_SECRET.match(part)
-            or GH_VARIABLE.match(part)
-        ):
+        if GH_REPO.match(part) or GH_SECRET.match(part) or GH_VARIABLE.match(part):
             return _common.deny(EVENT, IAC_REASON)
 
         if GH_ALIAS.match(part) or GH_EXTENSION.match(part):
             return _common.deny(EVENT, ALIAS_EXTENSION_REASON)
 
-        reason = graphql_violation(part) or gh_api_violation(part) or release_violation(part, root)
+        reason = (
+            gh_label_violation(part)
+            or graphql_violation(part)
+            or gh_api_violation(part)
+            or release_violation(part, root)
+        )
         if reason:
             return _common.deny(EVENT, reason)
 
