@@ -14,7 +14,9 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-TERRAFORM = re.compile(r"^(sudo\s+)?terraform\b")
+# The parts are normalised before this runs, so the wrapper prefixes, a leading path
+# and a quoted name are already resolved and the name is matched bare.
+TERRAFORM = re.compile(r"^terraform\b")
 
 
 def main() -> int:
@@ -23,7 +25,7 @@ def main() -> int:
     if not command:
         return _common.emit_empty()
 
-    parts = [_common.strip_env_prefix(part) for part in _common.command_parts(command)]
+    parts = [_common.normalize_command_part(part) for part in _common.command_parts(command)]
     if not any(TERRAFORM.match(part) for part in parts):
         return _common.emit_empty()
 

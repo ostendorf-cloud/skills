@@ -51,6 +51,18 @@ class LabelMoveTest(unittest.TestCase):
         )
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
 
+    def test_adds_context_when_gh_is_quoted(self):
+        for command in [
+            '"gh" issue edit 44 --add-label "ai: working"',
+            '"/opt/homebrew/bin/gh" issue edit 44 --add-label "ai: working"',
+        ]:
+            message = context(run_hook("label_move.py", bash_payload(command)))
+            self.assertIn("ai:", message, command)
+
+    def test_no_context_for_a_quoted_command_whose_name_only_ends_in_gh(self):
+        command = '"/usr/local/bin/mygh" issue edit 44 --add-label "ai: working"'
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
     def test_no_context_for_non_ai_label(self):
         command = "gh issue edit 44 --add-label bug"
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")

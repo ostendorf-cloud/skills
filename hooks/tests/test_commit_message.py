@@ -170,10 +170,54 @@ class CommitMessageTest(unittest.TestCase):
                 decision(run_hook("commit_message.py", bash_payload(command))), command
             )
 
+    def test_denies_a_non_conventional_subject_when_git_is_quoted(self):
+        for command in [
+            "\"git\" commit -m 'added some stuff'",
+            "'git' commit -m 'added some stuff'",
+            "\"/usr/bin/git\" commit -m 'added some stuff'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_non_conventional_subject_behind_a_privilege_escalation_prefix(self):
+        for command in [
+            "sudo git commit -m 'added some stuff'",
+            "sudo -u ci git commit -m 'added some stuff'",
+            "doas git commit -m 'added some stuff'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_non_conventional_subject_behind_a_flagged_wrapper(self):
+        for command in [
+            "nice -n 10 git commit -m 'added some stuff'",
+            "nice --adjustment=10 git commit -m 'added some stuff'",
+            "nohup -- git commit -m 'added some stuff'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_a_conventional_subject_behind_a_flagged_wrapper(self):
+        for command in [
+            "nice -n 10 git commit -m 'feat: add valkey module'",
+            "sudo git commit -m 'feat: add valkey module'",
+            "\"git\" commit -m 'feat: add valkey module'",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
     def test_allows_another_command_whose_name_ends_in_git(self):
         for command in [
             "legit commit -m 'added some stuff'",
             "/usr/local/bin/mygit commit -m 'added some stuff'",
+            "gitless commit -m 'added some stuff'",
+            "git-town sync",
+            "nice -n 10 legit commit -m 'added some stuff'",
+            "sudo mygit commit -m 'added some stuff'",
         ]:
             self.assertIsNone(
                 decision(run_hook("commit_message.py", bash_payload(command))), command

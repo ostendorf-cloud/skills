@@ -282,6 +282,25 @@ class SecretGuardTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
+    def test_denies_a_secret_manager_read_whose_name_is_quoted(self):
+        for command in [
+            "bao kv get secret/prod/app",
+            '"bao" kv get secret/prod/app',
+            "'bao' kv get secret/prod/app",
+            '"/opt/homebrew/bin/bao" kv get secret/prod/app',
+            '"/opt/homebrew/bin/tofu" output database_password',
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_a_quoted_command_whose_name_only_ends_in_the_tool_name(self):
+        for command in [
+            '"mybao" kv get secret/prod/app',
+            '"/usr/local/bin/mytofu" output database_password',
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
     def test_denies_a_secret_file_read_called_by_absolute_path(self):
         for command in [
             "cat .env",
