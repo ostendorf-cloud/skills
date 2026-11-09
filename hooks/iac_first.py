@@ -115,26 +115,10 @@ def gh_api_path(tokens: list[str]) -> str:
     return ""
 
 
-def gh_dispatch(tokens: list[str]) -> list[str]:
-    """tokens from gh's own subcommand onwards, a noun such as "label" or a command such
-    as "api", the flags placed in front of it skipped.
-
-    gh is built on cobra, which applies the same lookup at every level of its command
-    tree, the root included: it skips the flags in front of the subcommand and treats a
-    flag it does not know at that level as taking the following token as its value. So
-    `gh --repo owner/repo secret list` and `gh --method PATCH api repos/o/r/rulesets/1`
-    both dispatch past the flag, and the rule subcommand_tokens already applies one
-    level down applies here too.
-    """
-    if not tokens or tokens[0] != "gh":
-        return []
-    return _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
-
-
 def gh_api_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api` part that writes a repository or org setting."""
     tokens = _common.shell_tokens(part)
-    dispatch = gh_dispatch(tokens)
+    dispatch = _common.gh_dispatch(tokens)
     if not dispatch or dispatch[0] != "api":
         return None
     method = gh_api_method(tokens[1:])
@@ -160,7 +144,7 @@ def gh_noun_subcommand(part: str, noun: str) -> str:
     <subcommand>`. No gh noun carries a persistent flag that takes no value, so there is
     no exception to that rule.
     """
-    dispatch = gh_dispatch(_common.shell_tokens(part))
+    dispatch = _common.gh_dispatch(_common.shell_tokens(part))
     if not dispatch or dispatch[0] != noun:
         return ""
     return _common.subcommand_after(dispatch[1:], space_form_takes_value=True)
@@ -180,7 +164,7 @@ def gh_noun_violation(part: str) -> Optional[str]:
 
 def graphql_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api graphql` part whose body runs a mutation."""
-    dispatch = gh_dispatch(_common.shell_tokens(part))
+    dispatch = _common.gh_dispatch(_common.shell_tokens(part))
     if not dispatch or dispatch[0] != "api":
         return None
     if gh_api_path(dispatch[1:]) != "graphql":

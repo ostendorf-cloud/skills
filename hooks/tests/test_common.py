@@ -108,6 +108,32 @@ class SubcommandAfterTest(unittest.TestCase):
         )
 
 
+class GhDispatchTest(unittest.TestCase):
+    def test_finds_the_noun_behind_a_flag_in_front_of_it(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "--repo", "owner/repo", "secret", "list"]),
+            ["secret", "list"],
+        )
+
+    def test_finds_the_noun_behind_a_flag_that_carries_its_value(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "--method=PATCH", "api", "repos/owner/repo"]),
+            ["api", "repos/owner/repo"],
+        )
+
+    def test_finds_the_noun_without_a_flag_in_front_of_it(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "label", "create", "bug"]), ["label", "create", "bug"]
+        )
+
+    def test_finds_nothing_for_another_command(self):
+        self.assertEqual(_common.gh_dispatch(["kubectl", "get", "secret"]), [])
+
+    def test_finds_nothing_for_gh_alone(self):
+        self.assertEqual(_common.gh_dispatch(["gh"]), [])
+        self.assertEqual(_common.gh_dispatch([]), [])
+
+
 class MalformedQuotingViolationTest(unittest.TestCase):
     def test_denies_a_policed_command_whose_quoting_does_not_parse(self):
         reason = _common.malformed_quoting_violation('gh repo edit owner/repo --description "unc')

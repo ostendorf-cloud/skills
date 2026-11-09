@@ -409,6 +409,24 @@ def subcommand_after(
     return found[0] if found else ""
 
 
+def gh_dispatch(tokens: list[str]) -> list[str]:
+    """tokens from gh's own subcommand onwards, a noun such as "pr" or "label" or a
+    command such as "api", the flags placed in front of it skipped.
+
+    gh is built on cobra, which applies the same lookup at every level of its command
+    tree, the root included: it skips the flags in front of the subcommand and treats a
+    flag it does not know at that level as taking the following token as its value. So
+    `gh --repo owner/repo secret list` and `gh --method PATCH api repos/o/r/rulesets/1`
+    both dispatch past the flag, and the rule subcommand_tokens already applies one
+    level down applies here too.
+
+    Returns [] when tokens do not start with "gh" or name no subcommand at all.
+    """
+    if not tokens or tokens[0] != "gh":
+        return []
+    return subcommand_tokens(tokens[1:], space_form_takes_value=True)
+
+
 def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:
     """Normalises global git options out of a command part that starts with "git".
 
