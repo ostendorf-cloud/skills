@@ -91,6 +91,25 @@ class LabelMoveTest(unittest.TestCase):
         command = "gh --hostname github.example.com issue view 44 --comments"
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
 
+    def test_adds_context_when_gh_is_called_by_absolute_path(self):
+        for command in [
+            'gh issue edit 44 --add-label "ai: working"',
+            '/opt/homebrew/bin/gh issue edit 44 --add-label "ai: working"',
+            '/opt/homebrew/bin/gh pr edit 12 --add-label "ai: review requested"',
+        ]:
+            message = context(run_hook("label_move.py", bash_payload(command)))
+            self.assertNotEqual(message, "", command)
+
+    def test_no_context_when_gh_called_by_absolute_path_removes_an_ai_label(self):
+        command = (
+            '/opt/homebrew/bin/gh issue edit 44 --add-label "ai: done" --remove-label "ai: working"'
+        )
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
+    def test_no_context_for_another_command_whose_name_ends_in_gh(self):
+        command = 'ghost issue edit 44 --add-label "ai: working"'
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
     def test_unparseable_command_stays_quiet(self):
         command = 'gh issue edit 44 --add-label "ai: working'
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")

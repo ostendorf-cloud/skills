@@ -68,6 +68,16 @@ class IacFirstTest(unittest.TestCase):
                 decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_a_label_mutation_whose_command_name_is_quoted(self):
+        for command in [
+            "'gh' label create bug --color ff0000",
+            '"gh" label create bug --color ff0000',
+            "'/opt/homebrew/bin/gh' label create bug --color ff0000",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
     def test_denies_gh_label_mutation_with_flag_before_subcommand(self):
         for command in [
             "gh label -R owner/repo create bug",
