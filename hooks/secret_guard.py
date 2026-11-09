@@ -213,7 +213,9 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
 
     kubectl is cobra based like gh and dispatches the verb behind its global flags, so
     `kubectl -n default get secret app -o yaml` reads the secret just as `kubectl get
-    secret app -o yaml` does and the verb has to be found behind those flags. The
+    secret app -o yaml` does and the verb has to be found behind those flags. A flag
+    between the verb and the resource moves the resource the same way, so
+    `kubectl get -o yaml secret app` needs the same walk one level further down. The
     resource itself is matched through kubectl_names_secret, which covers the
     `TYPE/NAME`, `TYPE.VERSION.GROUP` and comma separated spellings as well.
     """
@@ -221,9 +223,10 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
     if not tokens or tokens[0] != "kubectl":
         return None
     dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
-    if len(dispatch) < 2 or dispatch[0] != "get":
+    if not dispatch or dispatch[0] != "get":
         return None
-    if not kubectl_names_secret(dispatch[1]):
+    resource_args = _common.subcommand_tokens(dispatch[1:], space_form_takes_value=True)
+    if not resource_args or not kubectl_names_secret(resource_args[0]):
         return None
     match = KUBECTL_OUTPUT_FORMAT.search(part)
     if not match:

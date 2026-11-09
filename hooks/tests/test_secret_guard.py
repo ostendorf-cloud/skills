@@ -174,12 +174,24 @@ class SecretGuardTest(unittest.TestCase):
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_kubectl_get_secret_with_a_flag_between_the_verb_and_the_resource(self):
+        for command in [
+            "kubectl get -o yaml secret db-credentials",
+            "kubectl get -o yaml secret/db-credentials",
+            "kubectl get --output=json secrets",
+            "kubectl get -n default -o yaml secret db-credentials",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
     def test_allows_kubectl_get_for_a_resource_that_is_not_a_secret(self):
         for command in [
             "kubectl get configmap -o yaml",
             "kubectl get configmap/app-config -o yaml",
             "kubectl get configmap,pod -o json",
             "kubectl get secretproviderclass -o yaml",
+            "kubectl get -o yaml configmap app-config",
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
