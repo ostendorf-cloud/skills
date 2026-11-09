@@ -288,13 +288,20 @@ def _strip_simple_wrapper(part: str) -> str:
     return part
 
 
+def token_name(token: str) -> str:
+    """The basename of an already split command token, so `/opt/homebrew/bin/gh` and
+    `gh` both resolve to "gh". Every check that compares the first token of a command
+    to a tool name goes through this, so an absolute path never bypasses it."""
+    return os.path.basename(token)
+
+
 def command_name(part: str) -> str:
     """The basename of the first token in part, so `/opt/homebrew/bin/gh` and `gh`
     both resolve to "gh"."""
     tokens = part.split()
     if not tokens:
         return ""
-    return os.path.basename(tokens[0])
+    return token_name(tokens[0])
 
 
 def shell_tokens(part: str) -> list[str]:
@@ -420,9 +427,11 @@ def gh_dispatch(tokens: list[str]) -> list[str]:
     both dispatch past the flag, and the rule subcommand_tokens already applies one
     level down applies here too.
 
-    Returns [] when tokens do not start with "gh" or name no subcommand at all.
+    Returns [] when tokens do not start with "gh" or name no subcommand at all. The
+    first token is resolved to its basename, so `/opt/homebrew/bin/gh` dispatches like
+    `gh`.
     """
-    if not tokens or tokens[0] != "gh":
+    if not tokens or token_name(tokens[0]) != "gh":
         return []
     return subcommand_tokens(tokens[1:], space_form_takes_value=True)
 

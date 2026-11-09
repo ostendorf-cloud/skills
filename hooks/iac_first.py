@@ -198,7 +198,7 @@ def main() -> int:
 
     for raw_part in _common.command_parts(command):
         part = _common.strip_env_prefix(raw_part)
-        if not part.startswith("gh "):
+        if _common.command_name(part) != "gh":
             continue
 
         reason = (

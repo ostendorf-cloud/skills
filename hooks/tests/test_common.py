@@ -126,6 +126,15 @@ class GhDispatchTest(unittest.TestCase):
             _common.gh_dispatch(["gh", "label", "create", "bug"]), ["label", "create", "bug"]
         )
 
+    def test_finds_the_noun_when_gh_is_called_by_absolute_path(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "label", "create", "bug"]), ["label", "create", "bug"]
+        )
+        self.assertEqual(
+            _common.gh_dispatch(["/opt/homebrew/bin/gh", "label", "create", "bug"]),
+            ["label", "create", "bug"],
+        )
+
     def test_finds_nothing_for_another_command(self):
         self.assertEqual(_common.gh_dispatch(["kubectl", "get", "secret"]), [])
 

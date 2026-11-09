@@ -195,6 +195,24 @@ class SecretGuardTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
+    def test_denies_gh_auth_token_called_by_absolute_path(self):
+        for command in [
+            "gh auth token",
+            "/opt/homebrew/bin/gh auth token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_kubectl_secret_read_called_by_absolute_path(self):
+        for command in [
+            "kubectl get secret db-credentials -o yaml",
+            "/opt/homebrew/bin/kubectl get secret db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
     def test_denies_a_policed_part_whose_quoting_does_not_parse(self):
         for command in [
             'gh repo edit owner/repo --description "unclosed',

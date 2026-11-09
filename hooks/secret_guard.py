@@ -182,7 +182,7 @@ def gh_auth_token_violation(part: str) -> Optional[str]:
     token command.
     """
     tokens = _common.shell_tokens(part)
-    if not tokens or tokens[0] != "gh":
+    if not tokens or _common.token_name(tokens[0]) != "gh":
         return None
     dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
     if not dispatch or dispatch[0] != "auth":
@@ -220,7 +220,7 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
     `TYPE/NAME`, `TYPE.VERSION.GROUP` and comma separated spellings as well.
     """
     tokens = _common.shell_tokens(part)
-    if not tokens or tokens[0] != "kubectl":
+    if not tokens or _common.token_name(tokens[0]) != "kubectl":
         return None
     dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
     if not dispatch or dispatch[0] != "get":
