@@ -422,9 +422,8 @@ def token_name(token: str) -> str:
     A check that compares the first token of a command to a tool name resolves it
     through this, or through command_name when it still holds the raw string, so an
     absolute path does not bypass it. Most checks in secret_guard and iac_first do,
-    and git_guard and commit_message now do too; secret_guard's own commit credential
-    scan through strip_global_git_options still matches the literal `git` prefix and
-    is not covered yet."""
+    and git_guard, commit_message and secret_guard's own commit credential scan
+    through strip_global_git_options now do too."""
     return os.path.basename(token)
 
 
@@ -608,19 +607,23 @@ def gh_dispatch(tokens: list[str]) -> list[str]:
 
 
 def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:
-    """Normalises global git options out of a command part that starts with "git".
+    """Normalises global git options out of a command part whose command is git.
 
     Strips `-C <path>`, `--git-dir=<x>`, `--git-dir <x>`, `--work-tree=<x>`,
     `--work-tree <x>` and `-c <key>=<value>`, so `git -C /path push origin main` becomes
     `git push origin main`. Returns the normalised text and the `-C` path, when one was
     given, so repository dependent checks can run against that path instead of cwd.
+
+    The first token is resolved to its basename through token_name, for the comparison
+    and in the returned text, so `/usr/bin/git commit -m x` normalises to
+    `git commit -m x` and a caller anchored on the literal `git` prefix matches it.
     """
     tokens = part.split()
-    if not tokens or tokens[0] != "git":
+    if not tokens or token_name(tokens[0]) != "git":
         return part, None
 
     path: Optional[str] = None
-    kept: list[str] = [tokens[0]]
+    kept: list[str] = [token_name(tokens[0])]
     index = 1
     while index < len(tokens):
         token = tokens[index]

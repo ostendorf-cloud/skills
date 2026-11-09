@@ -279,6 +279,43 @@ class NormalizeCommandPartTest(unittest.TestCase):
         self.assertEqual(_common.normalize_command_part(""), "")
 
 
+class StripGlobalGitOptionsTest(unittest.TestCase):
+    def test_strips_the_global_options_of_a_plain_git_command(self):
+        self.assertEqual(
+            _common.strip_global_git_options(
+                "git -c core.hooksPath=/dev/null --git-dir=/srv/repo/.git commit -m 'feat: x'"
+            ),
+            ("git commit -m 'feat: x'", None),
+        )
+
+    def test_returns_the_dash_c_path_of_a_plain_git_command(self):
+        self.assertEqual(
+            _common.strip_global_git_options("git -C /srv/repo push origin main"),
+            ("git push origin main", "/srv/repo"),
+        )
+
+    def test_resolves_an_absolute_path_git_to_the_plain_command_name(self):
+        self.assertEqual(
+            _common.strip_global_git_options("/usr/bin/git commit -m 'feat: x'"),
+            ("git commit -m 'feat: x'", None),
+        )
+
+    def test_strips_the_global_options_of_an_absolute_path_git_command(self):
+        self.assertEqual(
+            _common.strip_global_git_options("/usr/bin/git -C /srv/repo commit -m 'feat: x'"),
+            ("git commit -m 'feat: x'", "/srv/repo"),
+        )
+
+    def test_leaves_a_command_whose_name_only_ends_in_git_unchanged(self):
+        self.assertEqual(
+            _common.strip_global_git_options("/usr/local/bin/mygit -C /srv/repo status"),
+            ("/usr/local/bin/mygit -C /srv/repo status", None),
+        )
+
+    def test_returns_an_empty_part_unchanged(self):
+        self.assertEqual(_common.strip_global_git_options(""), ("", None))
+
+
 class SubcommandAfterTest(unittest.TestCase):
     def test_finds_the_subcommand_behind_a_value_flag(self):
         self.assertEqual(
