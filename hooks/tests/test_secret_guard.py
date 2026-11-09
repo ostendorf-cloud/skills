@@ -199,12 +199,41 @@ class SecretGuardTest(unittest.TestCase):
         for command in [
             "kubectl get secret db-credentials -o go-template={{.data}}",
             "kubectl get secret db-credentials -o go-template-file=/tmp/secret.tpl",
+            "kubectl get secret db-credentials -o template={{.data}}",
+            "kubectl get secret db-credentials -o templatefile=/tmp/secret.tpl",
             "kubectl get secret db-credentials -o custom-columns=DATA:.data",
             "kubectl get secret db-credentials --output=custom-columns-file=/tmp/cols.txt",
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
+
+    def test_denies_kubectl_get_secret_in_the_kyaml_output_format(self):
+        for command in [
+            "kubectl get secret db-credentials -o kyaml",
+            "kubectl get secrets --output=kyaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_kubectl_get_secret_with_a_quoted_output_format(self):
+        for command in [
+            "kubectl get secret db-credentials -o 'yaml'",
+            "kubectl get secret db-credentials -o 'kyaml'",
+            'kubectl get secret db-credentials -o "go-template={{.data}}"',
+            "kubectl get secret db-credentials --output='json'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_a_quoted_output_format_that_prints_no_data_map(self):
+        for command in [
+            "kubectl get secret db-credentials -o 'name'",
+            "kubectl get secret db-credentials -o 'wide'",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
     def test_allows_kubectl_get_secret_without_a_structured_output(self):
         command = "kubectl get secret db-credentials"
@@ -223,6 +252,40 @@ class SecretGuardTest(unittest.TestCase):
         for command in [
             "kubectl get secret db-credentials -o yaml",
             "/opt/homebrew/bin/kubectl get secret db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_secret_manager_read_called_by_absolute_path(self):
+        for command in [
+            "bws secret get my-secret",
+            "/opt/homebrew/bin/bws secret get my-secret",
+            "bw get password my-item",
+            "/opt/homebrew/bin/bw get password my-item",
+            "tofu output database_password",
+            "/opt/homebrew/bin/tofu output database_password",
+            "bao kv get secret/prod/app",
+            "/opt/homebrew/bin/bao kv get secret/prod/app",
+            "vault read secret/data/app",
+            "/usr/local/bin/vault read secret/data/app",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_a_safe_secret_manager_command_called_by_absolute_path(self):
+        for command in [
+            "/opt/homebrew/bin/bws project list",
+            "/opt/homebrew/bin/bw list items",
+            "/opt/homebrew/bin/tofu plan",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
+    def test_denies_a_secret_file_read_called_by_absolute_path(self):
+        for command in [
+            "cat .env",
+            "/bin/cat .env",
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
