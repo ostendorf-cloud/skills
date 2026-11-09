@@ -149,9 +149,25 @@ class TrackerBodyTest(unittest.TestCase):
         self.assertEqual(decision(output), "deny")
         self.assertIn("attribution", reason(output))
 
+    def test_denies_a_trailer_through_a_quoted_gh_name(self):
+        for command in [
+            "\"gh\" pr comment 1 --body 'Co-Authored-By: Claude <noreply@anthropic.com>'",
+            '"/opt/homebrew/bin/gh" pr comment 1 --body '
+            "'Co-Authored-By: Claude <noreply@anthropic.com>'",
+        ]:
+            output = run_hook("tracker_body.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+            self.assertIn("attribution", reason(output))
+
+    def test_allows_a_quoted_command_whose_name_only_ends_in_gh(self):
+        command = "\"/usr/local/bin/mygh\" pr comment 1 --body 'Co-Authored-By: Claude'"
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
     def test_resolves_command_name_to_the_basename(self):
         self.assertEqual(_common.command_name("/opt/homebrew/bin/gh pr comment 1"), "gh")
         self.assertEqual(_common.command_name("gh pr comment 1"), "gh")
+        self.assertEqual(_common.command_name('"/opt/homebrew/bin/gh" pr comment 1'), "gh")
+        self.assertEqual(_common.command_name('"gh" pr comment 1'), "gh")
         self.assertEqual(_common.command_name(""), "")
 
     def test_allows_a_quoted_trailer_in_a_code_span(self):

@@ -36,6 +36,28 @@ class PreferOpenTofuTest(unittest.TestCase):
                 command,
             )
 
+    def test_denies_terraform_behind_a_quoted_name_or_a_wrapper(self):
+        repo = git_repo()
+        for command in [
+            '"terraform" plan',
+            "/usr/local/bin/terraform plan",
+            "sudo -u ci terraform apply",
+            "nice -n 10 terraform apply",
+            "mise exec -- terraform plan",
+        ]:
+            self.assertEqual(
+                decision(run_hook("prefer_opentofu.py", bash_payload(command, repo))),
+                "deny",
+                command,
+            )
+
+    def test_allows_a_command_whose_name_only_ends_in_terraform(self):
+        repo = git_repo()
+        for command in ["myterraform plan", "terraformer import aws", "tfterraform plan"]:
+            self.assertIsNone(
+                decision(run_hook("prefer_opentofu.py", bash_payload(command, repo))), command
+            )
+
     def test_allows_terraform_when_configured(self):
         repo = git_repo({"iac": "terraform"})
         self.assertIsNone(

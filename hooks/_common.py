@@ -210,9 +210,70 @@ def _find_closing_run(text: str, start: int, run_length: int) -> Optional[tuple[
         position = run.end()
 
 
+def shell_words(part: str) -> list[str]:
+    """part split into words on the whitespace a shell splits on, the quoting left in
+    place, so each word still reads as it was written and rejoining them gives the
+    command back.
+
+    Whitespace inside quotes or behind a backslash does not split a word, so
+    `FOO="a b" git push` is three words and `"/usr/bin/git" push` is two. Falls back to
+    a plain whitespace split when a quote is left open, so a caller gets the words it
+    got before and never has to guard the split itself.
+
+    shlex cannot do this: its posix mode resolves the quoting away, which a caller that
+    rebuilds the command needs kept, and its non-posix mode only honours a quote that
+    opens a word, so it splits `FOO="a b"` in two.
+    """
+    words: list[str] = []
+    current: list[str] = []
+    quote = ""
+    escaped = False
+    for char in part:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+        elif quote:
+            current.append(char)
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            current.append(char)
+            quote = char
+        elif char.isspace():
+            if current:
+                words.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if quote:
+        return part.split()
+    if current:
+        words.append("".join(current))
+    return words
+
+
+def unquote_word(word: str) -> str:
+    """word with its own quoting resolved, so `"/usr/bin/git"` and `'git'` both read as
+    the binary they name.
+
+    A command whose first word is quoted still runs that binary, so a check that
+    compares the word to a tool name resolves it through this first. The quote
+    characters are removed outright when the word does not parse on its own, so an
+    unbalanced quote resolves to a name rather than to nothing a check can match.
+    """
+    try:
+        resolved = shlex.split(word)
+    except ValueError:
+        return word.replace('"', "").replace("'", "")
+    return resolved[0] if resolved else ""
+
+
 def strip_env_prefix(part: str) -> str:
     """Removes leading environment assignments ("VAR=value") from a command part."""
-    tokens = part.split()
+    tokens = shell_words(part)
     while tokens and _looks_like_assignment(tokens[0]):
         tokens = tokens[1:]
     return " ".join(tokens)
@@ -229,7 +290,50 @@ def _looks_like_assignment(token: str) -> bool:
     )
 
 
-SIMPLE_WRAPPERS = ("time", "nice", "nohup", "command", "exec")
+# The wrappers that run another command, each with the flags it takes its own value
+# for in front of that command. A flag listed here swallows the word behind it, any
+# other word starting with `-` is skipped on its own because it carries its value in
+# the same word or takes none, and a `--` ends the wrapper's flags.
+#
+# The flags come from each tool's manual: `nice [-n increment] utility` plus GNU's
+# `--adjustment=N` and its obsolete `-N` form, `nohup [--] utility` with no flags of
+# its own on either BSD or GNU, `sudo`'s nine value options, and `doas [-Lns] [-a
+# style] [-C config] [-u user]`. `time`, `command` and `exec` take no value flag worth
+# listing, and an unknown flag on any of them is skipped alone.
+#
+# `sudo` and `doas` sit here as ordinary wrappers rather than as a category of their
+# own: these hooks police what a command does, not who runs it, so a deny that applies
+# to `git push --force origin main` has to apply to the same push behind a privilege
+# escalation prefix. Whether the escalation itself is allowed at all is a permission
+# question and belongs in the settings allow list, not in a hook.
+WRAPPER_VALUE_FLAGS: dict[str, tuple[str, ...]] = {
+    "time": (),
+    "command": (),
+    "exec": (),
+    "nohup": (),
+    "nice": ("-n", "--adjustment"),
+    "sudo": (
+        "-C",
+        "-D",
+        "-g",
+        "-h",
+        "-p",
+        "-R",
+        "-T",
+        "-u",
+        "-U",
+        "--close-from",
+        "--chdir",
+        "--group",
+        "--host",
+        "--prompt",
+        "--chroot",
+        "--command-timeout",
+        "--user",
+        "--other-user",
+    ),
+    "doas": ("-a", "-C", "-u"),
+}
 
 
 def strip_wrappers(part: str) -> str:
@@ -239,9 +343,13 @@ def strip_wrappers(part: str) -> str:
     Strips, in any combination and order: bare leading assignments through
     strip_env_prefix, `mise exec --`, `mise x --`, `mise exec <tool> --` where the
     tool spec is a single token with no spaces, `env` followed by zero or more
-    `NAME=value` assignments, and the single word wrappers `time`, `nice`, `nohup`,
-    `command` and `exec`. A wrapper that takes its own flags before the wrapped
-    command, such as `timeout 5`, is out of scope and is left in place.
+    `NAME=value` assignments, and every wrapper in WRAPPER_VALUE_FLAGS together with
+    the flags it takes of its own, so `nice -n 10` and `sudo -u ci` are stripped as
+    well as the bare names. A wrapper not listed there, such as `timeout 5`, is left
+    in place.
+
+    Each wrapper name is read through unquote_word and its basename, so `"sudo"` and
+    `/usr/bin/nice` are recognised the same as the bare names.
     """
     previous = None
     current = part
@@ -250,15 +358,15 @@ def strip_wrappers(part: str) -> str:
         current = strip_env_prefix(current)
         current = _strip_mise_exec(current)
         current = _strip_env_command(current)
-        current = _strip_simple_wrapper(current)
+        current = _strip_flagged_wrapper(current)
     return current
 
 
 def _strip_mise_exec(part: str) -> str:
     """Removes a leading `mise exec --`, `mise x --` or `mise exec <tool> --` from
     part, the tool a single token with no spaces."""
-    tokens = part.split()
-    if len(tokens) < 2 or tokens[0] != "mise":
+    tokens = shell_words(part)
+    if len(tokens) < 2 or _resolved_name(tokens[0]) != "mise":
         return part
     if tokens[1] in ("exec", "x") and len(tokens) >= 3 and tokens[2] == "--":
         return " ".join(tokens[3:])
@@ -270,8 +378,8 @@ def _strip_mise_exec(part: str) -> str:
 def _strip_env_command(part: str) -> str:
     """Removes a leading `env` together with any `NAME=value` assignments that
     follow it from part."""
-    tokens = part.split()
-    if not tokens or tokens[0] != "env":
+    tokens = shell_words(part)
+    if not tokens or _resolved_name(tokens[0]) != "env":
         return part
     index = 1
     while index < len(tokens) and _looks_like_assignment(tokens[index]):
@@ -279,13 +387,32 @@ def _strip_env_command(part: str) -> str:
     return " ".join(tokens[index:])
 
 
-def _strip_simple_wrapper(part: str) -> str:
-    """Removes a single leading wrapper word that takes no flags of its own, such as
-    `time` or `exec`, from part."""
-    tokens = part.split()
-    if tokens and tokens[0] in SIMPLE_WRAPPERS:
-        return " ".join(tokens[1:])
-    return part
+def _strip_flagged_wrapper(part: str) -> str:
+    """Removes a single leading wrapper named in WRAPPER_VALUE_FLAGS from part,
+    together with the flags that wrapper takes of its own, so `nice -n 10 git push`
+    leaves `git push` and the bare `nice git push` leaves it too."""
+    tokens = shell_words(part)
+    if not tokens:
+        return part
+    value_flags = WRAPPER_VALUE_FLAGS.get(_resolved_name(tokens[0]))
+    if value_flags is None:
+        return part
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            index += 1
+            break
+        if not token.startswith("-"):
+            break
+        index += 2 if token in value_flags else 1
+    return " ".join(tokens[index:])
+
+
+def _resolved_name(token: str) -> str:
+    """The plain command name a single command word names, its quoting resolved and
+    its path removed, so `"/usr/bin/nice"` reads as `nice`."""
+    return token_name(unquote_word(token))
 
 
 def token_name(token: str) -> str:
@@ -302,12 +429,16 @@ def token_name(token: str) -> str:
 
 
 def command_name(part: str) -> str:
-    """The basename of the first token in part, so `/opt/homebrew/bin/gh` and `gh`
-    both resolve to "gh"."""
-    tokens = part.split()
+    """The plain name of the command part runs, so `/opt/homebrew/bin/gh`, `gh` and
+    `"/opt/homebrew/bin/gh"` all resolve to "gh".
+
+    The first word is taken with the quoting respected and then resolved through
+    unquote_word, because a quoted binary name runs the same binary as the bare one
+    and every check that gates on this name has to see it."""
+    tokens = shell_words(part)
     if not tokens:
         return ""
-    return token_name(tokens[0])
+    return _resolved_name(tokens[0])
 
 
 def normalize_command_part(part: str) -> str:
@@ -316,18 +447,19 @@ def normalize_command_part(part: str) -> str:
     `git push --force origin main` and a check anchored on the tool name matches it.
 
     strip_wrappers removes the leading `NAME=value` assignments, `env`, `mise exec --`
-    and the single word wrappers it lists. The first token of what remains is replaced
-    by its basename through command_name.
+    and the wrappers it lists, their own flags included. The first word of what remains
+    is replaced by the plain command name through command_name, its quoting resolved,
+    so `"/usr/bin/git" push` normalises like the bare spelling.
 
-    Only the first token is rewritten and no argument loses a character, but the part is
-    rebuilt from its tokens, so a run of whitespace between two tokens collapses to a
+    Only the first word is rewritten and no argument loses a character, but the part is
+    rebuilt from its words, so a run of whitespace between two of them collapses to a
     single space. A caller that needs the original spacing reads the raw part instead.
 
     A hook whose checks expect the literal tool name calls this once in front of them
     rather than resolving the name again in every rule.
     """
     stripped = strip_wrappers(part)
-    tokens = stripped.split()
+    tokens = shell_words(stripped)
     if not tokens:
         return stripped
     return " ".join([command_name(stripped), *tokens[1:]])

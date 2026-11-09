@@ -136,12 +136,18 @@ def prints_secret(part: str) -> str:
 def resolve_command_name(part: str) -> str:
     """part with the leading path stripped off its command name, so
     `/opt/homebrew/bin/tofu output db_password` becomes `tofu output db_password` and a
-    pattern anchored on the tool name matches it. Only the first token is touched, every
-    argument stays as written."""
-    tokens = part.split()
+    pattern anchored on the tool name matches it. Only the first word is touched, every
+    argument stays as written.
+
+    The name is read through `_common.command_name`, so a quoted spelling such as
+    `"/opt/homebrew/bin/tofu"` resolves the same as the bare one. A wrapper prefix such
+    as `sudo` or `time` is not stripped here, unlike in git_guard and commit_message:
+    this hook's other checks match on the raw part, `env` and `printenv` among the
+    commands they match, so the parts cannot be normalised once for all of them."""
+    tokens = _common.shell_words(part)
     if not tokens:
         return part
-    return " ".join([_common.token_name(tokens[0]), *tokens[1:]])
+    return " ".join([_common.command_name(part), *tokens[1:]])
 
 
 def strip_tofu_global_options(part: str) -> str:

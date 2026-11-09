@@ -251,6 +251,48 @@ class ShellHygieneTest(unittest.TestCase):
         command = 'mise exec -- python3 -c "print(1)"'
         self.assertIsNone(decision(run_hook("shell_hygiene.py", bash_payload(command))))
 
+    def test_denies_an_inline_write_through_a_flagged_or_escalating_wrapper(self):
+        for command in [
+            """nice -n 10 python3 -c 'open("a", "w").write("x")'""",
+            """nohup -- python3 -c 'open("a", "w").write("x")'""",
+            """sudo python3 -c 'open("a", "w").write("x")'""",
+            """sudo -u ci python3 -c 'open("a", "w").write("x")'""",
+            """doas python3 -c 'open("a", "w").write("x")'""",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_in_place_edit_and_a_tee_through_a_flagged_or_escalating_wrapper(self):
+        for command in [
+            "nice -n 10 sed -i '' 's/a/b/' x.go",
+            "sudo sed -i '' 's/a/b/' x.go",
+            "nice -n 10 tee notes.md",
+            "sudo tee /etc/hosts",
+            "doas tee /etc/hosts",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_heredoc_piped_into_an_interpreter_behind_a_flagged_wrapper(self):
+        for command in [
+            "cat <<'PY' | nice -n 10 python3\nprint(1)\nPY",
+            "cat <<'PY' | sudo python3\nprint(1)\nPY",
+        ]:
+            self.assertEqual(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_a_read_only_inline_call_through_a_flagged_wrapper(self):
+        for command in [
+            'nice -n 10 python3 -c "print(1)"',
+            'sudo python3 -c "print(1)"',
+        ]:
+            self.assertIsNone(
+                decision(run_hook("shell_hygiene.py", bash_payload(command))), command
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
