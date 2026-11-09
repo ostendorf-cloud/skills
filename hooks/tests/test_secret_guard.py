@@ -195,6 +195,21 @@ class SecretGuardTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
+    def test_denies_kubectl_get_secret_with_a_templated_output_format(self):
+        for command in [
+            "kubectl get secret db-credentials -o go-template={{.data}}",
+            "kubectl get secret db-credentials -o go-template-file=/tmp/secret.tpl",
+            "kubectl get secret db-credentials -o custom-columns=DATA:.data",
+            "kubectl get secret db-credentials --output=custom-columns-file=/tmp/cols.txt",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_kubectl_get_secret_without_a_structured_output(self):
+        command = "kubectl get secret db-credentials"
+        self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))
+
     def test_denies_gh_auth_token_called_by_absolute_path(self):
         for command in [
             "gh auth token",

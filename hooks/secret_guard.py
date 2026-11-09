@@ -72,6 +72,11 @@ BW_VALUE_FLAGS = frozenset({"--session"})
 
 KUBECTL_SECRET_NOUNS = frozenset({"secret", "secrets"})
 KUBECTL_OUTPUT_FORMAT = re.compile(r"(-o|--output)[\s=]+([A-Za-z-]+)")
+# The output formats that render the secret's data map, and so its decoded value, into
+# the transcript. Matched as prefixes: `yaml` covers `yaml` itself, `json` covers
+# `json` and `jsonpath`, `go-template` covers `go-template-file` and `custom-columns`
+# covers `custom-columns-file`. `name` and `wide` print no data map and stay allowed.
+KUBECTL_SECRET_FORMATS = ("yaml", "json", "go-template", "custom-columns")
 
 FILE_READERS = {"cat", "head", "tail", "less", "grep"}
 SECRET_FILENAME = re.compile(
@@ -232,7 +237,7 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
     if not match:
         return None
     fmt = match.group(2).lower()
-    if fmt.startswith("yaml") or fmt.startswith("json"):
+    if fmt.startswith(KUBECTL_SECRET_FORMATS):
         return f"kubectl get secret -o {fmt} prints the decoded secret value. {NEVER_PRINT}"
     return None
 
