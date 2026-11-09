@@ -108,5 +108,28 @@ class SubcommandAfterTest(unittest.TestCase):
         )
 
 
+class MalformedQuotingViolationTest(unittest.TestCase):
+    def test_denies_a_policed_command_whose_quoting_does_not_parse(self):
+        reason = _common.malformed_quoting_violation('gh repo edit owner/repo --description "unc')
+        self.assertIsNotNone(reason)
+        self.assertIn("quoting is unbalanced", reason)
+
+    def test_allows_a_policed_command_whose_quoting_parses(self):
+        self.assertIsNone(
+            _common.malformed_quoting_violation("gh repo edit owner/repo --description 'new'")
+        )
+
+    def test_allows_an_unparseable_command_that_is_not_policed(self):
+        self.assertIsNone(_common.malformed_quoting_violation('jq --arg name "unclosed'))
+
+    def test_allows_an_empty_part(self):
+        self.assertIsNone(_common.malformed_quoting_violation(""))
+
+    def test_finds_a_policed_command_behind_its_absolute_path(self):
+        self.assertIsNotNone(
+            _common.malformed_quoting_violation('/opt/homebrew/bin/gh repo edit -d "unc')
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

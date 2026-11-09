@@ -3,8 +3,9 @@
 """Shared helpers for the skills repository hooks.
 
 Covers reading the hook payload, splitting a shell command into parts, finding the
-subcommand behind the flags in front of it, stripping fenced and inline code from
-text, finding the repository root and its default branch, reading
+subcommand behind the flags in front of it, denying a policed command whose own
+quoting does not parse, stripping fenced and inline code from text, finding the
+repository root and its default branch, reading
 `.agent-skills.json`, and emitting the deny or context JSON the hook protocol
 expects.
 """
@@ -303,6 +304,53 @@ def shell_tokens(part: str) -> list[str]:
         return shlex.split(part)
     except ValueError:
         return []
+
+
+# Tools these hooks police closely enough that malformed quoting around their
+# arguments must not silently pass the command through unexamined.
+POLICED_COMMANDS = frozenset(
+    {
+        "gh",
+        "tofu",
+        "bao",
+        "vault",
+        "bws",
+        "bw",
+        "kubectl",
+        "git",
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "grep",
+        "echo",
+        "printf",
+        "printenv",
+        "env",
+    }
+)
+
+
+def malformed_quoting_violation(part: str) -> Optional[str]:
+    """The deny reason when part names a policed command but its own quoting does not
+    parse, so none of the tokenised checks that police that command can see what it
+    actually runs.
+
+    shell_tokens returns [] on a ValueError the same way it does for an empty or flag
+    only command, so a caller that only checks "did a specific violation match" would
+    silently let a malformed, unparseable command through unexamined. This runs first,
+    before any of those checks, and catches that case instead.
+    """
+    if command_name(part) not in POLICED_COMMANDS:
+        return None
+    try:
+        shlex.split(part)
+    except ValueError:
+        return (
+            f"{part!r} does not parse as a shell command, the quoting is unbalanced, "
+            "so this hook cannot verify it is safe. Fix the quoting."
+        )
+    return None
 
 
 def subcommand_tokens(
