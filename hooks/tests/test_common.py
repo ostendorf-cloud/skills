@@ -263,6 +263,44 @@ class StripWrappersTest(unittest.TestCase):
             "/srv git push --force origin main",
         )
 
+    def test_reads_a_boolean_long_flag_as_taking_no_following_word(self):
+        for part in [
+            "sudo --login git push --force origin main",
+            "sudo --list git push --force origin main",
+            "sudo --preserve-env git push --force origin main",
+            "sudo --non-interactive git push --force origin main",
+            "nice --help git push --force origin main",
+            "nohup --version git push --force origin main",
+            "time --append git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_prefers_an_exact_boolean_long_flag_over_a_value_flag_it_abbreviates(self):
+        self.assertEqual(
+            _common.strip_wrappers("sudo --login git push --force origin main"),
+            _common.strip_wrappers("sudo -i git push --force origin main"),
+        )
+
+    def test_strips_a_long_value_flag_a_boolean_flag_abbreviates(self):
+        for part in [
+            "sudo --login-class admin git push --force origin main",
+            "sudo --login-class=admin git push --force origin main",
+            "sudo --login-c admin git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_leaves_an_abbreviation_ambiguous_across_boolean_and_value_flags_alone(self):
+        for part in [
+            "sudo --log git push --force origin main",
+            "sudo --h git push --force origin main",
+            "sudo --p git push --force origin main",
+            "time --v git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_an_abbreviated_flag_that_runs_no_command_to_nothing(self):
+        self.assertEqual(_common.strip_wrappers("sudo --edi /etc/sudoers"), "")
+
     def test_strips_a_wrapper_that_runs_no_command_to_nothing(self):
         for part in [
             "sudo -e /etc/sudoers",

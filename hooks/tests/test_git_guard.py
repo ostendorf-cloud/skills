@@ -388,6 +388,30 @@ class GitGuardTest(unittest.TestCase):
                 decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
             )
 
+    def test_denies_a_force_push_behind_a_boolean_long_wrapper_flag(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo --login git push --force origin feat/thing",
+            "sudo --list git push --force origin feat/thing",
+            "sudo --preserve-env git push --force origin feat/thing",
+            "nice --help git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_the_value_flag_a_boolean_flag_abbreviates(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo --login-class admin git push --force origin feat/thing",
+            "sudo --login-class=admin git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
     def test_allows_a_wrapper_that_runs_no_command(self):
         repo = git_repo()
         checkout_feature(repo)
