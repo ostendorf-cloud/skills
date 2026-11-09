@@ -145,8 +145,8 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
 
     for raw_part in _common.command_parts(command):
-        part = _common.strip_env_prefix(raw_part)
-        if not part.startswith("git "):
+        part = _common.normalize_command_part(raw_part)
+        if part.split(" ", 1)[0] != "git":
             continue
 
         normalized, git_path = _common.strip_global_git_options(part)

@@ -132,7 +132,7 @@ def main() -> int:
     git_path: Optional[str] = None
     is_commit = False
     for raw_part in _common.command_parts(command):
-        part = _common.strip_env_prefix(raw_part)
+        part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
         if normalized.startswith("git commit") or normalized == "git commit":
             is_commit = True
