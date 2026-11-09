@@ -126,21 +126,6 @@ def branch_delete_violation(part: str, default: str) -> Optional[str]:
     return None
 
 
-def resolve_command_name(part: str) -> str:
-    """part with the leading path stripped off its command name, so
-    `/usr/bin/git push --force origin main` becomes `git push --force origin main` and the
-    checks anchored on the tool name match it. Only the first token is touched, every
-    argument stays as written.
-
-    The checks below and strip_global_git_options all expect the literal `git`, so the
-    resolution happens once in front of them rather than in each one.
-    """
-    tokens = part.split()
-    if not tokens:
-        return part
-    return " ".join([_common.command_name(part), *tokens[1:]])
-
-
 def bypass_violation(part: str) -> Optional[str]:
     """The deny reason when part skips hooks or commit signing."""
     if BYPASS_FLAGS.search(part):
@@ -160,8 +145,8 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
 
     for raw_part in _common.command_parts(command):
-        part = resolve_command_name(_common.strip_env_prefix(raw_part))
-        if _common.command_name(part) != "git":
+        part = _common.normalize_command_part(raw_part)
+        if part.split(" ", 1)[0] != "git":
             continue
 
         normalized, git_path = _common.strip_global_git_options(part)

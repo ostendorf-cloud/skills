@@ -297,6 +297,29 @@ def command_name(part: str) -> str:
     return os.path.basename(tokens[0])
 
 
+def normalize_command_part(part: str) -> str:
+    """part with its wrapper prefixes removed and its command name reduced to the plain
+    basename, so `mise exec -- /usr/bin/git push --force origin main` becomes
+    `git push --force origin main` and a check anchored on the tool name matches it.
+
+    strip_wrappers removes the leading `NAME=value` assignments, `env`, `mise exec --`
+    and the single word wrappers it lists. The first token of what remains is replaced
+    by its basename through command_name.
+
+    Only the first token is rewritten and no argument loses a character, but the part is
+    rebuilt from its tokens, so a run of whitespace between two tokens collapses to a
+    single space. A caller that needs the original spacing reads the raw part instead.
+
+    A hook whose checks expect the literal tool name calls this once in front of them
+    rather than resolving the name again in every rule.
+    """
+    stripped = strip_wrappers(part)
+    tokens = stripped.split()
+    if not tokens:
+        return stripped
+    return " ".join([command_name(stripped), *tokens[1:]])
+
+
 def shell_tokens(part: str) -> list[str]:
     """part split into tokens the way a shell splits it, quotes resolved. [] when the
     quoting does not parse, so a caller never has to guard the split itself."""

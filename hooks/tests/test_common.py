@@ -76,6 +76,42 @@ class StripWrappersTest(unittest.TestCase):
         )
 
 
+class NormalizeCommandPartTest(unittest.TestCase):
+    def test_replaces_an_absolute_path_with_the_plain_command_name(self):
+        self.assertEqual(
+            _common.normalize_command_part("/usr/bin/git push --force origin main"),
+            "git push --force origin main",
+        )
+
+    def test_strips_wrapper_prefixes_in_front_of_the_command_name(self):
+        for part in [
+            "time git push --force origin main",
+            "command git push --force origin main",
+            "env git push --force origin main",
+            "exec /usr/bin/git push --force origin main",
+            "nohup git push --force origin main",
+            "nice git push --force origin main",
+            "mise exec -- git push --force origin main",
+            "time env GIT_PAGER=cat nohup /usr/bin/git push --force origin main",
+        ]:
+            self.assertEqual(
+                _common.normalize_command_part(part), "git push --force origin main", part
+            )
+
+    def test_leaves_a_plain_command_as_written(self):
+        for part in ["git push origin main", "git commit -m 'feat: x'", "git status"]:
+            self.assertEqual(_common.normalize_command_part(part), part, part)
+
+    def test_keeps_a_command_whose_name_only_ends_in_the_tool_name(self):
+        self.assertEqual(
+            _common.normalize_command_part("/usr/local/bin/mygit push --force origin main"),
+            "mygit push --force origin main",
+        )
+
+    def test_returns_an_empty_part_unchanged(self):
+        self.assertEqual(_common.normalize_command_part(""), "")
+
+
 class SubcommandAfterTest(unittest.TestCase):
     def test_finds_the_subcommand_behind_a_value_flag(self):
         self.assertEqual(

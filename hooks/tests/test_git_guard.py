@@ -244,6 +244,59 @@ class GitGuardTest(unittest.TestCase):
                 decision(run_hook("git_guard.py", bash_payload(command, repo))), command
             )
 
+    def test_denies_a_force_push_behind_a_wrapper_prefix(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "time git push --force origin feat/thing",
+            "command git push --force origin feat/thing",
+            "env git push --force origin feat/thing",
+            "exec /usr/bin/git push --force origin feat/thing",
+            "nohup git push --force origin feat/thing",
+            "nice git push --force origin feat/thing",
+            "mise exec -- git push --force origin feat/thing",
+            "mise exec git@latest -- git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_default_branch_push_and_delete_behind_a_wrapper_prefix(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "time git push origin main",
+            "env git push --force-with-lease origin main",
+            "mise exec -- git branch -D main",
+            "nohup git push --mirror origin",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_hook_bypass_behind_a_wrapper_prefix(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "time git commit --no-verify -m 'feat: add valkey module'",
+            "command git commit --no-gpg-sign -m 'feat: add valkey module'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_allows_a_feature_branch_push_behind_a_wrapper_prefix(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "time git push origin feat/thing",
+            "env git push --force-with-lease origin feat/thing",
+            "mise exec -- git status",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), command
+            )
+
     def test_allows_another_command_whose_name_ends_in_git(self):
         repo = git_repo()
         checkout_feature(repo)

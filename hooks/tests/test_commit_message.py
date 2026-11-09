@@ -135,6 +135,41 @@ class CommitMessageTest(unittest.TestCase):
                 decision(run_hook("commit_message.py", bash_payload(command))), command
             )
 
+    def test_denies_a_non_conventional_subject_behind_a_wrapper_prefix(self):
+        for command in [
+            "time git commit -m 'added some stuff'",
+            "command git commit -m 'added some stuff'",
+            "env git commit -m 'added some stuff'",
+            "exec /usr/bin/git commit -m 'added some stuff'",
+            "nohup git commit -m 'added some stuff'",
+            "nice git commit -m 'added some stuff'",
+            "mise exec -- git commit -m 'added some stuff'",
+            "mise exec git@latest -- git commit -m 'added some stuff'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_attribution_line_behind_a_wrapper_prefix(self):
+        command = (
+            "time git commit -m \"$(cat <<'EOF'\n"
+            "feat: add thing\n\n"
+            "Co-Authored-By: Claude <noreply@anthropic.com>\n"
+            'EOF\n)"'
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_a_conventional_subject_behind_a_wrapper_prefix(self):
+        for command in [
+            "time git commit -m 'feat: add valkey module'",
+            "mise exec -- git commit --amend --no-edit",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
     def test_allows_another_command_whose_name_ends_in_git(self):
         for command in [
             "legit commit -m 'added some stuff'",
