@@ -416,6 +416,25 @@ class SecretGuardTest(unittest.TestCase):
             "deny",
         )
 
+    def test_denies_staging_a_forbidden_file_for_a_commit_called_by_absolute_path(self):
+        for command in [
+            "git commit -m 'chore: add config'",
+            "/usr/bin/git commit -m 'chore: add config'",
+        ]:
+            repo = git_repo()
+            stage(repo, ".env", "API_KEY=value\n")
+            self.assertEqual(
+                decision(
+                    run_hook(
+                        "secret_guard.py",
+                        bash_payload(command, repo),
+                        env=no_gitleaks_env(),
+                    )
+                ),
+                "deny",
+                command,
+            )
+
     def test_allows_an_ordinary_commit(self):
         repo = git_repo()
         stage(repo, "notes.md", "nothing secret here\n")
