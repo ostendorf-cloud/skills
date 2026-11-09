@@ -294,10 +294,10 @@ def token_name(token: str) -> str:
 
     A check that compares the first token of a command to a tool name resolves it
     through this, or through command_name when it still holds the raw string, so an
-    absolute path does not bypass it. Most checks in secret_guard and iac_first do;
-    git_guard, commit_message, and secret_guard's own commit credential scan through
-    strip_global_git_options still match the literal `git` prefix and are not covered
-    yet."""
+    absolute path does not bypass it. Most checks in secret_guard and iac_first do,
+    and git_guard and commit_message now do too; secret_guard's own commit credential
+    scan through strip_global_git_options still matches the literal `git` prefix and
+    is not covered yet."""
     return os.path.basename(token)
 
 
