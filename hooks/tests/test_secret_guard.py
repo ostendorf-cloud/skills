@@ -83,6 +83,33 @@ class SecretGuardTest(unittest.TestCase):
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_commands_that_print_secrets_with_flag_before_subcommand(self):
+        for command in [
+            "tofu -chdir=infra/prod output database_password",
+            "tofu -chdir=infra/prod state show module.app.resource",
+            "tofu -chdir=infra/prod state pull",
+            "bws -o env secret get my-secret",
+            "bws secret -o env get my-secret",
+            "bws --profile prod secret list",
+            "bw --raw get password my-item",
+            "bw --session $BW_SESSION get item my-item",
+            "gh auth --hostname github.com token",
+            "gh auth --hostname=github.com token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_safe_commands_with_flag_before_subcommand(self):
+        for command in [
+            "tofu -chdir=infra/prod plan",
+            "tofu -chdir=infra/prod state list",
+            "bws -o table project list",
+            "bw --raw list items",
+            "gh auth --hostname github.com status",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
     def test_denies_kubectl_get_secret_with_structured_output(self):
         for command in [
             "kubectl get secret db-credentials -o yaml",

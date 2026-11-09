@@ -7,11 +7,13 @@ mutation through `gh api graphql`, `gh release` where the repository's release t
 (release-me or release-please) owns releases, and `gh repo rename`, `gh repo
 set-default`, `gh alias` or `gh extension`, which run arbitrary code or point the CLI
 somewhere else entirely.
+
+Every `gh` check finds the subcommand behind the flags in front of it, so a flag
+placed between the noun and the subcommand does not hide the command.
 """
 
 import os
 import re
-import shlex
 import sys
 from typing import Optional
 
@@ -20,13 +22,6 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-GH_REPO = re.compile(r"^gh\s+repo\s+(edit|delete|create|rename|set-default)\b")
-GH_LABEL_PREFIX = re.compile(r"^gh\s+label\b")
-GH_SECRET = re.compile(r"^gh\s+secret\s+(set|delete|remove)\b")
-GH_VARIABLE = re.compile(r"^gh\s+variable\s+(set|delete)\b")
-GH_RELEASE = re.compile(r"^gh\s+release\s+(create|delete|edit|upload)\b")
-GH_ALIAS = re.compile(r"^gh\s+alias\s+(set|delete|import)\b")
-GH_EXTENSION = re.compile(r"^gh\s+extension\s+(install|exec|upgrade|remove)\b")
 GH_API = re.compile(r"^gh\s+api\b")
 GH_API_GRAPHQL = re.compile(r"^gh\s+api\s+graphql\b")
 GRAPHQL_MUTATION = re.compile(r"\bmutation\b", re.IGNORECASE)
@@ -50,8 +45,19 @@ API_VALUE_FLAGS = {
 }
 WRITE_METHODS = {"PATCH", "PUT", "DELETE", "POST"}
 
-GH_LABEL_MUTATIONS = {"create", "edit", "delete", "clone"}
-GH_LABEL_VALUE_FLAGS = {"-R", "--repo"}
+# The subcommands of each `gh` noun that change infrastructure as code, and of the two
+# nouns that point the CLI at arbitrary code.
+GH_IAC_MUTATIONS = {
+    "repo": {"create", "delete", "edit", "rename", "set-default"},
+    "label": {"clone", "create", "delete", "edit"},
+    "secret": {"delete", "remove", "set"},
+    "variable": {"delete", "set"},
+}
+GH_CODE_MUTATIONS = {
+    "alias": {"delete", "import", "set"},
+    "extension": {"exec", "install", "remove", "upgrade"},
+}
+GH_RELEASE_MUTATIONS = {"create", "delete", "edit", "upload"}
 
 API_WRITE_PATH = re.compile(
     r"^(/)?(repos/[^/]+/[^/]+(/labels|/rulesets|/branches/.*/protection|"
@@ -109,11 +115,7 @@ def gh_api_violation(part: str) -> Optional[str]:
     """The deny reason for a `gh api` part that writes a repository or org setting."""
     if not GH_API.match(part):
         return None
-    try:
-        tokens = shlex.split(part)
-    except ValueError:
-        return None
-
+    tokens = _common.shell_tokens(part)
     rest = tokens[tokens.index("api") + 1 :] if "api" in tokens else tokens[2:]
     method = gh_api_method(rest)
     if method not in WRITE_METHODS:
@@ -127,31 +129,33 @@ def gh_api_violation(part: str) -> Optional[str]:
     return None
 
 
-def gh_label_subcommand(tokens: list[str]) -> str:
-    """The subcommand `gh label` is given: its first operand, flag values skipped."""
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        if token.startswith("-"):
-            index += 2 if token in GH_LABEL_VALUE_FLAGS else 1
-            continue
-        return token
-    return ""
+def gh_noun_subcommand(part: str, noun: str) -> str:
+    """The subcommand a `gh <noun>` part dispatches to, the flags between the noun and
+    the subcommand skipped. "" when part is not `gh <noun>`, or names no subcommand.
+
+    gh is built on cobra, which skips flags while it looks up the subcommand and
+    treats a flag it does not know at that level as taking the following token as its
+    value. `gh label -R owner/repo create bug`, `gh secret --repo=owner/repo set X`
+    and `gh auth --hostname example.com token` all reach their subcommand that way, so
+    the check cannot be a regex anchored on `gh <noun> <subcommand>`. No gh noun
+    carries a persistent flag that takes no value, so there is no exception to that
+    rule.
+    """
+    tokens = _common.shell_tokens(part)
+    if len(tokens) < 3 or tokens[0] != "gh" or tokens[1] != noun:
+        return ""
+    return _common.subcommand_after(tokens[2:], space_form_takes_value=True)
 
 
-def gh_label_violation(part: str) -> Optional[str]:
-    """The deny reason for a `gh label` part whose real subcommand mutates a label,
-    regardless of flags placed between `gh label` and the subcommand."""
-    if not GH_LABEL_PREFIX.match(part):
-        return None
-    try:
-        tokens = shlex.split(part)
-    except ValueError:
-        return None
-
-    rest = tokens[tokens.index("label") + 1 :] if "label" in tokens else tokens[2:]
-    if gh_label_subcommand(rest) in GH_LABEL_MUTATIONS:
-        return IAC_REASON
+def gh_noun_violation(part: str) -> Optional[str]:
+    """The deny reason for a `gh <noun>` part whose real subcommand changes
+    infrastructure as code or points the CLI at arbitrary code."""
+    for noun, mutations in GH_IAC_MUTATIONS.items():
+        if gh_noun_subcommand(part, noun) in mutations:
+            return IAC_REASON
+    for noun, mutations in GH_CODE_MUTATIONS.items():
+        if gh_noun_subcommand(part, noun) in mutations:
+            return ALIAS_EXTENSION_REASON
     return None
 
 
@@ -167,7 +171,7 @@ def graphql_violation(part: str) -> Optional[str]:
 def release_violation(part: str, root: Optional[str]) -> Optional[str]:
     """The deny reason for a `gh release` part when the repository's release tool,
     release-me or release-please, is configured."""
-    if not GH_RELEASE.match(part):
+    if gh_noun_subcommand(part, "release") not in GH_RELEASE_MUTATIONS:
         return None
     if root and (
         os.path.isfile(os.path.join(root, "release-me.yaml"))
@@ -191,14 +195,8 @@ def main() -> int:
         if not part.startswith("gh "):
             continue
 
-        if GH_REPO.match(part) or GH_SECRET.match(part) or GH_VARIABLE.match(part):
-            return _common.deny(EVENT, IAC_REASON)
-
-        if GH_ALIAS.match(part) or GH_EXTENSION.match(part):
-            return _common.deny(EVENT, ALIAS_EXTENSION_REASON)
-
         reason = (
-            gh_label_violation(part)
+            gh_noun_violation(part)
             or graphql_violation(part)
             or gh_api_violation(part)
             or release_violation(part, root)

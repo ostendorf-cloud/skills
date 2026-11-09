@@ -63,6 +63,7 @@ class IacFirstTest(unittest.TestCase):
         for command in [
             "gh label -R owner/repo create bug",
             "gh label --repo=owner/repo delete bug --yes",
+            "gh label --color ff0000 create bug",
         ]:
             self.assertEqual(
                 decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
@@ -72,6 +73,30 @@ class IacFirstTest(unittest.TestCase):
         self.assertIsNone(
             decision(run_hook("iac_first.py", bash_payload("gh label -R owner/repo list")))
         )
+
+    def test_denies_gh_mutation_with_flag_before_subcommand(self):
+        for command in [
+            "gh repo --description 'new description' edit ostendorf-cloud/skills",
+            "gh repo --visibility=private edit ostendorf-cloud/skills",
+            "gh secret -R ostendorf-cloud/skills set MY_SECRET --body value",
+            "gh secret --repo=ostendorf-cloud/skills delete MY_SECRET",
+            "gh variable -R ostendorf-cloud/skills set MY_VAR --body value",
+            "gh variable --repo=ostendorf-cloud/skills delete MY_VAR",
+            "gh alias --clobber=true set co 'pr checkout'",
+            "gh extension --pin v1.0.0 install owner/gh-extension",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_reads_with_flag_before_subcommand(self):
+        for command in [
+            "gh repo --branch main view ostendorf-cloud/skills",
+            "gh secret -R ostendorf-cloud/skills list",
+            "gh variable --repo=ostendorf-cloud/skills list",
+            "gh extension --force=true list",
+        ]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
 
     def test_denies_gh_api_writes_to_protected_paths(self):
         for command in [
@@ -153,6 +178,27 @@ class IacFirstTest(unittest.TestCase):
             self.assertEqual(
                 decision(run_hook("iac_first.py", bash_payload(command, repo))), "deny", command
             )
+
+    def test_denies_gh_release_with_flag_before_subcommand(self):
+        repo = git_repo(with_release_me=True)
+        for command in [
+            "gh release -R ostendorf-cloud/skills create v1.0.0",
+            "gh release --repo=ostendorf-cloud/skills edit v1.0.0",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_allows_gh_release_list_with_flag_before_subcommand(self):
+        repo = git_repo(with_release_me=True)
+        self.assertIsNone(
+            decision(
+                run_hook(
+                    "iac_first.py",
+                    bash_payload("gh release -R ostendorf-cloud/skills list", repo),
+                )
+            )
+        )
 
     def test_allows_gh_release_without_a_release_tool_configured(self):
         repo = git_repo(with_release_please=False, with_release_me=False)
