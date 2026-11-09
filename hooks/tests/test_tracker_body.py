@@ -237,6 +237,20 @@ class TrackerBodyTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))), command)
 
+    def test_denies_a_gh_part_whose_quoting_does_not_parse(self):
+        for command in [
+            'gh pr create --title x --body "Co-authored-by: Claude <noreply@anthropic.com>',
+            "gh issue comment 45 --body 'Co-Authored-By: Claude <noreply@anthropic.com>",
+            "gh --method POST api repos/owner/repo/issues/1/comments -f body='unclosed",
+        ]:
+            output = run_hook("tracker_body.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+            self.assertIn("quoting", reason(output), command)
+
+    def test_allows_a_non_gh_part_whose_quoting_does_not_parse(self):
+        command = 'jq --arg name "unclosed'
+        self.assertIsNone(decision(run_hook("tracker_body.py", bash_payload(command))))
+
     def test_denies_a_trailer_when_gh_is_called_by_its_absolute_path(self):
         command = (
             "/opt/homebrew/bin/gh pr create --title 'feat: add the valkey module' "

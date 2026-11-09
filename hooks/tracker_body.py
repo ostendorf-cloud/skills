@@ -236,6 +236,16 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
 
     for raw_part in _common.command_parts(command):
+        if _common.command_name(_common.strip_env_prefix(raw_part)) != "gh":
+            continue
+
+        # Runs before command_text, which cannot tell "does not parse" from "does not
+        # match" and returns None for both, so an unparseable gh part would otherwise
+        # reach the tracker unexamined.
+        malformed = _common.malformed_quoting_violation(strip_leading_assignments(raw_part))
+        if malformed:
+            return _common.deny(EVENT, malformed)
+
         text = command_text(raw_part, command, cwd)
         if text and carries_forbidden_text(text):
             return _common.deny(EVENT, REASON)
