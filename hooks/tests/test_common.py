@@ -62,6 +62,74 @@ class StripCodeTest(unittest.TestCase):
         self.assertIn("Co-Authored-By", stripped)
 
 
+class ShellWordsTest(unittest.TestCase):
+    def test_keeps_a_quoted_argument_in_one_word(self):
+        self.assertEqual(
+            _common.shell_words("git commit -m 'feat: add valkey module'"),
+            ["git", "commit", "-m", "'feat: add valkey module'"],
+        )
+
+    def test_keeps_a_quoted_assignment_value_in_one_word(self):
+        self.assertEqual(
+            _common.shell_words('GIT_AUTHOR_NAME="a b" git push'),
+            ['GIT_AUTHOR_NAME="a b"', "git", "push"],
+        )
+
+    def test_keeps_the_quoting_so_the_words_rejoin_to_the_command(self):
+        command = 'git commit -m "feat: add valkey module"'
+        self.assertEqual(" ".join(_common.shell_words(command)), command)
+
+    def test_keeps_an_escaped_space_in_one_word(self):
+        self.assertEqual(
+            _common.shell_words("/opt/my\\ tools/git push"),
+            ["/opt/my\\ tools/git", "push"],
+        )
+
+    def test_falls_back_to_a_whitespace_split_on_an_open_quote(self):
+        self.assertEqual(
+            _common.shell_words('git commit -m "wip'),
+            ["git", "commit", "-m", '"wip'],
+        )
+
+    def test_returns_no_words_for_an_empty_part(self):
+        self.assertEqual(_common.shell_words("   "), [])
+
+
+class CommandNameTest(unittest.TestCase):
+    def test_resolves_a_quoted_command_name(self):
+        for part in [
+            '"/usr/bin/git" push --force origin main',
+            "'/usr/bin/git' push --force origin main",
+            '"git" push --force origin main',
+            "'git' push --force origin main",
+        ]:
+            self.assertEqual(_common.command_name(part), "git", part)
+
+    def test_resolves_the_unquoted_forms_the_same(self):
+        for part in ["/usr/bin/git push --force origin main", "git push --force origin main"]:
+            self.assertEqual(_common.command_name(part), "git", part)
+
+    def test_resolves_a_name_whose_path_holds_an_escaped_space(self):
+        self.assertEqual(_common.command_name("/opt/my\\ tools/git push"), "git")
+
+    def test_resolves_a_quoted_name_left_with_an_open_quote(self):
+        self.assertEqual(_common.command_name('"git push --force origin main'), "git")
+
+    def test_keeps_a_name_that_only_ends_in_the_tool_name_apart(self):
+        for part, name in [
+            ("legit push --force origin main", "legit"),
+            ("mygit push --force origin main", "mygit"),
+            ("gitless push --force origin main", "gitless"),
+            ("git-crypt unlock", "git-crypt"),
+            ("git-town sync", "git-town"),
+            ('"/usr/local/bin/mygit" push --force origin main', "mygit"),
+        ]:
+            self.assertEqual(_common.command_name(part), name, part)
+
+    def test_returns_an_empty_name_for_an_empty_part(self):
+        self.assertEqual(_common.command_name(""), "")
+
+
 class StripWrappersTest(unittest.TestCase):
     def test_strips_a_mise_exec_prefix_with_a_tool_spec(self):
         self.assertEqual(
@@ -74,6 +142,65 @@ class StripWrappersTest(unittest.TestCase):
             _common.strip_wrappers("time env FOO=1 BAR=2 mise exec -- python3 -c 'print(1)'"),
             "python3 -c 'print(1)'",
         )
+
+    def test_strips_a_bare_wrapper_name(self):
+        for part in [
+            "time git push --force origin main",
+            "nice git push --force origin main",
+            "nohup git push --force origin main",
+            "command git push --force origin main",
+            "exec git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_a_wrapper_carrying_its_own_flags(self):
+        for part in [
+            "nice -n 10 git push --force origin main",
+            "nice -n-5 git push --force origin main",
+            "nice --adjustment=10 git push --force origin main",
+            "nice --adjustment 10 git push --force origin main",
+            "nice -10 git push --force origin main",
+            "nohup -- git push --force origin main",
+            "sudo -u ci git push --force origin main",
+            "sudo -E -n git push --force origin main",
+            "sudo --user=ci git push --force origin main",
+            "doas -u ci git push --force origin main",
+            "doas -L -n git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_a_privilege_escalation_prefix(self):
+        for part in [
+            "sudo git push --force origin main",
+            "doas git push --force origin main",
+            "sudo nice -n 10 git push --force origin main",
+            "sudo env GIT_PAGER=cat git push --force origin main",
+            "sudo GIT_PAGER=cat git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_a_wrapper_named_by_a_path_or_in_quotes(self):
+        for part in [
+            "/usr/bin/nice -n 10 git push --force origin main",
+            '"/usr/bin/sudo" git push --force origin main',
+            '"sudo" git push --force origin main',
+            "/usr/bin/env git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_a_quoted_assignment_prefix(self):
+        self.assertEqual(
+            _common.strip_wrappers('GIT_AUTHOR_NAME="a b" git push --force origin main'),
+            "git push --force origin main",
+        )
+
+    def test_leaves_a_wrapper_it_does_not_know_in_place(self):
+        for part in [
+            "timeout 5 git push --force origin main",
+            "xargs git push --force origin main",
+            "legit push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), part, part)
 
 
 class NormalizeCommandPartTest(unittest.TestCase):
@@ -102,11 +229,51 @@ class NormalizeCommandPartTest(unittest.TestCase):
         for part in ["git push origin main", "git commit -m 'feat: x'", "git status"]:
             self.assertEqual(_common.normalize_command_part(part), part, part)
 
+    def test_resolves_a_quoted_command_name(self):
+        for part in [
+            '"/usr/bin/git" push --force origin main',
+            "'/usr/bin/git' push --force origin main",
+            '"git" push --force origin main',
+            'exec "/usr/bin/git" push --force origin main',
+        ]:
+            self.assertEqual(
+                _common.normalize_command_part(part), "git push --force origin main", part
+            )
+
+    def test_strips_a_wrapper_carrying_its_own_flags_in_front_of_the_name(self):
+        for part in [
+            "nice -n 10 git push --force origin main",
+            "nohup -- git push --force origin main",
+            "sudo git push --force origin main",
+            "sudo -u ci git push --force origin main",
+            "doas git push --force origin main",
+            "/usr/bin/nice -n 10 /usr/bin/git push --force origin main",
+        ]:
+            self.assertEqual(
+                _common.normalize_command_part(part), "git push --force origin main", part
+            )
+
+    def test_keeps_a_quoted_argument_as_written(self):
+        self.assertEqual(
+            _common.normalize_command_part('"/usr/bin/git" commit -m "feat: add valkey module"'),
+            'git commit -m "feat: add valkey module"',
+        )
+
     def test_keeps_a_command_whose_name_only_ends_in_the_tool_name(self):
         self.assertEqual(
             _common.normalize_command_part("/usr/local/bin/mygit push --force origin main"),
             "mygit push --force origin main",
         )
+
+    def test_keeps_a_command_whose_name_only_ends_in_the_tool_name_behind_a_wrapper(self):
+        for part, expected in [
+            ("nice -n 10 legit push --force origin main", "legit push --force origin main"),
+            ("sudo mygit push --force origin main", "mygit push --force origin main"),
+            ('"gitless" push --force origin main', "gitless push --force origin main"),
+            ("git-crypt unlock", "git-crypt unlock"),
+            ("git-town sync", "git-town sync"),
+        ]:
+            self.assertEqual(_common.normalize_command_part(part), expected, part)
 
     def test_returns_an_empty_part_unchanged(self):
         self.assertEqual(_common.normalize_command_part(""), "")
