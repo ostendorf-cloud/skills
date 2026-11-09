@@ -76,5 +76,86 @@ class StripWrappersTest(unittest.TestCase):
         )
 
 
+class SubcommandAfterTest(unittest.TestCase):
+    def test_finds_the_subcommand_behind_a_value_flag(self):
+        self.assertEqual(
+            _common.subcommand_after(["--session", "abc123", "get", "password"], {"--session"}),
+            "get",
+        )
+
+    def test_skips_a_flag_that_carries_its_value_in_the_token(self):
+        self.assertEqual(_common.subcommand_after(["--repo=owner/repo", "create"]), "create")
+
+    def test_keeps_a_flag_that_takes_no_value_from_hiding_the_subcommand(self):
+        self.assertEqual(_common.subcommand_after(["--raw", "get", "password"]), "get")
+
+    def test_treats_an_unknown_space_form_flag_as_taking_a_value(self):
+        self.assertEqual(
+            _common.subcommand_after(["-R", "owner/repo", "create"], space_form_takes_value=True),
+            "create",
+        )
+
+    def test_finds_nothing_after_a_double_dash(self):
+        self.assertEqual(_common.subcommand_after(["--", "create"]), "")
+
+    def test_finds_nothing_in_flags_alone(self):
+        self.assertEqual(_common.subcommand_after(["--help"]), "")
+
+    def test_returns_the_subcommand_and_its_operands(self):
+        self.assertEqual(
+            _common.subcommand_tokens(["-o", "env", "secret", "get", "id"], {"-o"}),
+            ["secret", "get", "id"],
+        )
+
+
+class GhDispatchTest(unittest.TestCase):
+    def test_finds_the_noun_behind_a_flag_in_front_of_it(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "--repo", "owner/repo", "secret", "list"]),
+            ["secret", "list"],
+        )
+
+    def test_finds_the_noun_behind_a_flag_that_carries_its_value(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "--method=PATCH", "api", "repos/owner/repo"]),
+            ["api", "repos/owner/repo"],
+        )
+
+    def test_finds_the_noun_without_a_flag_in_front_of_it(self):
+        self.assertEqual(
+            _common.gh_dispatch(["gh", "label", "create", "bug"]), ["label", "create", "bug"]
+        )
+
+    def test_finds_nothing_for_another_command(self):
+        self.assertEqual(_common.gh_dispatch(["kubectl", "get", "secret"]), [])
+
+    def test_finds_nothing_for_gh_alone(self):
+        self.assertEqual(_common.gh_dispatch(["gh"]), [])
+        self.assertEqual(_common.gh_dispatch([]), [])
+
+
+class MalformedQuotingViolationTest(unittest.TestCase):
+    def test_denies_a_policed_command_whose_quoting_does_not_parse(self):
+        reason = _common.malformed_quoting_violation('gh repo edit owner/repo --description "unc')
+        self.assertIsNotNone(reason)
+        self.assertIn("quoting is unbalanced", reason)
+
+    def test_allows_a_policed_command_whose_quoting_parses(self):
+        self.assertIsNone(
+            _common.malformed_quoting_violation("gh repo edit owner/repo --description 'new'")
+        )
+
+    def test_allows_an_unparseable_command_that_is_not_policed(self):
+        self.assertIsNone(_common.malformed_quoting_violation('jq --arg name "unclosed'))
+
+    def test_allows_an_empty_part(self):
+        self.assertIsNone(_common.malformed_quoting_violation(""))
+
+    def test_finds_a_policed_command_behind_its_absolute_path(self):
+        self.assertIsNotNone(
+            _common.malformed_quoting_violation('/opt/homebrew/bin/gh repo edit -d "unc')
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

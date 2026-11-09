@@ -71,6 +71,26 @@ class LabelMoveTest(unittest.TestCase):
         command = 'gh issue edit 44 --add-label "ai: working"'
         self.assertIsNone(decision(run_hook("label_move.py", bash_payload(command))))
 
+    def test_adds_context_with_a_flag_before_the_noun(self):
+        for command in [
+            'gh --hostname github.example.com issue edit 44 --add-label "ai: done"',
+            'gh --hostname=github.example.com pr edit 12 --add-label "ai: review requested"',
+            'gh issue --repo owner/repo edit 44 --add-label "ai: working"',
+        ]:
+            message = context(run_hook("label_move.py", bash_payload(command)))
+            self.assertNotEqual(message, "", command)
+
+    def test_no_context_with_a_flag_before_the_noun_when_an_ai_label_is_removed(self):
+        command = (
+            "gh --hostname github.example.com issue edit 44 "
+            '--add-label "ai: done" --remove-label "ai: working"'
+        )
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
+    def test_no_context_with_a_flag_before_the_noun_on_a_read(self):
+        command = "gh --hostname github.example.com issue view 44 --comments"
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
     def test_unparseable_command_stays_quiet(self):
         command = 'gh issue edit 44 --add-label "ai: working'
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")

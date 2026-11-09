@@ -2,17 +2,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Shared helpers for the skills repository hooks.
 
-Covers reading the hook payload, splitting a shell command into parts, stripping
-fenced and inline code from text, finding the repository root and its default
-branch, reading `.agent-skills.json`, and emitting the deny or context JSON the
-hook protocol expects.
+Covers reading the hook payload, splitting a shell command into parts, finding the
+subcommand behind the flags in front of it, denying a policed command whose own
+quoting does not parse, stripping fenced and inline code from text, finding the
+repository root and its default branch, reading
+`.agent-skills.json`, and emitting the deny or context JSON the hook protocol
+expects.
 """
 
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+from collections.abc import Collection
 from typing import Any, Optional
 
 
@@ -291,6 +295,136 @@ def command_name(part: str) -> str:
     if not tokens:
         return ""
     return os.path.basename(tokens[0])
+
+
+def shell_tokens(part: str) -> list[str]:
+    """part split into tokens the way a shell splits it, quotes resolved. [] when the
+    quoting does not parse, so a caller never has to guard the split itself."""
+    try:
+        return shlex.split(part)
+    except ValueError:
+        return []
+
+
+# Tools these hooks police closely enough that malformed quoting around their
+# arguments must not silently pass the command through unexamined.
+POLICED_COMMANDS = frozenset(
+    {
+        "gh",
+        "tofu",
+        "bao",
+        "vault",
+        "bws",
+        "bw",
+        "kubectl",
+        "git",
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "grep",
+        "echo",
+        "printf",
+        "printenv",
+        "env",
+    }
+)
+
+
+def malformed_quoting_violation(part: str) -> Optional[str]:
+    """The deny reason when part names a policed command but its own quoting does not
+    parse, so none of the tokenised checks that police that command can see what it
+    actually runs.
+
+    shell_tokens returns [] on a ValueError the same way it does for an empty or flag
+    only command, so a caller that only checks "did a specific violation match" would
+    silently let a malformed, unparseable command through unexamined. This runs first,
+    before any of those checks, and catches that case instead.
+    """
+    if command_name(part) not in POLICED_COMMANDS:
+        return None
+    try:
+        shlex.split(part)
+    except ValueError:
+        return (
+            f"{part!r} does not parse as a shell command, the quoting is unbalanced, "
+            "so this hook cannot verify it is safe. Fix the quoting."
+        )
+    return None
+
+
+def subcommand_tokens(
+    tokens: list[str],
+    value_flags: Collection[str] = (),
+    space_form_takes_value: bool = False,
+) -> list[str]:
+    """tokens from the subcommand onwards, the flags placed in front of it skipped.
+
+    tokens are the arguments after the command name or its noun, so `gh label -R
+    owner/repo create bug` passes ["-R", "owner/repo", "create", "bug"] and the result
+    starts at "create". Returns [] when tokens name no subcommand at all.
+
+    A check anchored on `<tool> <noun> <subcommand>` misses the command entirely when
+    the tool accepts a flag in between, which most of them do. Which flags take a
+    value is part of each tool's own grammar, so the caller passes it in:
+
+    value_flags are the flags that take the next token as their value. They are
+    skipped together with that token. Any other flag is skipped alone, `--flag=value`
+    included, because it carries its value in the same token.
+
+    space_form_takes_value says a `--flag` or `-x` that is not in value_flags takes
+    the next token as its value as well. cobra based tools such as `gh` look up the
+    subcommand that way: a flag they do not know at the noun level swallows the
+    following token, which is how a flag of the target subcommand can sit in front of
+    it.
+
+    Everything after `--` is an operand rather than a subcommand, so a `--` ends the
+    search.
+    """
+    values = set(value_flags)
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == "--":
+            return []
+        if not token.startswith("-"):
+            return tokens[index:]
+        takes_value = token in values or (
+            space_form_takes_value
+            and "=" not in token
+            and (token.startswith("--") or len(token) == 2)
+        )
+        index += 2 if takes_value else 1
+    return []
+
+
+def subcommand_after(
+    tokens: list[str],
+    value_flags: Collection[str] = (),
+    space_form_takes_value: bool = False,
+) -> str:
+    """The subcommand in tokens, the flags in front of it skipped. "" when tokens name
+    none. See subcommand_tokens for the flag grammar the arguments describe."""
+    found = subcommand_tokens(tokens, value_flags, space_form_takes_value)
+    return found[0] if found else ""
+
+
+def gh_dispatch(tokens: list[str]) -> list[str]:
+    """tokens from gh's own subcommand onwards, a noun such as "pr" or "label" or a
+    command such as "api", the flags placed in front of it skipped.
+
+    gh is built on cobra, which applies the same lookup at every level of its command
+    tree, the root included: it skips the flags in front of the subcommand and treats a
+    flag it does not know at that level as taking the following token as its value. So
+    `gh --repo owner/repo secret list` and `gh --method PATCH api repos/o/r/rulesets/1`
+    both dispatch past the flag, and the rule subcommand_tokens already applies one
+    level down applies here too.
+
+    Returns [] when tokens do not start with "gh" or name no subcommand at all.
+    """
+    if not tokens or tokens[0] != "gh":
+        return []
+    return subcommand_tokens(tokens[1:], space_form_takes_value=True)
 
 
 def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:

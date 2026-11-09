@@ -5,12 +5,16 @@
 a `git commit` whose staged diff holds a credential pattern or a file that never belongs
 in git. The commit check runs gitleaks when it is on PATH and falls back to a regex scan
 otherwise. Never prints the matched value, only the file and line number.
+
+A command that prints a secret is found behind the flags in front of its subcommand, so
+a global option placed before the noun or between the noun and the subcommand does not
+hide it. A policed command whose own quoting does not parse is denied rather than passed
+through unexamined.
 """
 
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -22,19 +26,51 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
+# bao takes every flag after the subcommand and rejects one in front of it, so its
+# subcommand is always the next word. That was verified against bao 2.0.0, which answers
+# `Invalid flags before the subcommand`. vault is bao's upstream and shares the CLI, so
+# the same is assumed for it, not independently confirmed. The tofu patterns run
+# against the part with the global options already stripped, and `tofu state` takes no
+# flag in front of its own subcommand either. The tools that do accept a flag there
+# have a check of their own below.
 SECRET_COMMANDS = (
     re.compile(r"^bao\s+kv\s+get\b"),
     re.compile(r"^bao\s+read\b"),
     re.compile(r"^vault\s+kv\s+get\b"),
     re.compile(r"^vault\s+read\b"),
-    re.compile(r"^bws\s+secret\s+(get|list)\b"),
-    re.compile(r"^bw\s+get\b"),
-    re.compile(r"^gh\s+auth\s+token\b"),
     re.compile(r"^tofu\s+output\b"),
     re.compile(r"^tofu\s+state\s+(show|pull)\b"),
 )
 
-KUBECTL_GET_SECRET = re.compile(r"^kubectl\s+get\s+secrets?\b")
+# tofu's only global options, the ones it accepts in front of the subcommand. -chdir
+# takes its value in the same token: the space form is rejected.
+TOFU_GLOBAL_OPTION = re.compile(r"^-(chdir=.*|help|h|version|v)$")
+
+# bws is a clap CLI. Its global options are accepted in front of `secret` and between
+# `secret` and the subcommand, and these are the ones that take a value.
+BWS_VALUE_FLAGS = frozenset(
+    {
+        "-o",
+        "--output",
+        "-c",
+        "--color",
+        "-t",
+        "--access-token",
+        "-f",
+        "--config-file",
+        "-p",
+        "--profile",
+        "-u",
+        "--server-url",
+    }
+)
+BWS_SECRET_READS = frozenset({"get", "list"})
+
+# bw takes its global options in front of the command. Of those, only --session takes a
+# value; --pretty, --raw, --response, --quiet and --nointeraction take none.
+BW_VALUE_FLAGS = frozenset({"--session"})
+
+KUBECTL_SECRET_NOUNS = frozenset({"secret", "secrets"})
 KUBECTL_OUTPUT_FORMAT = re.compile(r"(-o|--output)[\s=]+([A-Za-z-]+)")
 
 FILE_READERS = {"cat", "head", "tail", "less", "grep"}
@@ -75,17 +111,122 @@ GITLEAKS_LEAK_EXIT_CODE = 2
 GITLEAKS_SUBCOMMANDS = (("git", "--staged"), ("protect", "--staged"))
 
 
+def prints_secret(part: str) -> str:
+    """The deny reason for a part that prints a secret value, named by its tool."""
+    return f"'{part.split()[0]}' prints a secret value to the transcript. {NEVER_PRINT}"
+
+
+def strip_tofu_global_options(part: str) -> str:
+    """Normalises tofu's global options out of a command part that starts with "tofu".
+
+    `tofu -chdir=/srv/infra output db_password` becomes `tofu output db_password`, so a
+    global option in front of the subcommand cannot hide it. -chdir, -help and -version
+    are the only options tofu accepts there.
+    """
+    tokens = part.split()
+    if not tokens or tokens[0] != "tofu":
+        return part
+    index = 1
+    while index < len(tokens) and TOFU_GLOBAL_OPTION.match(tokens[index]):
+        index += 1
+    return " ".join([tokens[0], *tokens[index:]])
+
+
 def secret_command_violation(part: str) -> Optional[str]:
     """The deny reason when part is a command that prints a secret value."""
+    normalised = strip_tofu_global_options(part)
     for pattern in SECRET_COMMANDS:
-        if pattern.match(part):
-            return f"'{part.split()[0]}' prints a secret value to the transcript. {NEVER_PRINT}"
+        if pattern.match(normalised):
+            return prints_secret(normalised)
     return None
 
 
+def bws_secret_violation(part: str) -> Optional[str]:
+    """The deny reason when part reads a secret with bws, whatever flag order it uses.
+
+    bws accepts its global options in front of `secret` and between `secret` and the
+    subcommand, so `bws -o env secret get <id>` and `bws secret -o env list` both read
+    the secret and both have to be found behind their flags.
+    """
+    tokens = _common.shell_tokens(part)
+    if not tokens or tokens[0] != "bws":
+        return None
+    noun = _common.subcommand_tokens(tokens[1:], BWS_VALUE_FLAGS)
+    if not noun or noun[0] != "secret":
+        return None
+    if _common.subcommand_after(noun[1:], BWS_VALUE_FLAGS) in BWS_SECRET_READS:
+        return prints_secret(part)
+    return None
+
+
+def bw_get_violation(part: str) -> Optional[str]:
+    """The deny reason when part reads an item with bw, whatever flag order it uses.
+
+    bw's global options go in front of the command, so `bw --raw get password app`
+    reads the item just as `bw get password app` does.
+    """
+    tokens = _common.shell_tokens(part)
+    if not tokens or tokens[0] != "bw":
+        return None
+    if _common.subcommand_after(tokens[1:], BW_VALUE_FLAGS) == "get":
+        return prints_secret(part)
+    return None
+
+
+def gh_auth_token_violation(part: str) -> Optional[str]:
+    """The deny reason when part prints the gh token, whatever flag order it uses.
+
+    gh looks up the subcommand the way cobra does, skipping the flags in front of the
+    noun and the flags between the noun and the subcommand both, so `gh --hostname
+    example.com auth token` and `gh auth --hostname example.com token` both reach the
+    token command.
+    """
+    tokens = _common.shell_tokens(part)
+    if not tokens or tokens[0] != "gh":
+        return None
+    dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
+    if not dispatch or dispatch[0] != "auth":
+        return None
+    if _common.subcommand_after(dispatch[1:], space_form_takes_value=True) == "token":
+        return f"'gh auth token' prints a secret value to the transcript. {NEVER_PRINT}"
+    return None
+
+
+def kubectl_names_secret(resource: str) -> bool:
+    """Whether a kubectl resource argument after `get` names a secret.
+
+    kubectl's resource reference grammar is wider than the bare noun: `secret` and
+    `secrets` also take a `/<name>` suffix, a `.<version>.<group>` suffix and a place in
+    a comma separated list of types, in any combination, so `secret/app`,
+    `secret.v1.core/app` and `secret,configmap` all read the same object. Each of them
+    prints the decoded value with a structured output, so each has to match.
+    """
+    for item in resource.split(","):
+        kind = item.split("/", 1)[0].split(".", 1)[0]
+        if kind in KUBECTL_SECRET_NOUNS:
+            return True
+    return False
+
+
 def kubectl_secret_violation(part: str) -> Optional[str]:
-    """The deny reason when part reads a Kubernetes secret with a structured output."""
-    if not KUBECTL_GET_SECRET.match(part):
+    """The deny reason when part reads a Kubernetes secret with a structured output.
+
+    kubectl is cobra based like gh and dispatches the verb behind its global flags, so
+    `kubectl -n default get secret app -o yaml` reads the secret just as `kubectl get
+    secret app -o yaml` does and the verb has to be found behind those flags. A flag
+    between the verb and the resource moves the resource the same way, so
+    `kubectl get -o yaml secret app` needs the same walk one level further down. The
+    resource itself is matched through kubectl_names_secret, which covers the
+    `TYPE/NAME`, `TYPE.VERSION.GROUP` and comma separated spellings as well.
+    """
+    tokens = _common.shell_tokens(part)
+    if not tokens or tokens[0] != "kubectl":
+        return None
+    dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
+    if not dispatch or dispatch[0] != "get":
+        return None
+    resource_args = _common.subcommand_tokens(dispatch[1:], space_form_takes_value=True)
+    if not resource_args or not kubectl_names_secret(resource_args[0]):
         return None
     match = KUBECTL_OUTPUT_FORMAT.search(part)
     if not match:
@@ -98,10 +239,7 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
 
 def secret_file_read_violation(part: str) -> Optional[str]:
     """The deny reason when part reads a file that holds secrets."""
-    try:
-        tokens = shlex.split(part)
-    except ValueError:
-        return None
+    tokens = _common.shell_tokens(part)
     if not tokens:
         return None
 
@@ -294,7 +432,11 @@ def commit_violation(cwd: Optional[str]) -> Optional[str]:
 def part_violation(part: str) -> Optional[str]:
     """The deny reason for a single command part, combining the non-commit checks."""
     return (
-        secret_command_violation(part)
+        _common.malformed_quoting_violation(part)
+        or secret_command_violation(part)
+        or bws_secret_violation(part)
+        or bw_get_violation(part)
+        or gh_auth_token_violation(part)
         or kubectl_secret_violation(part)
         or secret_file_read_violation(part)
         or echoes_credential_var(part)

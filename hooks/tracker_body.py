@@ -19,9 +19,8 @@ import _common  # noqa: E402
 
 EVENT = "PreToolUse"
 
-GH_PR = re.compile(r"^gh\s+pr\s+(create|edit|comment|review)\b")
-GH_ISSUE = re.compile(r"^gh\s+issue\s+(create|edit|comment)\b")
-GH_API = re.compile(r"^gh\s+api\b")
+PR_SUBCOMMANDS = frozenset({"create", "edit", "comment", "review"})
+ISSUE_SUBCOMMANDS = frozenset({"create", "edit", "comment"})
 LEADING_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+")
 
 BODY_LONG = ("--body",)
@@ -191,22 +190,39 @@ def strip_leading_assignments(part: str) -> str:
 def command_text(raw_part: str, full_command: str, cwd: Optional[str]) -> Optional[str]:
     """The text a matched `gh` part would write to the tracker, or None when the
     part does not match a covered subcommand or cannot be parsed as shell words.
+
+    The subcommand is found through `_common.gh_dispatch`, so a flag in front of the
+    noun does not hide it: `gh --hostname example.com pr create --body ...` and `gh
+    --method POST api repos/o/r/issues -f body=...` write to the tracker just as the
+    plain forms do. The flag value scans below read the whole token list, so they need
+    no dispatch awareness of their own.
+
+    `_common.command_name` has already established that the part runs a binary named
+    gh, so the first token is replaced by the plain name for the dispatch walk, which
+    keeps the absolute path form `/usr/local/bin/gh pr create` covered.
     """
     matching_part = _common.strip_env_prefix(raw_part)
     if _common.command_name(matching_part) != "gh":
         return None
 
-    tokens = matching_part.split()
-    normalized = "gh" + matching_part[len(tokens[0]) :]
-
     try:
         shell_tokens = shlex.split(strip_leading_assignments(raw_part))
     except ValueError:
         return None
+    if not shell_tokens:
+        return None
 
-    if GH_PR.match(normalized) or GH_ISSUE.match(normalized):
+    dispatch = _common.gh_dispatch(["gh"] + shell_tokens[1:])
+    if not dispatch:
+        return None
+    noun = dispatch[0]
+    sub = _common.subcommand_after(dispatch[1:], space_form_takes_value=True)
+
+    if noun == "pr" and sub in PR_SUBCOMMANDS:
         return tracker_text(shell_tokens, full_command, cwd)
-    if GH_API.match(normalized):
+    if noun == "issue" and sub in ISSUE_SUBCOMMANDS:
+        return tracker_text(shell_tokens, full_command, cwd)
+    if noun == "api":
         return api_text(shell_tokens, full_command, cwd)
     return None
 
@@ -220,6 +236,16 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
 
     for raw_part in _common.command_parts(command):
+        if _common.command_name(_common.strip_env_prefix(raw_part)) != "gh":
+            continue
+
+        # Runs before command_text, which cannot tell "does not parse" from "does not
+        # match" and returns None for both, so an unparseable gh part would otherwise
+        # reach the tracker unexamined.
+        malformed = _common.malformed_quoting_violation(strip_leading_assignments(raw_part))
+        if malformed:
+            return _common.deny(EVENT, malformed)
+
         text = command_text(raw_part, command, cwd)
         if text and carries_forbidden_text(text):
             return _common.deny(EVENT, REASON)

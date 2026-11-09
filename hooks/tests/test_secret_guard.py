@@ -83,12 +83,122 @@ class SecretGuardTest(unittest.TestCase):
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_commands_that_print_secrets_with_flag_before_subcommand(self):
+        for command in [
+            "tofu -chdir=infra/prod output database_password",
+            "tofu -chdir=infra/prod state show module.app.resource",
+            "tofu -chdir=infra/prod state pull",
+            "bws -o env secret get my-secret",
+            "bws secret -o env get my-secret",
+            "bws --profile prod secret list",
+            "bw --raw get password my-item",
+            "bw --session $BW_SESSION get item my-item",
+            "gh auth --hostname github.com token",
+            "gh auth --hostname=github.com token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_safe_commands_with_flag_before_subcommand(self):
+        for command in [
+            "tofu -chdir=infra/prod plan",
+            "tofu -chdir=infra/prod state list",
+            "bws -o table project list",
+            "bw --raw list items",
+            "gh auth --hostname github.com status",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
     def test_denies_kubectl_get_secret_with_structured_output(self):
         for command in [
             "kubectl get secret db-credentials -o yaml",
             "kubectl get secrets -o json",
             "kubectl get secret db-credentials -o jsonpath={.data.password}",
             "kubectl get secret db-credentials --output=yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_gh_auth_token_with_flag_before_the_noun(self):
+        for command in [
+            "gh --hostname example.com auth token",
+            "gh --hostname=example.com auth token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_auth_status_with_flag_before_the_noun(self):
+        command = "gh --hostname example.com auth status"
+        self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))
+
+    def test_denies_kubectl_get_secret_with_global_flag_before_the_verb(self):
+        for command in [
+            "kubectl -n default get secret db-credentials -o yaml",
+            "kubectl --namespace=default get secret db-credentials -o yaml",
+            "kubectl --namespace kube-system get secrets -o json",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_kubectl_reads_with_global_flag_before_the_verb(self):
+        for command in [
+            "kubectl -n default get secret db-credentials",
+            "kubectl -n default get secrets",
+            "kubectl --namespace=default get pods -o yaml",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
+    def test_denies_kubectl_get_secret_in_the_resource_slash_name_form(self):
+        for command in [
+            "kubectl get secret/db-credentials -o yaml",
+            "kubectl get secrets/db-credentials -o json",
+            "kubectl get secret.v1.core/db-credentials -o yaml",
+            "kubectl get secrets.v1. -o yaml",
+            "kubectl -n default get secret/db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_kubectl_get_secret_listed_among_other_resource_types(self):
+        for command in [
+            "kubectl get secret,configmap -o yaml",
+            "kubectl get configmap,secret -o json",
+            "kubectl get configmap,secret.v1.core/db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_kubectl_get_secret_with_a_flag_between_the_verb_and_the_resource(self):
+        for command in [
+            "kubectl get -o yaml secret db-credentials",
+            "kubectl get -o yaml secret/db-credentials",
+            "kubectl get --output=json secrets",
+            "kubectl get -n default -o yaml secret db-credentials",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_kubectl_get_for_a_resource_that_is_not_a_secret(self):
+        for command in [
+            "kubectl get configmap -o yaml",
+            "kubectl get configmap/app-config -o yaml",
+            "kubectl get configmap,pod -o json",
+            "kubectl get secretproviderclass -o yaml",
+            "kubectl get -o yaml configmap app-config",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
+    def test_denies_a_policed_part_whose_quoting_does_not_parse(self):
+        for command in [
+            'gh repo edit owner/repo --description "unclosed',
+            'cat "secrets.yaml',
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command

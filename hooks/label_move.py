@@ -7,7 +7,6 @@ one `ai:` state label may remain after the move. Never denies, the command is re
 """
 
 import os
-import re
 import shlex
 import sys
 from typing import Optional
@@ -16,8 +15,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common  # noqa: E402
 
 EVENT = "PreToolUse"
-
-GH_LABEL_EDIT = re.compile(r"^gh\s+(issue|pr)\s+edit\b")
 
 MESSAGE = (
     "Exactly one ai: state label must remain after this move. Remove every other ai: "
@@ -51,12 +48,21 @@ def has_ai_label(values: list[str]) -> bool:
 
 
 def label_move_message(part: str) -> Optional[str]:
-    """The context message for a `gh issue edit` or `gh pr edit` part, or None."""
-    if not GH_LABEL_EDIT.match(part):
-        return None
+    """The context message for a `gh issue edit` or `gh pr edit` part, or None.
+
+    The subcommand is found through `_common.gh_dispatch`, so a flag in front of the
+    noun does not hide it: `gh --hostname example.com issue edit 1 --add-label ...`
+    moves a label just as the plain form does. The flag value scans read the whole
+    token list, so they need no dispatch awareness of their own.
+    """
     try:
         tokens = shlex.split(part)
     except ValueError:
+        return None
+    dispatch = _common.gh_dispatch(tokens)
+    if len(dispatch) < 2 or dispatch[0] not in ("issue", "pr"):
+        return None
+    if _common.subcommand_after(dispatch[1:], space_form_takes_value=True) != "edit":
         return None
 
     if not has_ai_label(flag_values(tokens, "--add-label")):
