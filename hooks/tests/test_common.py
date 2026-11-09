@@ -194,11 +194,94 @@ class StripWrappersTest(unittest.TestCase):
             "git push --force origin main",
         )
 
+    def test_strips_a_cluster_of_short_flags_ending_in_a_value_flag(self):
+        for part in [
+            "sudo -nu ci git push --force origin main",
+            "sudo -Enu ci git push --force origin main",
+            "sudo -bEnu ci git push --force origin main",
+            "sudo -nT 30 git push --force origin main",
+            "sudo -SnU ci git push --force origin main",
+            "doas -nu ci git push --force origin main",
+            "doas -Lnu ci git push --force origin main",
+            "/usr/bin/time -ao /var/log/push.log git push --force origin main",
+            "exec -la foo git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_keeps_the_next_word_when_a_short_value_flag_holds_its_value_in_the_cluster(self):
+        for part in [
+            "sudo -nuci git push --force origin main",
+            "doas -nuci git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_reads_the_rest_of_a_cluster_as_the_value_of_a_short_value_flag(self):
+        self.assertEqual(
+            _common.strip_wrappers("sudo -ug ci git push --force origin main"),
+            "ci git push --force origin main",
+        )
+
+    def test_strips_a_sudo_option_that_is_build_conditional_upstream(self):
+        for part in [
+            "sudo -a pam git push --force origin main",
+            "sudo -c daemon git push --force origin main",
+            "sudo -r sysadm_r git push --force origin main",
+            "sudo -t unconfined_t git push --force origin main",
+            "sudo -nr sysadm_r git push --force origin main",
+            "sudo -nt unconfined_t git push --force origin main",
+            "sudo --auth-type pam git push --force origin main",
+            "sudo --login-class daemon git push --force origin main",
+            "sudo --role sysadm_r git push --force origin main",
+            "sudo --type unconfined_t git push --force origin main",
+            "sudo --role=sysadm_r git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_the_value_flags_of_time_and_exec(self):
+        for part in [
+            "time -o /var/log/push.log git push --force origin main",
+            "time -f %e git push --force origin main",
+            "time --output /var/log/push.log git push --force origin main",
+            "time --format %e git push --force origin main",
+            "time --output=/var/log/push.log git push --force origin main",
+            "exec -a foo git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_strips_an_unambiguously_abbreviated_long_value_flag(self):
+        for part in [
+            "nice --adj 10 git push --force origin main",
+            "nice --adjust 10 git push --force origin main",
+            "sudo --us ci git push --force origin main",
+            "sudo --ro sysadm_r git push --force origin main",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "git push --force origin main", part)
+
+    def test_leaves_an_ambiguous_long_flag_abbreviation_alone(self):
+        self.assertEqual(
+            _common.strip_wrappers("sudo --ch /srv git push --force origin main"),
+            "/srv git push --force origin main",
+        )
+
+    def test_strips_a_wrapper_that_runs_no_command_to_nothing(self):
+        for part in [
+            "sudo -e /etc/sudoers",
+            "sudo -ne /etc/sudoers",
+            "sudo --edit /etc/sudoers",
+            "sudo -V",
+            "sudo -u",
+            "sudo -nu",
+            "nice -n",
+            "time",
+        ]:
+            self.assertEqual(_common.strip_wrappers(part), "", part)
+
     def test_leaves_a_wrapper_it_does_not_know_in_place(self):
         for part in [
             "timeout 5 git push --force origin main",
             "xargs git push --force origin main",
             "legit push --force origin main",
+            "sudoedit /etc/sudoers",
         ]:
             self.assertEqual(_common.strip_wrappers(part), part, part)
 

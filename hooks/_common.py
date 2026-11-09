@@ -291,15 +291,26 @@ def _looks_like_assignment(token: str) -> bool:
 
 
 # The wrappers that run another command, each with the flags it takes its own value
-# for in front of that command. A flag listed here swallows the word behind it, any
-# other word starting with `-` is skipped on its own because it carries its value in
-# the same word or takes none, and a `--` ends the wrapper's flags.
+# for in front of that command, short and long. The flag walk follows getopt: a short
+# flag listed here swallows the following word when it is the last letter of its
+# cluster and takes the rest of the cluster as its value otherwise, a long flag
+# swallows the following word unless it carries `--name=value`, a word starting with
+# `-` that names no listed flag is skipped alone, and a `--` ends the wrapper's flags.
 #
-# The flags come from each tool's manual: `nice [-n increment] utility` plus GNU's
-# `--adjustment=N` and its obsolete `-N` form, `nohup [--] utility` with no flags of
-# its own on either BSD or GNU, `sudo`'s nine value options, and `doas [-Lns] [-a
-# style] [-C config] [-u user]`. `time`, `command` and `exec` take no value flag worth
-# listing, and an unknown flag on any of them is skipped alone.
+# Every table follows the tool's upstream manual rather than one build of it, because
+# these hooks run on both a laptop and a Linux runner:
+#
+# - `nice [-n increment] utility`, plus GNU's `--adjustment=N` and its obsolete `-N`.
+# - `nohup [--] utility`, no flags of its own on either BSD or GNU.
+# - `sudo`'s thirteen value options from <https://www.sudo.ws/docs/man/sudo.man/>. The
+#   macOS page carries nine because the SELinux and BSD authentication options are
+#   build conditional, so `-a`, `-c`, `-r` and `-t` are listed from upstream.
+# - `doas [-Lns] [-a style] [-C config] [-u user] command`, the OpenBSD manual.
+# - `time`, whichever of the three a session reaches: BSD `time [-al] [-h | -p] [-o
+#   file]`, GNU time's `-f FORMAT` with `--output=` and `--format=`, and the shell
+#   keyword `time [-p]` with no value flag at all. The union is listed.
+# - `exec [-cl] [-a name] [command]`, the shell builtin.
+# - `command [-pVv] command`, which genuinely takes no value flag.
 #
 # `sudo` and `doas` sit here as ordinary wrappers rather than as a category of their
 # own: these hooks police what a command does, not who runs it, so a deny that applies
@@ -307,32 +318,49 @@ def _looks_like_assignment(token: str) -> bool:
 # escalation prefix. Whether the escalation itself is allowed at all is a permission
 # question and belongs in the settings allow list, not in a hook.
 WRAPPER_VALUE_FLAGS: dict[str, tuple[str, ...]] = {
-    "time": (),
+    "time": ("-f", "-o", "--format", "--output"),
     "command": (),
-    "exec": (),
+    "exec": ("-a",),
     "nohup": (),
     "nice": ("-n", "--adjustment"),
     "sudo": (
+        "-a",
         "-C",
+        "-c",
         "-D",
         "-g",
         "-h",
         "-p",
         "-R",
+        "-r",
         "-T",
+        "-t",
         "-u",
         "-U",
-        "--close-from",
+        "--auth-type",
         "--chdir",
+        "--chroot",
+        "--close-from",
+        "--command-timeout",
         "--group",
         "--host",
-        "--prompt",
-        "--chroot",
-        "--command-timeout",
-        "--user",
+        "--login-class",
         "--other-user",
+        "--prompt",
+        "--role",
+        "--type",
+        "--user",
     ),
     "doas": ("-a", "-C", "-u"),
+}
+
+# The flags that turn a wrapper into something that runs no command at all, so the
+# words behind them are not a command line. `sudo -e` is sudoedit: the trailing words
+# are files to edit, and reading the first of them as a command name would name a tool
+# nothing runs. A wrapper carrying one of these strips to the empty string, the same
+# result `sudo -V` already reaches, and every hook treats that as no command.
+WRAPPER_NO_COMMAND_FLAGS: dict[str, tuple[str, ...]] = {
+    "sudo": ("-e", "--edit"),
 }
 
 
@@ -344,12 +372,16 @@ def strip_wrappers(part: str) -> str:
     strip_env_prefix, `mise exec --`, `mise x --`, `mise exec <tool> --` where the
     tool spec is a single token with no spaces, `env` followed by zero or more
     `NAME=value` assignments, and every wrapper in WRAPPER_VALUE_FLAGS together with
-    the flags it takes of its own, so `nice -n 10` and `sudo -u ci` are stripped as
-    well as the bare names. A wrapper not listed there, such as `timeout 5`, is left
-    in place.
+    the flags it takes of its own, so `nice -n 10`, `sudo -u ci`, the clustered
+    `sudo -nu ci` and the abbreviated `nice --adj 10` are stripped as well as the bare
+    names. A wrapper not listed there, such as `timeout 5`, is left in place.
 
     Each wrapper name is read through unquote_word and its basename, so `"sudo"` and
     `/usr/bin/nice` are recognised the same as the bare names.
+
+    Returns the empty string when nothing is left behind the wrapper, either because
+    the part is only the wrapper and its flags or because a flag in
+    WRAPPER_NO_COMMAND_FLAGS says it runs no command at all.
     """
     previous = None
     current = part
@@ -390,23 +422,85 @@ def _strip_env_command(part: str) -> str:
 def _strip_flagged_wrapper(part: str) -> str:
     """Removes a single leading wrapper named in WRAPPER_VALUE_FLAGS from part,
     together with the flags that wrapper takes of its own, so `nice -n 10 git push`
-    leaves `git push` and the bare `nice git push` leaves it too."""
+    and `sudo -nu ci git push` both leave `git push` and the bare `nice git push`
+    leaves it too.
+
+    Returns the empty string when the wrapper carries a flag from
+    WRAPPER_NO_COMMAND_FLAGS, because then no wrapped command follows it."""
     tokens = shell_words(part)
     if not tokens:
         return part
-    value_flags = WRAPPER_VALUE_FLAGS.get(_resolved_name(tokens[0]))
+    name = _resolved_name(tokens[0])
+    value_flags = WRAPPER_VALUE_FLAGS.get(name)
     if value_flags is None:
         return part
+    short_values = {flag[1] for flag in value_flags if len(flag) == 2}
+    long_values = tuple(flag for flag in value_flags if flag.startswith("--"))
+    no_command = WRAPPER_NO_COMMAND_FLAGS.get(name, ())
+
     index = 1
     while index < len(tokens):
         token = tokens[index]
         if token == "--":
             index += 1
             break
-        if not token.startswith("-"):
+        if not token.startswith("-") or token == "-":
             break
-        index += 2 if token in value_flags else 1
+        if _runs_no_command(token, no_command, short_values):
+            return ""
+        index += 2 if _takes_following_word(token, short_values, long_values) else 1
     return " ".join(tokens[index:])
+
+
+def _takes_following_word(token: str, short_values: set[str], long_values: tuple[str, ...]) -> bool:
+    """Whether a flag token carries its value in the next word.
+
+    A long flag does when it names a listed long flag and no `=` holds the value in
+    the same word. A cluster of short flags does when the first listed value flag in
+    it is its last letter, because getopt reads anything after that letter inside the
+    same word as the value instead, so `-nu ci` takes `ci` and `-nuci` does not."""
+    if token.startswith("--"):
+        flag, separator, _ = token.partition("=")
+        return not separator and _names_long_flag(flag, long_values)
+    for position, char in enumerate(token[1:], start=1):
+        if char in short_values:
+            return position == len(token) - 1
+    return False
+
+
+def _names_long_flag(flag: str, long_values: tuple[str, ...]) -> bool:
+    """Whether a `--name` token names one of long_values, by its full spelling or by an
+    unambiguous abbreviation of it.
+
+    getopt_long accepts any prefix that matches a single option, so `nice --adj` is
+    `--adjustment` and carries its value in the next word. A prefix that matches
+    several listed flags names none of them, which is what the tool itself reports.
+    Only the value flags are listed, so a prefix that also abbreviates one of the
+    wrapper's boolean flags is ambiguous for the tool as well and the command never
+    runs."""
+    if flag in long_values:
+        return True
+    if len(flag) <= 2:
+        return False
+    return len([candidate for candidate in long_values if candidate.startswith(flag)]) == 1
+
+
+def _runs_no_command(token: str, no_command: tuple[str, ...], short_values: set[str]) -> bool:
+    """Whether a flag token is one of the wrapper's flags that run no command.
+
+    A short flag counts anywhere in its cluster up to the first value flag, because
+    the letters behind that one are its value rather than further flags."""
+    if not no_command:
+        return False
+    short = {flag[1] for flag in no_command if len(flag) == 2}
+    if token.startswith("--"):
+        return token.partition("=")[0] in no_command
+    for char in token[1:]:
+        if char in short:
+            return True
+        if char in short_values:
+            break
+    return False
 
 
 def _resolved_name(token: str) -> str:
