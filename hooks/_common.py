@@ -385,6 +385,14 @@ def subcommand_tokens(
     following token, which is how a flag of the target subcommand can sit in front of
     it.
 
+    The grammar is generic, so a boolean flag that takes no value in this mode
+    swallows the token behind it. kubectl has exactly four such global flags,
+    `--disable-compression`, `--insecure-skip-tls-verify`, `--match-server-version`
+    and `--warnings-as-errors`, all of them presence-only booleans that default to
+    false, so their absence rather than their presence is the secure default. A
+    caller that needs them walked correctly passes them as flags of its own rather
+    than relying on this grammar.
+
     Everything after `--` is an operand rather than a subcommand, so a `--` ends the
     search.
     """

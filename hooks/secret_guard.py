@@ -223,6 +223,14 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
     `kubectl get -o yaml secret app` needs the same walk one level further down. The
     resource itself is matched through kubectl_names_secret, which covers the
     `TYPE/NAME`, `TYPE.VERSION.GROUP` and comma separated spellings as well.
+
+    kubectl's four boolean-only global flags, `--disable-compression`,
+    `--insecure-skip-tls-verify`, `--match-server-version` and
+    `--warnings-as-errors`, take no value, so the generic flag walk in
+    subcommand_tokens lets one of them swallow the verb behind it. Their absence, not
+    their presence, is the secure default: they all default to false and none of them
+    appears in ordinary use, so the walk fails open on a command nobody writes by
+    accident. This hook is defence in depth and does not close that case.
     """
     tokens = _common.shell_tokens(part)
     if not tokens or _common.token_name(tokens[0]) != "kubectl":
