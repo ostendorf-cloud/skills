@@ -140,6 +140,10 @@
       "Bash(wget:*)",
       "Read(**/.env)",
       "Read(**/.env.*)",
+      "Read(!.env.example)",
+      "Read(!.env.sample)",
+      "Read(!.env.template)",
+      "Read(!.env.dist)",
       "Read(**/*.pem)",
       "Read(**/*.key)",
       "Read(**/id_rsa)",
@@ -204,7 +208,13 @@
       "go mod tidy *"
     ],
     "filesystem": {
-      "allowRead": ["~/Code"],
+      "allowRead": [
+        "~/Code",
+        "**/.env.example",
+        "**/.env.sample",
+        "**/.env.template",
+        "**/.env.dist"
+      ],
       "allowWrite": [
         "~/Library/Caches/go-build",
         "~/Library/Caches/golangci-lint",
