@@ -336,6 +336,90 @@ class GitGuardTest(unittest.TestCase):
                 decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
             )
 
+    def test_denies_a_force_push_behind_a_cluster_of_short_wrapper_flags(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo -nu ci git push --force origin feat/thing",
+            "sudo -Enu ci git push --force origin feat/thing",
+            "sudo -nuci git push --force origin feat/thing",
+            "doas -nu ci git push --force origin feat/thing",
+            "exec -la foo git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_a_sudo_option_that_is_build_conditional(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo -r sysadm_r git push --force origin feat/thing",
+            "sudo -t unconfined_t git push --force origin feat/thing",
+            "sudo -a pam git push --force origin feat/thing",
+            "sudo -c daemon git push --force origin feat/thing",
+            "sudo --role sysadm_r git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_a_time_or_exec_value_flag(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "/usr/bin/time -o /var/log/push.log git push --force origin feat/thing",
+            "time -f %e git push --force origin feat/thing",
+            "time --output /var/log/push.log git push --force origin feat/thing",
+            "exec -a foo git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_an_abbreviated_long_wrapper_flag(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "nice --adj 10 git push --force origin feat/thing",
+            "sudo --us ci git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_a_boolean_long_wrapper_flag(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo --login git push --force origin feat/thing",
+            "sudo --list git push --force origin feat/thing",
+            "sudo --preserve-env git push --force origin feat/thing",
+            "nice --help git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_a_force_push_behind_the_value_flag_a_boolean_flag_abbreviates(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "sudo --login-class admin git push --force origin feat/thing",
+            "sudo --login-class=admin git push --force origin feat/thing",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_allows_a_wrapper_that_runs_no_command(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in ["sudo -V", "sudo -nu", "nice -n", "sudo -e /etc/sudoers", "sudoedit"]:
+            self.assertIsNone(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), command
+            )
+
     def test_allows_a_feature_branch_push_behind_a_flagged_wrapper(self):
         repo = git_repo()
         checkout_feature(repo)
