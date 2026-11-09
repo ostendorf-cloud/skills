@@ -192,12 +192,30 @@ def gh_auth_token_violation(part: str) -> Optional[str]:
     return None
 
 
+def kubectl_names_secret(resource: str) -> bool:
+    """Whether a kubectl resource argument after `get` names a secret.
+
+    kubectl's resource reference grammar is wider than the bare noun: `secret` and
+    `secrets` also take a `/<name>` suffix, a `.<version>.<group>` suffix and a place in
+    a comma separated list of types, in any combination, so `secret/app`,
+    `secret.v1.core/app` and `secret,configmap` all read the same object. Each of them
+    prints the decoded value with a structured output, so each has to match.
+    """
+    for item in resource.split(","):
+        kind = item.split("/", 1)[0].split(".", 1)[0]
+        if kind in KUBECTL_SECRET_NOUNS:
+            return True
+    return False
+
+
 def kubectl_secret_violation(part: str) -> Optional[str]:
     """The deny reason when part reads a Kubernetes secret with a structured output.
 
     kubectl is cobra based like gh and dispatches the verb behind its global flags, so
     `kubectl -n default get secret app -o yaml` reads the secret just as `kubectl get
-    secret app -o yaml` does and the verb has to be found behind those flags.
+    secret app -o yaml` does and the verb has to be found behind those flags. The
+    resource itself is matched through kubectl_names_secret, which covers the
+    `TYPE/NAME`, `TYPE.VERSION.GROUP` and comma separated spellings as well.
     """
     tokens = _common.shell_tokens(part)
     if not tokens or tokens[0] != "kubectl":
@@ -205,7 +223,7 @@ def kubectl_secret_violation(part: str) -> Optional[str]:
     dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
     if len(dispatch) < 2 or dispatch[0] != "get":
         return None
-    if dispatch[1] not in KUBECTL_SECRET_NOUNS:
+    if not kubectl_names_secret(dispatch[1]):
         return None
     match = KUBECTL_OUTPUT_FORMAT.search(part)
     if not match:

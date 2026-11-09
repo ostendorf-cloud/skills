@@ -152,6 +152,37 @@ class SecretGuardTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
+    def test_denies_kubectl_get_secret_in_the_resource_slash_name_form(self):
+        for command in [
+            "kubectl get secret/db-credentials -o yaml",
+            "kubectl get secrets/db-credentials -o json",
+            "kubectl get secret.v1.core/db-credentials -o yaml",
+            "kubectl get secrets.v1. -o yaml",
+            "kubectl -n default get secret/db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_kubectl_get_secret_listed_among_other_resource_types(self):
+        for command in [
+            "kubectl get secret,configmap -o yaml",
+            "kubectl get configmap,secret -o json",
+            "kubectl get configmap,secret.v1.core/db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_kubectl_get_for_a_resource_that_is_not_a_secret(self):
+        for command in [
+            "kubectl get configmap -o yaml",
+            "kubectl get configmap/app-config -o yaml",
+            "kubectl get configmap,pod -o json",
+            "kubectl get secretproviderclass -o yaml",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
     def test_denies_a_policed_part_whose_quoting_does_not_parse(self):
         for command in [
             'gh repo edit owner/repo --description "unclosed',
