@@ -6,6 +6,9 @@
 call that writes an attribution trailer, a generated-by marker at the start of a
 line, or a link to Claude or Anthropic, outside the allowed documentation hosts,
 into the tracker.
+
+Every part has its wrapper prefixes removed before the checks run, so a prefix such as
+`sudo`, `env` or `mise exec --` in front of gh does not hide the write.
 """
 
 import os
@@ -21,7 +24,6 @@ EVENT = "PreToolUse"
 
 PR_SUBCOMMANDS = frozenset({"create", "edit", "comment", "review"})
 ISSUE_SUBCOMMANDS = frozenset({"create", "edit", "comment"})
-LEADING_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+")
 
 BODY_LONG = ("--body",)
 BODY_SHORT = ("-b",)
@@ -173,21 +175,7 @@ def api_text(tokens: list[str], full_command: str, cwd: Optional[str]) -> str:
     return "\n\n".join(texts)
 
 
-def strip_leading_assignments(part: str) -> str:
-    """Removes leading `VAR=value` environment assignments from part.
-
-    Unlike `_common.strip_env_prefix`, this keeps the whitespace of everything after
-    the assignments untouched, including a newline inside a quoted body a later
-    `shlex.split` needs to see.
-    """
-    while True:
-        match = LEADING_ASSIGNMENT.match(part)
-        if not match:
-            return part
-        part = part[match.end() :]
-
-
-def command_text(raw_part: str, full_command: str, cwd: Optional[str]) -> Optional[str]:
+def command_text(part: str, full_command: str, cwd: Optional[str]) -> Optional[str]:
     """The text a matched `gh` part would write to the tracker, or None when the
     part does not match a covered subcommand or cannot be parsed as shell words.
 
@@ -197,16 +185,18 @@ def command_text(raw_part: str, full_command: str, cwd: Optional[str]) -> Option
     plain forms do. The flag value scans below read the whole token list, so they need
     no dispatch awareness of their own.
 
-    `_common.command_name` has already established that the part runs a binary named
-    gh, so the first token is replaced by the plain name for the dispatch walk, which
-    keeps the absolute path form `/usr/local/bin/gh pr create` covered.
+    Expects a part whose wrapper prefixes are already removed by
+    `_common.strip_wrappers`, so `sudo gh pr comment --body ...` and `env GH_TOKEN=x gh
+    pr comment --body ...` both reach the dispatch walk. The quoting of everything after
+    the prefix survives that stripping, so a newline inside a quoted body still reaches
+    `shlex.split`. The first token is replaced by the plain name for the dispatch walk,
+    which keeps the absolute path form `/usr/local/bin/gh pr create` covered.
     """
-    matching_part = _common.strip_env_prefix(raw_part)
-    if _common.command_name(matching_part) != "gh":
+    if _common.command_name(part) != "gh":
         return None
 
     try:
-        shell_tokens = shlex.split(strip_leading_assignments(raw_part))
+        shell_tokens = shlex.split(part)
     except ValueError:
         return None
     if not shell_tokens:
@@ -236,17 +226,18 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
 
     for raw_part in _common.command_parts(command):
-        if _common.command_name(_common.strip_env_prefix(raw_part)) != "gh":
+        part = _common.strip_wrappers(raw_part)
+        if _common.command_name(part) != "gh":
             continue
 
         # Runs before command_text, which cannot tell "does not parse" from "does not
         # match" and returns None for both, so an unparseable gh part would otherwise
         # reach the tracker unexamined.
-        malformed = _common.malformed_quoting_violation(strip_leading_assignments(raw_part))
+        malformed = _common.malformed_quoting_violation(part)
         if malformed:
             return _common.deny(EVENT, malformed)
 
-        text = command_text(raw_part, command, cwd)
+        text = command_text(part, command, cwd)
         if text and carries_forbidden_text(text):
             return _common.deny(EVENT, REASON)
 
