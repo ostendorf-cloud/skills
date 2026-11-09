@@ -193,6 +193,68 @@ class GitGuardTest(unittest.TestCase):
         self.assertEqual(decision(output), "deny")
         self.assertIn("never deleted", reason(output))
 
+    def test_denies_push_to_default_branch_when_git_is_called_by_absolute_path(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push origin main",
+            "/usr/bin/git push origin main",
+            "/opt/homebrew/bin/git push origin main",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_plain_force_push_when_git_is_called_by_absolute_path(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "/usr/bin/git push --force origin feat/thing",
+            "/usr/bin/git push --all origin",
+            "/usr/bin/git push --mirror origin",
+            "/usr/bin/git branch -D main",
+        ]:
+            self.assertEqual(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_push_to_default_branch_by_absolute_path_through_dash_c_path(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        other = tempfile.mkdtemp(prefix="git-guard-other-")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "git_guard.py",
+                    bash_payload(f"/usr/bin/git -C {repo} push origin main", other),
+                )
+            ),
+            "deny",
+        )
+
+    def test_allows_a_feature_branch_push_by_absolute_path(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "/usr/bin/git push origin feat/thing",
+            "/usr/bin/git push --force-with-lease origin feat/thing",
+            "/usr/bin/git status",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), command
+            )
+
+    def test_allows_another_command_whose_name_ends_in_git(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "legit push --force origin main",
+            "/usr/local/bin/mygit push --force origin main",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("git_guard.py", bash_payload(command, repo))), command
+            )
+
     def test_denies_push_to_default_branch_through_dash_c_path(self):
         repo = git_repo()
         checkout_feature(repo)
