@@ -8,8 +8,10 @@ otherwise. Never prints the matched value, only the file and line number.
 
 A command that prints a secret is found behind the flags in front of its subcommand, so
 a global option placed before the noun or between the noun and the subcommand does not
-hide it. A policed command whose own quoting does not parse is denied rather than passed
-through unexamined.
+hide it. Every part is normalised before any check runs, so a wrapper prefix such as
+`sudo`, `env`, `nice -n 10` or `mise exec --` hides neither a command that prints a
+secret nor the staged diff scan behind a wrapped `git commit`. A policed command whose
+own quoting does not parse is denied rather than passed through unexamined.
 """
 
 import json
@@ -140,10 +142,10 @@ def resolve_command_name(part: str) -> str:
     argument stays as written.
 
     The name is read through `_common.command_name`, so a quoted spelling such as
-    `"/opt/homebrew/bin/tofu"` resolves the same as the bare one. A wrapper prefix such
-    as `sudo` or `time` is not stripped here, unlike in git_guard and commit_message:
-    this hook's other checks match on the raw part, `env` and `printenv` among the
-    commands they match, so the parts cannot be normalised once for all of them."""
+    `"/opt/homebrew/bin/tofu"` resolves the same as the bare one. A wrapper prefix is
+    already gone by the time a check calls this: `main` runs every part through
+    `_common.normalize_command_part` first, the way git_guard and commit_message do.
+    This stays as the resolution step for a check called on its own."""
     tokens = _common.shell_words(part)
     if not tokens:
         return part
@@ -508,7 +510,13 @@ def main() -> int:
     if reason:
         return _common.deny(EVENT, reason)
 
-    parts: list[str] = [_common.strip_env_prefix(part) for part in _common.command_parts(command)]
+    # Normalised once in front of every check, so each of them sees past a wrapper
+    # prefix: the secret-manager and kubectl patterns, the file readers, the echo and
+    # printenv checks and the staged diff scan behind `git commit` alike. env_dump_violation
+    # above runs on the raw command instead, because it spans a pipe the split takes apart.
+    parts: list[str] = [
+        _common.normalize_command_part(part) for part in _common.command_parts(command)
+    ]
 
     for part in parts:
         reason = part_violation(part)

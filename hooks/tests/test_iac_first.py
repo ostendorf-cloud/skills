@@ -296,6 +296,118 @@ class IacFirstTest(unittest.TestCase):
             )
         )
 
+    def test_denies_a_noun_mutation_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh label create bug --color d73a4a",
+            "sudo gh label create bug --color d73a4a",
+            "sudo -u ci gh repo edit owner/repo --visibility private",
+            "doas gh secret set DEPLOY_KEY --body value",
+            "env GH_HOST=github.example.com gh variable set REGION --body eu",
+            "mise exec -- gh label delete bug",
+            "mise exec gh@2 -- gh label delete bug",
+            "nice -n 10 gh repo create owner/repo --private",
+            "nohup gh label edit bug --color 000000",
+            "time gh secret delete DEPLOY_KEY",
+            "sudo /opt/homebrew/bin/gh label create bug --color d73a4a",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_alias_or_extension_mutation_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh alias set prs 'pr list'",
+            "sudo gh alias set prs 'pr list'",
+            "mise exec -- gh extension install owner/gh-extension",
+            "nice -n 10 gh extension upgrade --all",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_api_write_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh api -X PATCH repos/owner/repo",
+            "sudo gh api -X PATCH repos/owner/repo",
+            "env GH_TOKEN=x gh api --method PUT repos/owner/repo/rulesets/1",
+            "mise exec -- gh api -X POST orgs/owner",
+            "nice -n 10 gh api -X DELETE repos/owner/repo/labels/bug",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_api_pull_request_write_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh api -X PUT repos/owner/repo/pulls/1/merge",
+            "sudo gh api -X PUT repos/owner/repo/pulls/1/merge",
+            "mise exec -- gh api -X PATCH repos/owner/repo/pulls/1",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_graphql_mutation_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh api graphql -f query='mutation { enablePullRequestAutoMerge }'",
+            "sudo gh api graphql -f query='mutation { enablePullRequestAutoMerge }'",
+            "mise exec -- gh api graphql -f query='mutation { enablePullRequestAutoMerge }'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_release_mutation_behind_a_wrapper_prefix(self):
+        repo = git_repo(with_release_me=True)
+        for command in [
+            "gh release create v1.0.0",
+            "sudo gh release create v1.0.0",
+            "mise exec -- gh release create v1.0.0",
+            "nice -n 10 gh release delete v1.0.0",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command, repo))), "deny", command
+            )
+
+    def test_denies_an_unparseable_gh_part_behind_a_wrapper_prefix(self):
+        for command in [
+            'gh repo edit owner/repo --description "unclosed',
+            'sudo gh repo edit owner/repo --description "unclosed',
+        ]:
+            output = run_hook("iac_first.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+
+    def test_allows_reads_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh label list",
+            "sudo gh label list",
+            "sudo -u ci gh repo view owner/repo",
+            "doas gh secret list",
+            "env GH_HOST=github.example.com gh variable list",
+            "mise exec -- gh api repos/owner/repo",
+            "mise exec gh@2 -- gh alias list",
+            "nice -n 10 gh extension list",
+            "nohup gh api graphql -f query='query { viewer { login } }'",
+            "time gh pr list",
+            "sudo gh api -X PATCH repos/owner/repo/issues/1",
+        ]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
+
+    def test_allows_a_release_read_behind_a_wrapper_prefix(self):
+        repo = git_repo(with_release_me=True)
+        for command in [
+            "gh release list",
+            "sudo gh release list",
+            "mise exec -- gh release view v1.0.0",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("iac_first.py", bash_payload(command, repo))), command
+            )
+
+    def test_allows_a_mutation_behind_an_unlisted_wrapper(self):
+        command = "timeout 5 gh label create bug --color d73a4a"
+        self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))))
+
     def test_allows_gh_release_without_a_release_tool_configured(self):
         repo = git_repo(with_release_please=False, with_release_me=False)
         self.assertIsNone(

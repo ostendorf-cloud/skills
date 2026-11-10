@@ -600,9 +600,11 @@ def token_name(token: str) -> str:
 
     A check that compares the first token of a command to a tool name resolves it
     through this, or through command_name when it still holds the raw string, so an
-    absolute path does not bypass it. Most checks in secret_guard and iac_first do,
-    and git_guard, commit_message and secret_guard's own commit credential scan
-    through strip_global_git_options now do too."""
+    absolute path does not bypass it. Every hook that gates on a tool name now does,
+    secret_guard's own commit credential scan through strip_global_git_options
+    included: strip_global_git_options resolves the git basename itself, and
+    secret_guard's main also runs every part through normalize_command_part before
+    any check, so a wrapper prefix never reaches that scan either."""
     return os.path.basename(token)
 
 

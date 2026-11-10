@@ -126,6 +126,50 @@ class LabelMoveTest(unittest.TestCase):
         command = 'gh issue edit 44 --add-label "ai: working'
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
 
+    def test_adds_context_behind_a_wrapper_prefix(self):
+        for command in [
+            'gh issue edit 44 --add-label "ai: working"',
+            'sudo gh issue edit 44 --add-label "ai: working"',
+            'sudo -u ci gh issue edit 44 --add-label "ai: working"',
+            'doas gh issue edit 44 --add-label "ai: working"',
+            'env GH_HOST=github.example.com gh issue edit 44 --add-label "ai: working"',
+            'mise exec -- gh issue edit 44 --add-label "ai: working"',
+            'mise exec gh@2 -- gh issue edit 44 --add-label "ai: working"',
+            'nice -n 10 gh issue edit 44 --add-label "ai: working"',
+            'nohup gh pr edit 12 --add-label "ai: review requested"',
+            'time gh pr edit 12 --add-label "ai: review requested"',
+            'sudo /opt/homebrew/bin/gh issue edit 44 --add-label "ai: working"',
+        ]:
+            message = context(run_hook("label_move.py", bash_payload(command)))
+            self.assertIn("ai:", message, command)
+
+    def test_no_context_behind_a_wrapper_prefix_when_an_ai_label_is_removed(self):
+        for command in [
+            'gh issue edit 44 --add-label "ai: done" --remove-label "ai: working"',
+            'sudo gh issue edit 44 --add-label "ai: done" --remove-label "ai: working"',
+            'mise exec -- gh issue edit 44 --add-label "ai: done" --remove-label "ai: working"',
+        ]:
+            self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "", command)
+
+    def test_no_context_behind_a_wrapper_prefix_on_a_read(self):
+        for command in [
+            "gh issue view 44 --comments",
+            "sudo gh issue view 44 --comments",
+            "nice -n 10 gh issue view 44 --comments",
+        ]:
+            self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "", command)
+
+    def test_no_context_behind_a_wrapper_prefix_for_a_non_ai_label(self):
+        for command in [
+            "gh issue edit 44 --add-label bug",
+            "sudo gh issue edit 44 --add-label bug",
+        ]:
+            self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "", command)
+
+    def test_no_context_for_an_unlisted_wrapper(self):
+        command = 'timeout 5 gh issue edit 44 --add-label "ai: working"'
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
 
 if __name__ == "__main__":
     unittest.main()

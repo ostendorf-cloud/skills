@@ -486,6 +486,218 @@ class SecretGuardTest(unittest.TestCase):
         self.assertIn("deploy-notes.md", reason(output))
         self.assertNotIn(header, reason(output))
 
+    def test_denies_a_secret_manager_read_behind_a_wrapper_prefix(self):
+        for command in [
+            "bao kv get secret/prod/app",
+            "sudo bao kv get secret/prod/app",
+            "sudo -u ci bao read secret/prod/app",
+            "doas vault kv get secret/data/app",
+            "env VAULT_ADDR=https://vault.example.com vault read secret/data/app",
+            "mise exec -- tofu output database_password",
+            "mise exec tofu@1.8 -- tofu output database_password",
+            "nice -n 10 tofu state show module.app.resource",
+            "nohup tofu state pull",
+            "time bao kv get secret/prod/app",
+            "sudo /opt/homebrew/bin/bao kv get secret/prod/app",
+            "mise exec -- tofu -chdir=infra/prod output database_password",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_bws_secret_read_behind_a_wrapper_prefix(self):
+        for command in [
+            "bws secret get my-secret",
+            "sudo bws secret get my-secret",
+            "env BWS_ACCESS_TOKEN=x bws secret list",
+            "mise exec -- bws -o env secret get my-secret",
+            "nice -n 10 bws secret -o env list",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_bw_item_read_behind_a_wrapper_prefix(self):
+        for command in [
+            "bw get password my-item",
+            "sudo bw get password my-item",
+            "mise exec -- bw --raw get password my-item",
+            "nice -n 10 bw get item my-item",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_gh_auth_token_behind_a_wrapper_prefix(self):
+        for command in [
+            "gh auth token",
+            "sudo gh auth token",
+            "doas gh auth token",
+            "env GH_HOST=github.example.com gh auth token",
+            "mise exec -- gh auth token",
+            "nice -n 10 gh auth --hostname github.com token",
+            "time gh auth token",
+            "sudo /opt/homebrew/bin/gh auth token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_kubectl_secret_read_behind_a_wrapper_prefix(self):
+        for command in [
+            "kubectl get secret db-credentials -o yaml",
+            "sudo kubectl get secret db-credentials -o yaml",
+            "sudo -u ci kubectl get secrets -o json",
+            "env KUBECONFIG=/srv/kubeconfig kubectl get secret db-credentials -o yaml",
+            "mise exec -- kubectl get secret db-credentials -o yaml",
+            "mise exec kubectl@1.31 -- kubectl get secret db-credentials --output=yaml",
+            "nice -n 10 kubectl -n default get secret db-credentials -o yaml",
+            "sudo /opt/homebrew/bin/kubectl get secret db-credentials -o yaml",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_a_secret_file_read_behind_a_wrapper_prefix(self):
+        for command in [
+            "cat .env",
+            "sudo cat .env",
+            "sudo -u ci head kubeconfig",
+            "doas tail -f talosconfig",
+            "env LC_ALL=C less id_rsa",
+            "mise exec -- cat secrets.tfvars",
+            "nice -n 10 grep -r password .env.production",
+            "sudo /bin/cat .env",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_echoing_a_credential_variable_behind_a_wrapper_prefix(self):
+        for command in [
+            "echo $GH_TOKEN",
+            "sudo echo $GH_TOKEN",
+            "mise exec -- echo $AWS_SECRET_ACCESS_KEY",
+            "nice -n 10 printf '%s' $GH_TOKEN",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_printenv_of_a_credential_variable_behind_a_wrapper_prefix(self):
+        for command in [
+            "printenv GH_TOKEN",
+            "sudo printenv GH_TOKEN",
+            "mise exec -- printenv GH_TOKEN",
+            "nice -n 10 printenv AWS_SECRET_ACCESS_KEY",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_environment_credential_grep_behind_a_wrapper_prefix(self):
+        for command in [
+            "env | grep TOKEN",
+            "sudo env | grep TOKEN",
+            "mise exec -- printenv | grep SECRET",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_an_unparseable_policed_part_behind_a_wrapper_prefix(self):
+        for command in [
+            'cat "secrets.yaml',
+            'sudo cat "secrets.yaml',
+            'mise exec -- cat "secrets.yaml',
+        ]:
+            output = run_hook("secret_guard.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+            self.assertIn("quoting", reason(output), command)
+
+    def test_denies_a_forbidden_staged_file_behind_a_wrapped_commit(self):
+        for prefix in [
+            "",
+            "sudo ",
+            "sudo -u ci ",
+            "doas ",
+            "env GIT_AUTHOR_NAME=ci ",
+            "mise exec -- ",
+            "mise exec git@2.47 -- ",
+            "nice -n 10 ",
+            "nohup ",
+            "time ",
+            "sudo /usr/bin/",
+        ]:
+            repo = git_repo()
+            stage(repo, ".env", "API_KEY=value\n")
+            command = f"{prefix}git commit -m 'chore: add config'"
+            self.assertEqual(
+                decision(
+                    run_hook(
+                        "secret_guard.py",
+                        bash_payload(command, repo),
+                        env=no_gitleaks_env(),
+                    )
+                ),
+                "deny",
+                command,
+            )
+
+    def test_denies_a_staged_credential_behind_a_wrapped_commit(self):
+        for prefix in ["", "sudo ", "mise exec -- ", "nice -n 10 "]:
+            repo = git_repo()
+            stage(repo, "config.yaml", "token: ghp_" + "a" * 36 + "\n")
+            command = f"{prefix}git commit -m 'feat: add config'"
+            output = run_hook(
+                "secret_guard.py",
+                bash_payload(command, repo),
+                env=no_gitleaks_env(),
+            )
+            self.assertEqual(decision(output), "deny", command)
+            self.assertIn("config.yaml", reason(output), command)
+            self.assertNotIn("ghp_", reason(output), command)
+
+    def test_allows_an_ordinary_commit_behind_a_wrapper_prefix(self):
+        for prefix in ["", "sudo ", "mise exec -- ", "nice -n 10 ", "env GIT_AUTHOR_NAME=ci "]:
+            repo = git_repo()
+            stage(repo, "notes.md", "nothing secret here\n")
+            command = f"{prefix}git commit -m 'docs: add notes'"
+            self.assertIsNone(
+                decision(
+                    run_hook(
+                        "secret_guard.py",
+                        bash_payload(command, repo),
+                        env=no_gitleaks_env(),
+                    )
+                ),
+                command,
+            )
+
+    def test_allows_safe_commands_behind_a_wrapper_prefix(self):
+        repo = git_repo()
+        for command in [
+            "sudo git status",
+            "sudo kubectl get secrets",
+            "sudo kubectl get pods -o yaml",
+            "sudo -u ci bws project list",
+            "doas bw list items",
+            "env TF_IN_AUTOMATION=1 tofu plan",
+            "mise exec -- tofu state list",
+            "mise exec -- gh auth status",
+            "nice -n 10 cat README.md",
+            "nohup printenv HOME",
+            "time echo hello",
+            "sudo cat terraform.tfvars",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("secret_guard.py", bash_payload(command, repo))), command
+            )
+
+    def test_allows_a_secret_read_behind_an_unlisted_wrapper(self):
+        command = "timeout 5 bao kv get secret/prod/app"
+        self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,7 +10,8 @@ somewhere else entirely.
 
 Every `gh` check finds the subcommand behind the flags in front of it, so neither a
 flag placed in front of the noun nor one placed between the noun and the subcommand
-hides the command.
+hides the command. Every part is normalised before the checks run, so a wrapper prefix
+such as `sudo`, `env` or `mise exec --` in front of gh does not hide it either.
 """
 
 import os
@@ -212,7 +213,7 @@ def main() -> int:
     root = _common.repo_root(cwd)
 
     for raw_part in _common.command_parts(command):
-        part = _common.strip_env_prefix(raw_part)
+        part = _common.normalize_command_part(raw_part)
         if gh_command_name(part) != "gh":
             continue
 

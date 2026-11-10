@@ -54,6 +54,9 @@ def label_move_message(part: str) -> Optional[str]:
     noun does not hide it: `gh --hostname example.com issue edit 1 --add-label ...`
     moves a label just as the plain form does. The flag value scans read the whole
     token list, so they need no dispatch awareness of their own.
+
+    Expects a part already run through `_common.normalize_command_part`, so a wrapper
+    prefix such as `sudo` or `mise exec --` in front of gh does not hide the move.
     """
     try:
         tokens = shlex.split(part)
@@ -79,7 +82,7 @@ def main() -> int:
         return _common.emit_empty()
 
     for raw_part in _common.command_parts(command):
-        part = _common.strip_env_prefix(raw_part)
+        part = _common.normalize_command_part(raw_part)
         if _common.command_name(part) != "gh":
             continue
         message = label_move_message(part)
