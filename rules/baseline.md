@@ -79,8 +79,8 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Rebase onto the default branch to update a branch. Force push afterwards only with `--force-with-lease`.
 - Parallel sessions on one repository use a worktree under `.worktrees/<branch>`. One checkout, one session.
 - A worktree lives as long as its pull request. After the merge: `git worktree remove`, `git branch -d`, `git worktree prune`. A session that ends checks for its own stale worktrees first.
-- Before dispatching an agent into an existing worktree, check `ListAgents` or the task list for another running agent on it.
-- A completed status from one turn is not proof an agent is done. The same agent id can resume and keep working in the same worktree. Treat it as holding the worktree until termination is confirmed or its final result is in.
+- Before dispatching an agent into an existing worktree, check the agent list or the task list for another running agent on it.
+- No status update proves an agent has stopped, a completion notice for one turn included. The same agent can be resumed and keep working in the same worktree. It holds the worktree until its termination is confirmed.
 - An investigation or a reproduction with no pull request of its own uses a detached worktree outside the repository instead, removed in the same task. It is never pushed.
 - Secrets never enter a repository, log, commit message, issue or pull request.
 
