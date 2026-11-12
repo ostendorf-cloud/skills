@@ -88,10 +88,14 @@ How versions, changelogs and dependency updates get produced.
 
 ### Release labels
 
-- release-me: `release: pending` and `release: tagged` by default, configurable in
-  `release-me.yaml`; a pre-release type left as an empty string is disabled.
+- release-me: `release: pending`, `release: tagged`, `release: alpha|beta|rc` by default,
+  configurable in `release-me.yaml` under `labels.pending`/`labels.tagged`/
+  `labels.prerelease.<type>`; a pre-release type set to `false` or an empty string is disabled.
+- release-me creates a missing label itself (`labels.create-missing`, default `true`) rather
+  than failing. `false` restores the old behaviour: report by name, fail instead.
 - release-please: `autorelease: pending` and `autorelease: tagged`, fixed.
-- Either set is owned by its tool. A missing label is reported, never created by hand.
+- Either set is owned by its tool. A missing label is never created by hand, independent of
+  whether the tool itself is configured to create one.
 
 ## Guardrails
 
