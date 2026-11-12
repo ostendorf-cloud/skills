@@ -32,7 +32,15 @@ task doctor
 - One task target per check and one CI job per target. `check` aggregates the small targets and
   holds no command of its own. CI calls the small targets, never `check`.
 - Workflows: `checks.yaml` runs every check as its own job, `install.yaml` smoke tests the
-  installer, `release.yaml` runs release-me with the release app token.
+  installer, `codeql.yaml` scans Python and the workflow YAML, `release.yaml` runs release-me
+  with the release app token.
+
+## Deviations
+
+- CI calls the small Task targets, with one exception: the `license` job in `checks.yaml` calls
+  `ostendorf-cloud/workflows`' `reusable-license.yaml` instead of `task lint:license`. The shared
+  workflow pins addlicense itself, so the check cannot drift with this repository's `mise.toml`.
+  `task lint:license` stays and runs the same tool, flags and files locally.
 
 ## Changing the baseline
 
