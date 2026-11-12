@@ -15,14 +15,14 @@ concurrency:
 jobs:
   release:
     runs-on: blacksmith-2vcpu-ubuntu-2404
-    # The label list is release-me.yaml's labels, spelled out: the condition cannot read the
-    # configuration. alpha, beta and rc are disabled (empty label) and left out.
+    # The label list is release-me.yaml's defaults, spelled out: the condition cannot read the
+    # configuration.
     if: >-
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
       startsWith(github.event.pull_request.head.ref, 'release-me/') &&
       contains(
-        fromJSON('["autorelease: pending", "autorelease: tagged"]'),
+        fromJSON('["release: pending", "release: tagged", "release: alpha", "release: beta", "release: rc"]'),
         github.event.label.name
       ))
     steps:
