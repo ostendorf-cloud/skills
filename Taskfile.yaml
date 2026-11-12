@@ -17,6 +17,14 @@ tasks:
     cmds:
       - ruff format --check hooks scripts
 
+  lint:license:
+    desc: License header check for every Python and shell source file
+    cmds:
+      - |
+        addlicense -check -c "Simon Ostendorf" -y 2026 -l apache -s=only \
+          $(find . \( -name "*.py" -o -name "*.sh" \) \
+            -not -path "./.worktrees/*" -not -path "./.claude/*")
+
   lint:markdown:
     desc: Markdown lint
     cmds:
@@ -57,6 +65,7 @@ tasks:
     cmds:
       - task: lint:ruff
       - task: lint:ruff-format
+      - task: lint:license
       - task: lint:markdown
       - task: lint:yaml
       - task: lint:actions

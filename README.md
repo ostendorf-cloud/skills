@@ -102,6 +102,8 @@ task validate
 
 One target per check, one CI job per target. `check` only calls the small targets.
 
+`CONTRIBUTING.md` has the commit, sign-off and license-header rules a change here follows.
+
 Releases come from release-me. Every merge to `main` updates the release pull request,
 merging that creates the tag, the release and the changelog. The workflow runs with the token
 of the release app: the variable `GH_APP_RELEASE_APP_ID` and the secret

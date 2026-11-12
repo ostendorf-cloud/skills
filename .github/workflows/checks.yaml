@@ -23,6 +23,20 @@ jobs:
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db  # v3.6.3
       - run: task lint:ruff-format
 
+  # The one check CI does not run through its Task target: the shared workflow
+  # pins addlicense itself, so the check runs on a known version even in a
+  # checkout whose mise.toml has drifted. "task lint:license" stays for local
+  # use and runs the same tool with the same flags over the same files.
+  license:
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@v0.1.0
+    with:
+      copyright-holder: Simon Ostendorf
+      year: "2026"
+      license-type: apache
+      runs-on-runner: blacksmith-2vcpu-ubuntu-2404
+      find-commands: |
+        find . \( -name "*.py" -o -name "*.sh" \) -not -path "./.worktrees/*" -not -path "./.claude/*"
+
   markdownlint:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:

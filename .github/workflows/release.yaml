@@ -40,12 +40,12 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.sha }}
           fetch-depth: 0
 
-      - uses: ostendorf-cloud/release-me/action@12e8a8b82127bebe679f36c465d5d3fb5dfb5af4  # v0.2.1
+      # No version input: since v0.5.0 the action falls back to the VERSION
+      # file shipped at the pinned commit when github.action_ref is not itself
+      # a release tag, which is exactly the commit SHA pin below.
+      #
+      # No app-slug either: since v0.5.0 the release commit is created through
+      # the API under the token's own identity, so the input is ignored.
+      - uses: ostendorf-cloud/release-me/action@1ce702d00e64f065f639373321c7fb4f5775636a  # v0.5.0
         with:
           token: ${{ steps.app-token.outputs.token }}
-          app-slug: ${{ steps.app-token.outputs.app-slug }}
-          # Pinning uses: by commit SHA makes github.action_ref that SHA, not
-          # the tag the trailing comment names, and the action's own version
-          # resolution falls back to that ref, so the version needs stating
-          # explicitly here.
-          version: "0.2.1"
