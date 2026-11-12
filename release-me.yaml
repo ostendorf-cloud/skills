@@ -1,9 +1,1 @@
-# The autorelease: labels already exist on this repository from release-please and carry
-# their history, so release-me keeps them instead of its own release: pending/tagged default.
-labels:
-  pending: 'autorelease: pending'
-  tagged: 'autorelease: tagged'
-  alpha: ""
-  beta: ""
-  rc: ""
 bump-minor-pre-major: true
