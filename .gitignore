@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .worktrees/
+.claude/worktrees/
 .claude/.cc-writes/
 settings/local.json
