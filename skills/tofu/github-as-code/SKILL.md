@@ -67,7 +67,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
   for `ai`, `dependencies` and `priority` come from `skills/README.md` and the schema.
 - `base` holds config `types`, `needs triage` (config `labels.needsTriage`), `duplicate`,
   `question`, and the context labels `breaking-change`, `deprecated`, `research`, `upstream`.
-- `release` holds release-me's and release-please's pending/tagged labels, so an apply keeps them.
+- `release` holds release-me's pending/tagged/alpha/beta/rc and release-please's pending/tagged.
 - `community` holds `good first issue` and `help wanted` for public repositories, `stack` exactly
   the keys of config `stacks`.
 - `github_issue_labels` is authoritative per repository, built from its chosen groups; an unlisted
