@@ -42,7 +42,8 @@ Produce a short, accurate README in one house style across repositories.
 
 Review pass for an existing README: stale claims (removed or renamed features, changed
 flags), missing or changed configuration, dead links, template leftovers (placeholder
-names, `TODO`, scaffold URLs), install steps that no longer work, sections out of order.
+names, `TODO`, scaffold URLs), install steps that no longer work, sections out of order,
+a release status or a count that goes stale on its own.
 
 ## Guardrails
 
@@ -54,6 +55,10 @@ names, `TODO`, scaffold URLs), install steps that no longer work, sections out o
 - All links resolve. Depth linked to `docs/`, not inlined.
 - Releases are described as driven by the repository's release tool (release-me or
   release-please). `CHANGELOG.md` is never hand edited.
+- Never state a release status or an implementation count as current fact when it
+  depends on something outside this file: a release being cut, a package added, a
+  version tagged. Name what exists, or point at the thing that is always current,
+  instead of asserting a snapshot in prose.
 
 ## References
 
