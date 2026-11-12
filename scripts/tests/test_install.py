@@ -68,7 +68,18 @@ class InstallTestCase(unittest.TestCase):
         write(self.source / "hooks" / "test_hook.py", "#!/usr/bin/env python3\n")
         write(
             self.source / "settings" / "claude.json",
-            json.dumps({"permissions": {"allow": ["Bash(ls:*)"], "deny": []}}),
+            json.dumps(
+                {
+                    "permissions": {
+                        "allow": ["Bash(ls:*)"],
+                        "deny": [
+                            "Edit({{claude_dir}}/settings.json)",
+                            "Edit({{claude_dir}}/CLAUDE.md)",
+                            "Edit(~/.config/agent-skills/**)",
+                        ],
+                    }
+                }
+            ),
         )
         write(
             self.source / "settings" / "claude-ci.json",
@@ -366,7 +377,10 @@ class InstallTestCase(unittest.TestCase):
         work_state = json.loads((config_dir / "work.state.json").read_text())
         self.assertIn("test-skill", personal_state["skills"])
         self.assertIn("test-skill", work_state["skills"])
-        self.assertFalse((config_dir / "state.json.work").exists())
+        # The default target keeps the bare filename: an empty target must not be
+        # prefixed into a dotfile the other commands would never look at.
+        self.assertFalse((config_dir / ".state.json").exists())
+        self.assertFalse((config_dir / ".AGENTS.md").exists())
 
         personal_settings = json.loads((personal_dir / "settings.json").read_text())
         work_settings = json.loads((work_dir / "settings.json").read_text())
@@ -498,6 +512,145 @@ class InstallTestCase(unittest.TestCase):
         self.assertEqual((work_dir / "CLAUDE.md").read_text(), work_claude_md_before)
         self.assertTrue((config_dir / "work.state.json").is_file())
         self.assertTrue((config_dir / "work.AGENTS.md").is_file())
+
+    def _tree(self, root: Path) -> list:
+        """Every entry below root with its content, for a before and after comparison."""
+        snapshot = []
+        for path in sorted(root.rglob("*")):
+            name = str(path.relative_to(root))
+            if path.is_symlink():
+                snapshot.append((name, "link", str(path.readlink())))
+            elif path.is_file():
+                snapshot.append((name, "file", path.read_text()))
+            else:
+                snapshot.append((name, "dir", ""))
+        return snapshot
+
+    def test_install_records_the_claude_dir_it_installed_into(self) -> None:
+        work_dir = self.home / ".claude-work"
+        self._install("--claude-dir", str(work_dir), "--target", "work")
+
+        state = json.loads((self.home / ".config" / "agent-skills" / "work.state.json").read_text())
+        self.assertEqual(state["claude_dir"], str(work_dir.resolve()))
+
+    def test_uninstall_refuses_a_claude_dir_other_than_the_recorded_one(self) -> None:
+        personal_dir = self.home / ".claude-personal"
+        work_dir = self.home / ".claude-work"
+        self._install("--claude-dir", str(personal_dir))
+        self._install("--claude-dir", str(work_dir), "--target", "work")
+
+        personal_before = self._tree(personal_dir)
+        work_before = self._tree(work_dir)
+
+        # The work target, but pointed at the personal target's directory.
+        code, output = run(
+            [
+                "uninstall",
+                "--home",
+                str(self.home),
+                "--source",
+                str(self.source),
+                "--claude-dir",
+                str(personal_dir),
+                "--target",
+                "work",
+            ]
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("error", output)
+        self.assertIn(str(work_dir.resolve()), output)
+        self.assertIn(str(personal_dir.resolve()), output)
+        self.assertEqual(self._tree(personal_dir), personal_before)
+        self.assertEqual(self._tree(work_dir), work_before)
+        config_dir = self.home / ".config" / "agent-skills"
+        self.assertTrue((config_dir / "state.json").is_file())
+        self.assertTrue((config_dir / "work.state.json").is_file())
+
+    def test_second_target_without_its_own_claude_dir_is_refused(self) -> None:
+        self._install()
+        claude_dir = self.home / ".claude"
+        before = self._tree(claude_dir)
+
+        install_code, install_output = self._install("--target", "work")
+        self.assertEqual(install_code, 1)
+        self.assertIn("error", install_output)
+        self.assertEqual(self._tree(claude_dir), before)
+
+        config_dir = self.home / ".config" / "agent-skills"
+        self.assertFalse((config_dir / "work.state.json").exists())
+
+        # The directory still belongs to the default target, so uninstalling the name
+        # that was never installed there must not remove the default installation.
+        uninstall_code, uninstall_output = run(
+            [
+                "uninstall",
+                "--home",
+                str(self.home),
+                "--source",
+                str(self.source),
+                "--target",
+                "work",
+            ]
+        )
+        self.assertEqual(uninstall_code, 1)
+        self.assertIn("error", uninstall_output)
+        self.assertEqual(self._tree(claude_dir), before)
+        self.assertTrue((claude_dir / "skills" / "test-skill").exists())
+        self.assertTrue((claude_dir / "CLAUDE.md").is_file())
+        self.assertTrue((config_dir / "state.json").is_file())
+
+    def test_status_and_doctor_report_a_claude_dir_mismatch(self) -> None:
+        personal_dir = self.home / ".claude-personal"
+        work_dir = self.home / ".claude-work"
+        self._install("--claude-dir", str(personal_dir))
+        self._install("--claude-dir", str(work_dir), "--target", "work")
+
+        for command in ("status", "doctor"):
+            code, output = run(
+                [
+                    command,
+                    "--home",
+                    str(self.home),
+                    "--source",
+                    str(self.source),
+                    "--claude-dir",
+                    str(personal_dir),
+                    "--target",
+                    "work",
+                ]
+            )
+            self.assertEqual(code, 1, output)
+            self.assertIn(str(work_dir.resolve()), output)
+
+    def test_installed_settings_protect_the_directory_they_are_installed_into(self) -> None:
+        work_dir = self.home / ".claude-work"
+        self._install("--claude-dir", str(work_dir), "--target", "work")
+
+        deny = json.loads((work_dir / "settings.json").read_text())["permissions"]["deny"]
+        self.assertIn("Edit(~/.claude-work/settings.json)", deny)
+        self.assertIn("Edit(~/.claude-work/CLAUDE.md)", deny)
+        self.assertNotIn("Edit(~/.claude/settings.json)", deny)
+        self.assertNotIn("Edit(~/.claude/CLAUDE.md)", deny)
+        self.assertFalse(any(install.CLAUDE_DIR_PLACEHOLDER in entry for entry in deny))
+
+    def test_default_install_keeps_the_home_relative_protection_paths(self) -> None:
+        self._install()
+
+        deny = json.loads((self.home / ".claude" / "settings.json").read_text())["permissions"][
+            "deny"
+        ]
+        self.assertIn("Edit(~/.claude/settings.json)", deny)
+        self.assertIn("Edit(~/.claude/CLAUDE.md)", deny)
+
+    def test_install_rejects_a_target_that_is_not_a_plain_name(self) -> None:
+        for target in ("../../escaped", "a/b", "..", "."):
+            code, output = self._install("--target", target)
+            self.assertEqual(code, 2, output)
+            self.assertIn("invalid --target", output)
+
+        self.assertFalse((self.home / ".config").exists())
+        self.assertFalse((self.home / "escaped.state.json").exists())
 
 
 if __name__ == "__main__":

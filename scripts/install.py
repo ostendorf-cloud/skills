@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import py_compile
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -19,8 +20,11 @@ from pathlib import Path
 from typing import Any
 
 BACKUP_SUFFIX = ".before-agent-skills"
+# Stands in for the directory an install writes into, wherever the shipped settings name it.
+CLAUDE_DIR_PLACEHOLDER = "{{claude_dir}}"
 MARKER_NAME = ".agent-skills-checksum"
 OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/")
+TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 LEGACY_SKILL_MARKER = "/ai-setup/skills/"
 
 
@@ -41,6 +45,85 @@ def target_file(home: Path, target: str, name: str) -> Path:
     """Path to a home-anchored, per-target file. Empty target keeps today's bare filename."""
     filename = f"{target}.{name}" if target else name
     return home / ".config" / "agent-skills" / filename
+
+
+def target_label(target: str) -> str:
+    return f"target '{target}'" if target else "the default target"
+
+
+def resolve_dir(path: Path) -> Path:
+    return path.expanduser().resolve()
+
+
+def read_state(home: Path, target: str) -> dict[str, Any] | None:
+    path = target_file(home, target, "state.json")
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def installed_targets(home: Path) -> list[tuple[str, dict[str, Any]]]:
+    """Every target that has a state file in this home, as (target name, state) pairs."""
+    config_dir = home / ".config" / "agent-skills"
+    if not config_dir.is_dir():
+        return []
+    names = [path.name[: -len(".state.json")] for path in sorted(config_dir.glob("*.state.json"))]
+    if (config_dir / "state.json").is_file():
+        names.insert(0, "")
+    found: list[tuple[str, dict[str, Any]]] = []
+    for name in names:
+        state = read_state(home, name)
+        if state is not None:
+            found.append((name, state))
+    return found
+
+
+def claude_dir_mismatch(home: Path, target: str, claude_dir: Path) -> str | None:
+    """Compare the claude_dir recorded at install time against the one this run asks for.
+
+    Returns an error message when they differ. Returns None when they match, when the
+    target has no state file, or when the state file predates the recorded field.
+    """
+    state = read_state(home, target)
+    if not state:
+        return None
+    recorded = state.get("claude_dir")
+    if not recorded:
+        return None
+    wanted = resolve_dir(claude_dir)
+    if Path(recorded) == wanted:
+        return None
+    return (
+        f"{target_label(target)} was installed into {recorded}, "
+        f"but --claude-dir points at {wanted}. "
+        "Pass the recorded --claude-dir, or the --target that owns this directory. "
+        "To move a target, uninstall it first. Nothing was changed."
+    )
+
+
+def claude_dir_owner(home: Path, target: str, claude_dir: Path) -> str | None:
+    """Returns an error message when another target already owns claude_dir.
+
+    A directory belongs to exactly one target. Without this check a second target
+    installed into the same directory overwrites the first one's files and its uninstall
+    then removes them.
+    """
+    wanted = resolve_dir(claude_dir)
+    for name, state in installed_targets(home):
+        if name == target:
+            continue
+        recorded = state.get("claude_dir")
+        if recorded and Path(recorded) == wanted:
+            return (
+                f"{wanted} is the installation of {target_label(name)}, "
+                f"not of {target_label(target)}. Point --claude-dir at a directory of its "
+                "own, or name the owning target with --target. Nothing was changed."
+            )
+    return None
 
 
 def discover_skills(source: Path) -> list[Skill]:
@@ -218,6 +301,34 @@ def deep_merge(base: Any, overlay: Any) -> Any:
     return overlay
 
 
+def claude_dir_rule_path(claude_dir: Path, home: Path) -> str:
+    """Render claude_dir for a permission rule: home relative as "~/..." so the installed
+    file still works on another machine, absolute when it sits outside home."""
+    expanded = claude_dir.expanduser()
+    for base in (home.expanduser(), resolve_dir(home)):
+        try:
+            return "~/" + expanded.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return str(expanded)
+
+
+def substitute_claude_dir(value: Any, rule_path: str) -> Any:
+    """Replace the claude_dir placeholder in every string of a settings tree.
+
+    The shipped profile cannot name the install directory, so rules that protect a
+    target's own settings.json and CLAUDE.md carry the placeholder and are bound to the
+    directory this run installs into.
+    """
+    if isinstance(value, str):
+        return value.replace(CLAUDE_DIR_PLACEHOLDER, rule_path)
+    if isinstance(value, dict):
+        return {key: substitute_claude_dir(item, rule_path) for key, item in value.items()}
+    if isinstance(value, list):
+        return [substitute_claude_dir(item, rule_path) for item in value]
+    return value
+
+
 def load_profile_settings(source: Path, profile: str) -> dict[str, Any]:
     name = "claude.json" if profile == "laptop" else "claude-ci.json"
     return read_json(source / "settings" / name)
@@ -336,6 +447,9 @@ def install_settings(
         overlay = load_local_overlay(home, target)
         if overlay is not None:
             profile_settings = deep_merge(profile_settings, overlay)
+    profile_settings = substitute_claude_dir(
+        profile_settings, claude_dir_rule_path(claude_dir, home)
+    )
 
     hooks = load_hook_manifest(source)
     hook_blocks = build_hook_blocks(hooks, source)
@@ -379,6 +493,7 @@ def install_settings(
 def write_state(
     home: Path,
     target: str,
+    claude_dir: Path,
     source: Path,
     profile: str,
     mode: str,
@@ -391,6 +506,7 @@ def write_state(
     path = target_file(home, target, "state.json")
     data = {
         "source": str(source),
+        "claude_dir": str(resolve_dir(claude_dir)),
         "profile": profile,
         "mode": mode,
         "skills": sorted(skill_names),
@@ -414,6 +530,12 @@ def collect_backups(claude_dir: Path) -> dict[str, str]:
 
 def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
+    refusal = claude_dir_mismatch(args.home, args.target, args.claude_dir) or claude_dir_owner(
+        args.home, args.target, args.claude_dir
+    )
+    if refusal:
+        return [f"error   {refusal}"], 1
+
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
     skills_dir = args.claude_dir / "skills"
@@ -452,6 +574,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     write_state(
         args.home,
         args.target,
+        args.claude_dir,
         args.source,
         args.profile,
         mode,
@@ -466,6 +589,10 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
 
 def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
+    mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
+    if mismatch:
+        return [f"error   {mismatch}"], 1
+
     drift = False
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
@@ -558,6 +685,9 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
         broken = [e.name for e in skills_dir.iterdir() if e.is_symlink() and not e.exists()]
     check(not broken, "no broken skill symlinks" + (f" ({', '.join(broken)})" if broken else ""))
 
+    mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
+    check(mismatch is None, mismatch or "state records the claude-dir in use")
+
     overlay_path = target_file(args.home, args.target, "local.json")
     overlay_ok = True
     if overlay_path.is_file():
@@ -574,13 +704,18 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
     home = args.home
     claude_dir = args.claude_dir
+    # The recorded claude_dir decides what gets removed. Without these guards a target
+    # name and a --claude-dir that drifted apart would wipe another target's installation:
+    # the first guard catches the wrong directory for this target, the second a directory
+    # that belongs to a different target.
+    refusal = claude_dir_mismatch(home, args.target, claude_dir) or claude_dir_owner(
+        home, args.target, claude_dir
+    )
+    if refusal:
+        return [f"error   {refusal}"], 1
+
     state_path = target_file(home, args.target, "state.json")
-    state: dict[str, Any] | None = None
-    if state_path.is_file():
-        try:
-            state = json.loads(state_path.read_text())
-        except json.JSONDecodeError:
-            state = None
+    state = read_state(home, args.target)
 
     skills_dir = claude_dir / "skills"
     if state:
@@ -677,12 +812,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def invalid_target(target: str) -> str | None:
+    """A target is interpolated into a filename, so it has to be a plain name."""
+    if not target:
+        return None
+    if target in (".", "..") or not TARGET_PATTERN.match(target):
+        return (
+            f"invalid --target '{target}': use letters, digits, dot, dash or "
+            "underscore only, with no path separator and no '..'."
+        )
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
+
+    target_error = invalid_target(args.target)
+    if target_error:
+        print(f"error   {target_error}")
+        return 2
 
     args.home = (args.home or Path(os.environ.get("HOME", str(Path.home())))).expanduser()
     args.claude_dir = (args.claude_dir or (args.home / ".claude")).expanduser()
