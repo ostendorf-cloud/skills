@@ -573,7 +573,8 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
 def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
     home = args.home
-    state_path = home / ".config" / "agent-skills" / "state.json"
+    claude_dir = args.claude_dir
+    state_path = target_file(home, args.target, "state.json")
     state: dict[str, Any] | None = None
     if state_path.is_file():
         try:
@@ -581,7 +582,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
         except json.JSONDecodeError:
             state = None
 
-    skills_dir = home / ".claude" / "skills"
+    skills_dir = claude_dir / "skills"
     if state:
         source = Path(state.get("source", ""))
         for name in state.get("skills", []):
@@ -597,7 +598,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
                     shutil.rmtree(target)
             lines.append(f"skill   {name} removed")
 
-    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md = claude_dir / "CLAUDE.md"
     claude_backup = Path(str(claude_md) + BACKUP_SUFFIX)
     if claude_backup.is_file():
         lines.append("rules   restored from backup")
@@ -608,7 +609,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
         if not args.dry_run:
             claude_md.unlink()
 
-    settings_path = home / ".claude" / "settings.json"
+    settings_path = claude_dir / "settings.json"
     settings_backup = Path(str(settings_path) + BACKUP_SUFFIX)
     if settings_backup.is_file():
         # A stale backup can itself carry own hook blocks, when an earlier install run
@@ -639,7 +640,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
         else:
             lines.append("settings no installed hooks found, left untouched")
 
-    agents_md = home / ".config" / "agent-skills" / "AGENTS.md"
+    agents_md = target_file(home, args.target, "AGENTS.md")
     if agents_md.is_file():
         lines.append("agents  export removed")
         if not args.dry_run:
