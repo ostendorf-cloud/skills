@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import py_compile
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -19,8 +20,11 @@ from pathlib import Path
 from typing import Any
 
 BACKUP_SUFFIX = ".before-agent-skills"
+# Stands in for the directory an install writes into, wherever the shipped settings name it.
+CLAUDE_DIR_PLACEHOLDER = "{{claude_dir}}"
 MARKER_NAME = ".agent-skills-checksum"
 OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/")
+TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 LEGACY_SKILL_MARKER = "/ai-setup/skills/"
 
 
@@ -35,6 +39,91 @@ class Skill:
 
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text())
+
+
+def target_file(home: Path, target: str, name: str) -> Path:
+    """Path to a home-anchored, per-target file. Empty target keeps today's bare filename."""
+    filename = f"{target}.{name}" if target else name
+    return home / ".config" / "agent-skills" / filename
+
+
+def target_label(target: str) -> str:
+    return f"target '{target}'" if target else "the default target"
+
+
+def resolve_dir(path: Path) -> Path:
+    return path.expanduser().resolve()
+
+
+def read_state(home: Path, target: str) -> dict[str, Any] | None:
+    path = target_file(home, target, "state.json")
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def installed_targets(home: Path) -> list[tuple[str, dict[str, Any]]]:
+    """Every target that has a state file in this home, as (target name, state) pairs."""
+    config_dir = home / ".config" / "agent-skills"
+    if not config_dir.is_dir():
+        return []
+    names = [path.name[: -len(".state.json")] for path in sorted(config_dir.glob("*.state.json"))]
+    if (config_dir / "state.json").is_file():
+        names.insert(0, "")
+    found: list[tuple[str, dict[str, Any]]] = []
+    for name in names:
+        state = read_state(home, name)
+        if state is not None:
+            found.append((name, state))
+    return found
+
+
+def claude_dir_mismatch(home: Path, target: str, claude_dir: Path) -> str | None:
+    """Compare the claude_dir recorded at install time against the one this run asks for.
+
+    Returns an error message when they differ. Returns None when they match, when the
+    target has no state file, or when the state file predates the recorded field.
+    """
+    state = read_state(home, target)
+    if not state:
+        return None
+    recorded = state.get("claude_dir")
+    if not recorded:
+        return None
+    wanted = resolve_dir(claude_dir)
+    if Path(recorded) == wanted:
+        return None
+    return (
+        f"{target_label(target)} was installed into {recorded}, "
+        f"but --claude-dir points at {wanted}. "
+        "Pass the recorded --claude-dir, or the --target that owns this directory. "
+        "To move a target, uninstall it first. Nothing was changed."
+    )
+
+
+def claude_dir_owner(home: Path, target: str, claude_dir: Path) -> str | None:
+    """Returns an error message when another target already owns claude_dir.
+
+    A directory belongs to exactly one target. Without this check a second target
+    installed into the same directory overwrites the first one's files and its uninstall
+    then removes them.
+    """
+    wanted = resolve_dir(claude_dir)
+    for name, state in installed_targets(home):
+        if name == target:
+            continue
+        recorded = state.get("claude_dir")
+        if recorded and Path(recorded) == wanted:
+            return (
+                f"{wanted} is the installation of {target_label(name)}, "
+                f"not of {target_label(target)}. Point --claude-dir at a directory of its "
+                "own, or name the owning target with --target. Nothing was changed."
+            )
+    return None
 
 
 def discover_skills(source: Path) -> list[Skill]:
@@ -168,10 +257,10 @@ def normalize_text(content: str) -> str:
     return content.strip() + "\n"
 
 
-def install_rules(source: Path, home: Path, dry_run: bool) -> tuple[str, str | None]:
-    """Write rules/baseline.md to ~/.claude/CLAUDE.md. Returns (action, backup path or None)."""
+def install_rules(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, str | None]:
+    """Write rules/baseline.md to claude_dir/CLAUDE.md. Returns (action, backup path or None)."""
     content = normalize_text((source / "rules" / "baseline.md").read_text())
-    dest = home / ".claude" / "CLAUDE.md"
+    dest = claude_dir / "CLAUDE.md"
     backup = Path(str(dest) + BACKUP_SUFFIX)
 
     if not dest.is_file():
@@ -194,9 +283,9 @@ def install_rules(source: Path, home: Path, dry_run: bool) -> tuple[str, str | N
     return "overwritten", backed_up
 
 
-def export_agents(source: Path, home: Path, dry_run: bool) -> None:
+def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
     content = normalize_text((source / "rules" / "baseline.md").read_text())
-    dest = home / ".config" / "agent-skills" / "AGENTS.md"
+    dest = target_file(home, target, "AGENTS.md")
     if not dry_run:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
@@ -212,13 +301,41 @@ def deep_merge(base: Any, overlay: Any) -> Any:
     return overlay
 
 
+def claude_dir_rule_path(claude_dir: Path, home: Path) -> str:
+    """Render claude_dir for a permission rule: home relative as "~/..." so the installed
+    file still works on another machine, absolute when it sits outside home."""
+    expanded = claude_dir.expanduser()
+    for base in (home.expanduser(), resolve_dir(home)):
+        try:
+            return "~/" + expanded.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return str(expanded)
+
+
+def substitute_claude_dir(value: Any, rule_path: str) -> Any:
+    """Replace the claude_dir placeholder in every string of a settings tree.
+
+    The shipped profile cannot name the install directory, so rules that protect a
+    target's own settings.json and CLAUDE.md carry the placeholder and are bound to the
+    directory this run installs into.
+    """
+    if isinstance(value, str):
+        return value.replace(CLAUDE_DIR_PLACEHOLDER, rule_path)
+    if isinstance(value, dict):
+        return {key: substitute_claude_dir(item, rule_path) for key, item in value.items()}
+    if isinstance(value, list):
+        return [substitute_claude_dir(item, rule_path) for item in value]
+    return value
+
+
 def load_profile_settings(source: Path, profile: str) -> dict[str, Any]:
     name = "claude.json" if profile == "laptop" else "claude-ci.json"
     return read_json(source / "settings" / name)
 
 
-def load_local_overlay(home: Path) -> dict[str, Any] | None:
-    path = home / ".config" / "agent-skills" / "local.json"
+def load_local_overlay(home: Path, target: str) -> dict[str, Any] | None:
+    path = target_file(home, target, "local.json")
     if not path.is_file():
         return None
     return read_json(path)
@@ -322,20 +439,23 @@ def merge_into_existing(existing: dict[str, Any], composed: dict[str, Any]) -> d
 
 
 def install_settings(
-    source: Path, home: Path, profile: str, dry_run: bool
+    source: Path, claude_dir: Path, home: Path, target: str, profile: str, dry_run: bool
 ) -> tuple[str, str | None, int, int]:
-    """Merge the profile settings and the hook manifest into ~/.claude/settings.json."""
+    """Merge the profile settings and the hook manifest into claude_dir/settings.json."""
     profile_settings = load_profile_settings(source, profile)
     if profile == "laptop":
-        overlay = load_local_overlay(home)
+        overlay = load_local_overlay(home, target)
         if overlay is not None:
             profile_settings = deep_merge(profile_settings, overlay)
+    profile_settings = substitute_claude_dir(
+        profile_settings, claude_dir_rule_path(claude_dir, home)
+    )
 
     hooks = load_hook_manifest(source)
     hook_blocks = build_hook_blocks(hooks, source)
     composed = compose_settings(profile_settings, hook_blocks)
 
-    dest = home / ".claude" / "settings.json"
+    dest = claude_dir / "settings.json"
     backup = Path(str(dest) + BACKUP_SUFFIX)
 
     if not dest.is_file():
@@ -372,6 +492,8 @@ def install_settings(
 
 def write_state(
     home: Path,
+    target: str,
+    claude_dir: Path,
     source: Path,
     profile: str,
     mode: str,
@@ -381,9 +503,10 @@ def write_state(
 ) -> None:
     if dry_run:
         return
-    path = home / ".config" / "agent-skills" / "state.json"
+    path = target_file(home, target, "state.json")
     data = {
         "source": str(source),
+        "claude_dir": str(resolve_dir(claude_dir)),
         "profile": profile,
         "mode": mode,
         "skills": sorted(skill_names),
@@ -394,12 +517,12 @@ def write_state(
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def collect_backups(home: Path) -> dict[str, str]:
+def collect_backups(claude_dir: Path) -> dict[str, str]:
     backups: dict[str, str] = {}
-    claude_md_backup = home / ".claude" / ("CLAUDE.md" + BACKUP_SUFFIX)
+    claude_md_backup = claude_dir / ("CLAUDE.md" + BACKUP_SUFFIX)
     if claude_md_backup.is_file():
         backups["claude_md"] = str(claude_md_backup)
-    settings_backup = home / ".claude" / ("settings.json" + BACKUP_SUFFIX)
+    settings_backup = claude_dir / ("settings.json" + BACKUP_SUFFIX)
     if settings_backup.is_file():
         backups["settings_json"] = str(settings_backup)
     return backups
@@ -407,9 +530,15 @@ def collect_backups(home: Path) -> dict[str, str]:
 
 def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
+    refusal = claude_dir_mismatch(args.home, args.target, args.claude_dir) or claude_dir_owner(
+        args.home, args.target, args.claude_dir
+    )
+    if refusal:
+        return [f"error   {refusal}"], 1
+
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
     if not args.dry_run:
         skills_dir.mkdir(parents=True, exist_ok=True)
 
@@ -427,16 +556,16 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     for name, status in prune_skills(skills_dir, keep, args.source, args.dry_run):
         lines.append(f"skill   {name} {status}")
 
-    rules_action, rules_backup = install_rules(args.source, args.home, args.dry_run)
+    rules_action, rules_backup = install_rules(args.source, args.claude_dir, args.dry_run)
     lines.append(f"rules   {rules_action}")
     if rules_backup:
         lines.append(f"rules   previous file kept at {rules_backup}")
 
-    export_agents(args.source, args.home, args.dry_run)
+    export_agents(args.source, args.home, args.target, args.dry_run)
     lines.append("agents  exported")
 
     settings_action, settings_backup, keys, hook_count = install_settings(
-        args.source, args.home, args.profile, args.dry_run
+        args.source, args.claude_dir, args.home, args.target, args.profile, args.dry_run
     )
     lines.append(f"settings {settings_action} keys={keys} hooks={hook_count}")
     if settings_backup:
@@ -444,11 +573,13 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
 
     write_state(
         args.home,
+        args.target,
+        args.claude_dir,
         args.source,
         args.profile,
         mode,
         installed_names,
-        collect_backups(args.home),
+        collect_backups(args.claude_dir),
         args.dry_run,
     )
     lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
@@ -458,10 +589,14 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
 
 def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
+    mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
+    if mismatch:
+        return [f"error   {mismatch}"], 1
+
     drift = False
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
 
     for skill in skills:
         status = sync_skill(skill, skills_dir, args.source, mode, dry_run=True)
@@ -471,7 +606,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
             lines.append(f"skill   {skill.name} {status}")
             drift = True
 
-    rules_action, _ = install_rules(args.source, args.home, dry_run=True)
+    rules_action, _ = install_rules(args.source, args.claude_dir, dry_run=True)
     if rules_action == "unchanged":
         lines.append("rules   in sync")
     else:
@@ -479,7 +614,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         drift = True
 
     settings_action, _, keys, hook_count = install_settings(
-        args.source, args.home, args.profile, dry_run=True
+        args.source, args.claude_dir, args.home, args.target, args.profile, dry_run=True
     )
     if settings_action == "unchanged":
         lines.append(f"settings in sync keys={keys} hooks={hook_count}")
@@ -517,7 +652,7 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
                 compiles = False
         check(compiles, f"hook script {hook['script']} exists and compiles")
 
-    settings_path = args.home / ".claude" / "settings.json"
+    settings_path = args.claude_dir / "settings.json"
     settings_ok = False
     commands_present = not hooks
     if settings_path.is_file():
@@ -544,13 +679,16 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
     check(settings_ok, "settings.json is valid JSON")
     check(commands_present, "settings.json contains the hook commands")
 
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
     broken = []
     if skills_dir.is_dir():
         broken = [e.name for e in skills_dir.iterdir() if e.is_symlink() and not e.exists()]
     check(not broken, "no broken skill symlinks" + (f" ({', '.join(broken)})" if broken else ""))
 
-    overlay_path = args.home / ".config" / "agent-skills" / "local.json"
+    mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
+    check(mismatch is None, mismatch or "state records the claude-dir in use")
+
+    overlay_path = target_file(args.home, args.target, "local.json")
     overlay_ok = True
     if overlay_path.is_file():
         try:
@@ -565,15 +703,21 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
 def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
     home = args.home
-    state_path = home / ".config" / "agent-skills" / "state.json"
-    state: dict[str, Any] | None = None
-    if state_path.is_file():
-        try:
-            state = json.loads(state_path.read_text())
-        except json.JSONDecodeError:
-            state = None
+    claude_dir = args.claude_dir
+    # The recorded claude_dir decides what gets removed. Without these guards a target
+    # name and a --claude-dir that drifted apart would wipe another target's installation:
+    # the first guard catches the wrong directory for this target, the second a directory
+    # that belongs to a different target.
+    refusal = claude_dir_mismatch(home, args.target, claude_dir) or claude_dir_owner(
+        home, args.target, claude_dir
+    )
+    if refusal:
+        return [f"error   {refusal}"], 1
 
-    skills_dir = home / ".claude" / "skills"
+    state_path = target_file(home, args.target, "state.json")
+    state = read_state(home, args.target)
+
+    skills_dir = claude_dir / "skills"
     if state:
         source = Path(state.get("source", ""))
         for name in state.get("skills", []):
@@ -589,7 +733,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
                     shutil.rmtree(target)
             lines.append(f"skill   {name} removed")
 
-    claude_md = home / ".claude" / "CLAUDE.md"
+    claude_md = claude_dir / "CLAUDE.md"
     claude_backup = Path(str(claude_md) + BACKUP_SUFFIX)
     if claude_backup.is_file():
         lines.append("rules   restored from backup")
@@ -600,7 +744,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
         if not args.dry_run:
             claude_md.unlink()
 
-    settings_path = home / ".claude" / "settings.json"
+    settings_path = claude_dir / "settings.json"
     settings_backup = Path(str(settings_path) + BACKUP_SUFFIX)
     if settings_backup.is_file():
         # A stale backup can itself carry own hook blocks, when an earlier install run
@@ -631,7 +775,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
         else:
             lines.append("settings no installed hooks found, left untouched")
 
-    agents_md = home / ".config" / "agent-skills" / "AGENTS.md"
+    agents_md = target_file(home, args.target, "AGENTS.md")
     if agents_md.is_file():
         lines.append("agents  export removed")
         if not args.dry_run:
@@ -660,10 +804,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--profile", choices=["laptop", "ci"], default="laptop")
     parser.add_argument("--home", type=Path, default=None)
+    parser.add_argument("--claude-dir", type=Path, default=None)
+    parser.add_argument("--target", type=str, default="")
     parser.add_argument("--source", type=Path, default=None)
     parser.add_argument("--copy", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     return parser
+
+
+def invalid_target(target: str) -> str | None:
+    """A target is interpolated into a filename, so it has to be a plain name."""
+    if not target:
+        return None
+    if target in (".", "..") or not TARGET_PATTERN.match(target):
+        return (
+            f"invalid --target '{target}': use letters, digits, dot, dash or "
+            "underscore only, with no path separator and no '..'."
+        )
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -673,7 +831,13 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return exc.code if isinstance(exc.code, int) else 2
 
+    target_error = invalid_target(args.target)
+    if target_error:
+        print(f"error   {target_error}")
+        return 2
+
     args.home = (args.home or Path(os.environ.get("HOME", str(Path.home())))).expanduser()
+    args.claude_dir = (args.claude_dir or (args.home / ".claude")).expanduser()
     default_source = Path(__file__).resolve().parent.parent
     args.source = (args.source or default_source).expanduser().resolve()
 

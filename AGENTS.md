@@ -37,7 +37,8 @@ task doctor
 ## Changing the baseline
 
 - Edit here. Never edit the installed files under `~/.claude`. `task install` overwrites them,
-  and the installed settings deny an agent those writes. The user runs `task install`.
+  and the installed settings deny an agent those writes for the directory they are installed in.
+  The user runs `task install`.
 - Skill and hook edits are live after `task install`, settings need a new session.
 - A new skill needs an entry in `skills.sh.json` and a new hook an entry in `hooks/hooks.json`
   plus a test.
@@ -95,6 +96,9 @@ task doctor
 - Strict JSON, no comments. A non obvious entry is explained in the commit and in an ADR when it
   is a decision.
 - Paths use `~/`. The file works on every machine.
+- `{{claude_dir}}` in a path stands for the directory the installer writes into. It is replaced
+  at install time, home relative as `~/...` where it sits under the home directory. A rule that
+  protects an installation's own files uses it instead of a literal `~/.claude`.
 - A file rule is written as `Edit(path)` or `Read(path)`. `Edit` covers every file editing
   tool. A path rule on `Write`, `NotebookEdit`, `MultiEdit` or `Glob` is never matched and
   `validate` rejects it, in the overlay example too.

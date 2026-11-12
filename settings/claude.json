@@ -173,8 +173,8 @@
       "Read(~/.netrc)",
       "Read(~/.zshrc)",
       "Read(~/.zshenv)",
-      "Edit(~/.claude/settings.json)",
-      "Edit(~/.claude/CLAUDE.md)",
+      "Edit({{claude_dir}}/settings.json)",
+      "Edit({{claude_dir}}/CLAUDE.md)",
       "Edit(~/.config/agent-skills/**)"
     ]
   },

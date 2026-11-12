@@ -32,9 +32,18 @@ task install
 and keeps a backup of every file it replaces. Personal values go into
 `~/.config/agent-skills/local.json`, see `settings/local.example.json`.
 
+A second, independent installation, for example a work profile at `~/.claude-work`, runs
+`python3 scripts/install.py install --claude-dir ~/.claude-work --target work` directly. The
+directory is the identity of an installation and the `--target` name namespaces the shared
+`state.json`, `local.json` and `AGENTS.md` export. Both flags belong together: a `--target`
+without its own `--claude-dir` is not a second installation, and the installer refuses a
+directory that already belongs to another target. Each target records its directory, so
+`uninstall`, `status` and `doctor` refuse a `--claude-dir` that does not match what was recorded.
+Moving a target to another directory means uninstalling it first.
+
 Run `task install` in your own terminal, not from an agent session. The installed settings deny
-an agent every write to `~/.claude/settings.json`, `~/.claude/CLAUDE.md` and
-`~/.config/agent-skills`, so an unattended run cannot widen its own permissions.
+an agent every write to the installed `settings.json` and `CLAUDE.md` of the directory it runs
+from, and to `~/.config/agent-skills`, so an unattended run cannot widen its own permissions.
 
 Skills alone, for any agent that supports skills.sh:
 
