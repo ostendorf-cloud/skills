@@ -32,6 +32,12 @@ task install
 and keeps a backup of every file it replaces. Personal values go into
 `~/.config/agent-skills/local.json`, see `settings/local.example.json`.
 
+A second, independent installation, for example a work profile at `~/.claude-work`, runs
+`python3 scripts/install.py install --claude-dir ~/.claude-work --target work` directly. The
+`--target` name only namespaces the shared `state.json`, `local.json` and `AGENTS.md` export, so
+running the command again with different `--claude-dir` and `--target` values never touches the
+first installation.
+
 Run `task install` in your own terminal, not from an agent session. The installed settings deny
 an agent every write to `~/.claude/settings.json`, `~/.claude/CLAUDE.md` and
 `~/.config/agent-skills`, so an unattended run cannot widen its own permissions.
