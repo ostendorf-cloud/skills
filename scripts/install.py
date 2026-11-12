@@ -37,6 +37,12 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
+def target_file(home: Path, target: str, name: str) -> Path:
+    """Path to a home-anchored, per-target file. Empty target keeps today's bare filename."""
+    filename = f"{target}.{name}" if target else name
+    return home / ".config" / "agent-skills" / filename
+
+
 def discover_skills(source: Path) -> list[Skill]:
     skills_root = source / "skills"
     if not skills_root.is_dir():
@@ -168,10 +174,10 @@ def normalize_text(content: str) -> str:
     return content.strip() + "\n"
 
 
-def install_rules(source: Path, home: Path, dry_run: bool) -> tuple[str, str | None]:
-    """Write rules/baseline.md to ~/.claude/CLAUDE.md. Returns (action, backup path or None)."""
+def install_rules(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, str | None]:
+    """Write rules/baseline.md to claude_dir/CLAUDE.md. Returns (action, backup path or None)."""
     content = normalize_text((source / "rules" / "baseline.md").read_text())
-    dest = home / ".claude" / "CLAUDE.md"
+    dest = claude_dir / "CLAUDE.md"
     backup = Path(str(dest) + BACKUP_SUFFIX)
 
     if not dest.is_file():
@@ -194,9 +200,9 @@ def install_rules(source: Path, home: Path, dry_run: bool) -> tuple[str, str | N
     return "overwritten", backed_up
 
 
-def export_agents(source: Path, home: Path, dry_run: bool) -> None:
+def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
     content = normalize_text((source / "rules" / "baseline.md").read_text())
-    dest = home / ".config" / "agent-skills" / "AGENTS.md"
+    dest = target_file(home, target, "AGENTS.md")
     if not dry_run:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
@@ -217,8 +223,8 @@ def load_profile_settings(source: Path, profile: str) -> dict[str, Any]:
     return read_json(source / "settings" / name)
 
 
-def load_local_overlay(home: Path) -> dict[str, Any] | None:
-    path = home / ".config" / "agent-skills" / "local.json"
+def load_local_overlay(home: Path, target: str) -> dict[str, Any] | None:
+    path = target_file(home, target, "local.json")
     if not path.is_file():
         return None
     return read_json(path)
@@ -322,12 +328,12 @@ def merge_into_existing(existing: dict[str, Any], composed: dict[str, Any]) -> d
 
 
 def install_settings(
-    source: Path, home: Path, profile: str, dry_run: bool
+    source: Path, claude_dir: Path, home: Path, target: str, profile: str, dry_run: bool
 ) -> tuple[str, str | None, int, int]:
-    """Merge the profile settings and the hook manifest into ~/.claude/settings.json."""
+    """Merge the profile settings and the hook manifest into claude_dir/settings.json."""
     profile_settings = load_profile_settings(source, profile)
     if profile == "laptop":
-        overlay = load_local_overlay(home)
+        overlay = load_local_overlay(home, target)
         if overlay is not None:
             profile_settings = deep_merge(profile_settings, overlay)
 
@@ -335,7 +341,7 @@ def install_settings(
     hook_blocks = build_hook_blocks(hooks, source)
     composed = compose_settings(profile_settings, hook_blocks)
 
-    dest = home / ".claude" / "settings.json"
+    dest = claude_dir / "settings.json"
     backup = Path(str(dest) + BACKUP_SUFFIX)
 
     if not dest.is_file():
@@ -372,6 +378,7 @@ def install_settings(
 
 def write_state(
     home: Path,
+    target: str,
     source: Path,
     profile: str,
     mode: str,
@@ -381,7 +388,7 @@ def write_state(
 ) -> None:
     if dry_run:
         return
-    path = home / ".config" / "agent-skills" / "state.json"
+    path = target_file(home, target, "state.json")
     data = {
         "source": str(source),
         "profile": profile,
@@ -394,12 +401,12 @@ def write_state(
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def collect_backups(home: Path) -> dict[str, str]:
+def collect_backups(claude_dir: Path) -> dict[str, str]:
     backups: dict[str, str] = {}
-    claude_md_backup = home / ".claude" / ("CLAUDE.md" + BACKUP_SUFFIX)
+    claude_md_backup = claude_dir / ("CLAUDE.md" + BACKUP_SUFFIX)
     if claude_md_backup.is_file():
         backups["claude_md"] = str(claude_md_backup)
-    settings_backup = home / ".claude" / ("settings.json" + BACKUP_SUFFIX)
+    settings_backup = claude_dir / ("settings.json" + BACKUP_SUFFIX)
     if settings_backup.is_file():
         backups["settings_json"] = str(settings_backup)
     return backups
@@ -409,7 +416,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     lines: list[str] = []
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
     if not args.dry_run:
         skills_dir.mkdir(parents=True, exist_ok=True)
 
@@ -427,16 +434,16 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     for name, status in prune_skills(skills_dir, keep, args.source, args.dry_run):
         lines.append(f"skill   {name} {status}")
 
-    rules_action, rules_backup = install_rules(args.source, args.home, args.dry_run)
+    rules_action, rules_backup = install_rules(args.source, args.claude_dir, args.dry_run)
     lines.append(f"rules   {rules_action}")
     if rules_backup:
         lines.append(f"rules   previous file kept at {rules_backup}")
 
-    export_agents(args.source, args.home, args.dry_run)
+    export_agents(args.source, args.home, args.target, args.dry_run)
     lines.append("agents  exported")
 
     settings_action, settings_backup, keys, hook_count = install_settings(
-        args.source, args.home, args.profile, args.dry_run
+        args.source, args.claude_dir, args.home, args.target, args.profile, args.dry_run
     )
     lines.append(f"settings {settings_action} keys={keys} hooks={hook_count}")
     if settings_backup:
@@ -444,11 +451,12 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
 
     write_state(
         args.home,
+        args.target,
         args.source,
         args.profile,
         mode,
         installed_names,
-        collect_backups(args.home),
+        collect_backups(args.claude_dir),
         args.dry_run,
     )
     lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
@@ -461,7 +469,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
     drift = False
     mode = "copy" if args.copy else "link"
     skills = discover_skills(args.source)
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
 
     for skill in skills:
         status = sync_skill(skill, skills_dir, args.source, mode, dry_run=True)
@@ -471,7 +479,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
             lines.append(f"skill   {skill.name} {status}")
             drift = True
 
-    rules_action, _ = install_rules(args.source, args.home, dry_run=True)
+    rules_action, _ = install_rules(args.source, args.claude_dir, dry_run=True)
     if rules_action == "unchanged":
         lines.append("rules   in sync")
     else:
@@ -479,7 +487,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         drift = True
 
     settings_action, _, keys, hook_count = install_settings(
-        args.source, args.home, args.profile, dry_run=True
+        args.source, args.claude_dir, args.home, args.target, args.profile, dry_run=True
     )
     if settings_action == "unchanged":
         lines.append(f"settings in sync keys={keys} hooks={hook_count}")
@@ -517,7 +525,7 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
                 compiles = False
         check(compiles, f"hook script {hook['script']} exists and compiles")
 
-    settings_path = args.home / ".claude" / "settings.json"
+    settings_path = args.claude_dir / "settings.json"
     settings_ok = False
     commands_present = not hooks
     if settings_path.is_file():
@@ -544,13 +552,13 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
     check(settings_ok, "settings.json is valid JSON")
     check(commands_present, "settings.json contains the hook commands")
 
-    skills_dir = args.home / ".claude" / "skills"
+    skills_dir = args.claude_dir / "skills"
     broken = []
     if skills_dir.is_dir():
         broken = [e.name for e in skills_dir.iterdir() if e.is_symlink() and not e.exists()]
     check(not broken, "no broken skill symlinks" + (f" ({', '.join(broken)})" if broken else ""))
 
-    overlay_path = args.home / ".config" / "agent-skills" / "local.json"
+    overlay_path = target_file(args.home, args.target, "local.json")
     overlay_ok = True
     if overlay_path.is_file():
         try:
@@ -660,6 +668,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("command", choices=sorted(COMMANDS))
     parser.add_argument("--profile", choices=["laptop", "ci"], default="laptop")
     parser.add_argument("--home", type=Path, default=None)
+    parser.add_argument("--claude-dir", type=Path, default=None)
+    parser.add_argument("--target", type=str, default="")
     parser.add_argument("--source", type=Path, default=None)
     parser.add_argument("--copy", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -674,6 +684,7 @@ def main(argv: list[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 2
 
     args.home = (args.home or Path(os.environ.get("HOME", str(Path.home())))).expanduser()
+    args.claude_dir = (args.claude_dir or (args.home / ".claude")).expanduser()
     default_source = Path(__file__).resolve().parent.parent
     args.source = (args.source or default_source).expanduser().resolve()
 
