@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.2.0 (2026-11-12)
+
+### Features
+
+- **install:** support more than one installation target ([#106](https://github.com/ostendorf-cloud/skills/pull/106))
+- **rules:** confirm no live agent holds a worktree before reuse ([#101](https://github.com/ostendorf-cloud/skills/pull/101))
+- **plan:** optional multi-perspective critique for large plans ([#81](https://github.com/ostendorf-cloud/skills/pull/81))
+
+### Bug Fixes
+
+- **worktree:** move the worktree convention to .claude/worktrees/ ([#104](https://github.com/ostendorf-cloud/skills/pull/104))
+- **hooks:** see past a wrapper prefix in the secret guard, tracker body, label move and iac first hooks ([#99](https://github.com/ostendorf-cloud/skills/pull/99))
+- **hooks:** walk wrapper flags the way getopt does ([#98](https://github.com/ostendorf-cloud/skills/pull/98))
+- **hooks:** resolve the git basename in strip_global_git_options ([#95](https://github.com/ostendorf-cloud/skills/pull/95))
+- **hooks:** resolve quoted names, sudo and flagged wrappers ([#97](https://github.com/ostendorf-cloud/skills/pull/97))
+- **hooks:** resolve the git basename in git_guard and commit_message ([#91](https://github.com/ostendorf-cloud/skills/pull/91))
+- **hooks:** resolve the command basename and widen the kubectl secret output deny ([#90](https://github.com/ostendorf-cloud/skills/pull/90))
+- **hooks:** find the subcommand behind the flags in front of it ([#88](https://github.com/ostendorf-cloud/skills/pull/88))
+- **settings:** narrow gh label deny to keep list readable ([#85](https://github.com/ostendorf-cloud/skills/pull/85))
+- **settings:** stop denying committed .env template files ([#86](https://github.com/ostendorf-cloud/skills/pull/86))
+
 ## v0.1.0 (2026-10-27)
 
 ### Features
