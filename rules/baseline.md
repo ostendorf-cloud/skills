@@ -77,7 +77,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Commit small and often. One commit is one change. Never a batch at the end of a session.
 - Commit subject plus a few short lines when the why is not obvious. No paragraphs.
 - Rebase onto the default branch to update a branch. Force push afterwards only with `--force-with-lease`.
-- Parallel sessions on one repository use a worktree under `.worktrees/<branch>`. One checkout, one session.
+- Parallel sessions on one repository use a worktree under `.claude/worktrees/<branch>`. One checkout, one session.
 - A worktree lives as long as its pull request. After the merge: `git worktree remove`, `git branch -d`, `git worktree prune`. A session that ends checks for its own stale worktrees first.
 - Before dispatching an agent into an existing worktree, check the agent list or the task list for another running agent on it.
 - No status update proves an agent has stopped, a completion notice for one turn included. The same agent can be resumed and keep working in the same worktree. It holds the worktree until its termination is confirmed.

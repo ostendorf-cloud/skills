@@ -74,8 +74,8 @@ How branches, commits, pull requests and history stay consistent and reversible.
 
 ### Worktrees
 
-- A parallel session on the same repository works from `.worktrees/<branch>`, one branch and one
-  checkout per session.
+- A parallel session on the same repository works from `.claude/worktrees/<branch>`, one branch
+  and one checkout per session.
 - Remove the worktree and delete the branch once its pull request merges.
 
 ## Guardrails

@@ -1,6 +1,6 @@
 ---
 name: worktree
-description: Creates a git worktree under .worktrees/<branch> for a parallel session, and removes
+description: Creates a git worktree under .claude/worktrees/<branch> for a parallel session, and removes
   it once its branch is merged. Use when starting a session that must not disturb an already
   checked out branch, or cleaning up after one. Trigger phrases: create a worktree, parallel
   session, remove the worktree, Worktree anlegen, Worktree entfernen.
@@ -20,13 +20,13 @@ One checkout, one session, without disturbing a branch another session already h
 
 ## Steps
 
-1. Check `.gitignore` for a `.worktrees/` entry. Add it when missing.
+1. Check `.gitignore` for a `.claude/worktrees/` entry. Add it when missing.
 2. Branch off the base from config `pr.base`, else the repository default branch:
-   `git worktree add .worktrees/<branch> -b <branch> <base>`.
+   `git worktree add .claude/worktrees/<branch> -b <branch> <base>`.
 3. Install dependencies inside the new worktree when a lock file exists there.
-4. Run every command for that session from inside `.worktrees/<branch>`, never from the
+4. Run every command for that session from inside `.claude/worktrees/<branch>`, never from the
    original checkout.
-5. Once the branch's pull request merges: `git worktree remove .worktrees/<branch>`, then
+5. Once the branch's pull request merges: `git worktree remove .claude/worktrees/<branch>`, then
    `git branch -d <branch>`.
 6. List existing worktrees with `git worktree list` and prune one left behind by a merged or
    abandoned branch.
@@ -35,7 +35,7 @@ One checkout, one session, without disturbing a branch another session already h
 
 - A reproduction or an investigation with no branch and no pull request gets a detached
   worktree instead: `git worktree add --detach <path> <base>`, outside every repository under
-  the session's scratch directory, never under `.worktrees/`.
+  the session's scratch directory, never under `.claude/worktrees/`.
 - It carries no branch and is never pushed. Nothing written there is committed from the parent
   checkout.
 - Remove it with `git worktree remove <path>` in the same task that created it.
@@ -44,9 +44,9 @@ One checkout, one session, without disturbing a branch another session already h
 
 - One branch, one worktree, one session. Never point two sessions at the same worktree.
 - Never remove a worktree whose branch still has unmerged work without checking first.
-- `.worktrees/` stays in `.gitignore`. Never commit a worktree's contents from the parent
+- `.claude/worktrees/` stays in `.gitignore`. Never commit a worktree's contents from the parent
   checkout.
-- A detached investigation worktree lives outside the repository and outside `.worktrees/`,
+- A detached investigation worktree lives outside the repository and outside `.claude/worktrees/`,
   carries no branch, and is removed before the task ends.
 
 ## Config

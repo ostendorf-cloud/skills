@@ -2,6 +2,7 @@ extends: default
 
 ignore:
   - .worktrees/
+  - .claude/worktrees/
 
 rules:
   line-length:

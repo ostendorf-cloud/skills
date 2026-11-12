@@ -88,7 +88,7 @@ def session_start(payload: dict[str, object]) -> int:
     minutes = int(age // 60)
     message = (
         f"Another session ({name}, started {minutes} min ago) works in this checkout. "
-        "Use a worktree under .worktrees/<branch> for parallel work, see the worktree "
+        "Use a worktree under .claude/worktrees/<branch> for parallel work, see the worktree "
         "skill."
     )
     return _common.context(EVENT_START, message)

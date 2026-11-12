@@ -469,6 +469,16 @@ def check_license_headers(root: Path) -> list[str]:
     return findings
 
 
+def _is_worktree_path(parts: tuple) -> bool:
+    """Whether parts contains the old .worktrees segment or the new .claude/worktrees pair."""
+    if ".worktrees" in parts:
+        return True
+    return any(
+        parts[index] == ".claude" and parts[index + 1] == "worktrees"
+        for index in range(len(parts) - 1)
+    )
+
+
 def list_yml_files(root: Path) -> list[Path]:
     """Lists tracked and untracked *.yml files, respecting .gitignore, or walks without git."""
     result = subprocess.run(
@@ -484,7 +494,7 @@ def list_yml_files(root: Path) -> list[Path]:
     return [
         path
         for path in paths
-        if ".worktrees" not in path.relative_to(root).parts
+        if not _is_worktree_path(path.relative_to(root).parts)
         and ".git" not in path.relative_to(root).parts
     ]
 

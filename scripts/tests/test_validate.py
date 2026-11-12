@@ -397,6 +397,19 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "ok")
 
+    def test_ignores_yml_file_inside_claude_worktrees(self) -> None:
+        self._write_skill()
+        self._write_groupings(["myskill"])
+        write(self.root / "hooks" / "hooks.json", json.dumps({"version": 1, "hooks": []}))
+        write(
+            self.root / "agent-skills.schema.json",
+            json.dumps({"$schema": "x", "properties": {}}),
+        )
+        write(self.root / ".claude" / "worktrees" / "feat-x" / "mise.yml", "tools: {}\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 0)
+        self.assertEqual(output.strip(), "ok")
+
     def test_ignores_vendored_yml_in_gitignored_directory(self) -> None:
         self._write_skill()
         self._write_groupings(["myskill"])

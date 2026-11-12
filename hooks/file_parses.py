@@ -2,8 +2,8 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 """PostToolUse hook on Write or Edit. Reports a YAML, JSON or TOML file that no longer
-parses after the write. Skips files under .worktrees and a templates file that holds
-Go template syntax.
+parses after the write. Skips files under a worktree directory (.worktrees or
+.claude/worktrees) and a templates file that holds Go template syntax.
 """
 
 import json
@@ -22,10 +22,20 @@ YAML_SUFFIXES = (".yaml", ".yml")
 NO_PARSER = "no parser available"
 
 
+def is_worktree_path(parts: list) -> bool:
+    """Whether parts contains the old .worktrees segment or the new .claude/worktrees pair."""
+    if ".worktrees" in parts:
+        return True
+    return any(
+        parts[index] == ".claude" and parts[index + 1] == "worktrees"
+        for index in range(len(parts) - 1)
+    )
+
+
 def should_skip(path: str, text: str) -> bool:
     """Whether path is a worktree file or a Go template that happens to end in .yaml."""
     parts = os.path.normpath(path).split(os.sep)
-    if ".worktrees" in parts:
+    if is_worktree_path(parts):
         return True
     return "templates" in parts and "{{" in text
 

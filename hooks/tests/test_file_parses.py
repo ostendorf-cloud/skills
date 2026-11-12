@@ -67,6 +67,15 @@ class FileParsesTest(unittest.TestCase):
             handle.write("items:\n  - `broken` here\n")
         self.assertEqual(context(run_hook("file_parses.py", write_payload(path))), "")
 
+    def test_ignores_files_under_claude_worktrees(self):
+        directory = tempfile.mkdtemp(prefix="file-parses-")
+        worktree_dir = os.path.join(directory, ".claude", "worktrees", "feat-thing")
+        os.makedirs(worktree_dir)
+        path = os.path.join(worktree_dir, "broken.yaml")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("items:\n  - `broken` here\n")
+        self.assertEqual(context(run_hook("file_parses.py", write_payload(path))), "")
+
     def test_ignores_a_templates_file_with_go_template_syntax(self):
         directory = tempfile.mkdtemp(prefix="file-parses-")
         templates_dir = os.path.join(directory, "templates")
