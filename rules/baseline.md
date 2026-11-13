@@ -22,6 +22,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Ask when something is unclear, risky or assumed. Asking beats guessing.
 - Raise what could additionally be done and let the user decide.
 - Use the interactive question tool where the harness has one.
+- Where that tool exists, a decision for the user goes through it, never as prose options to reply to.
 - Do everything that does not depend on the answer first, then ask.
 - Unattended runs cannot ask. They record the question on the issue and stop that task.
 
