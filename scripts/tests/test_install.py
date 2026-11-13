@@ -47,6 +47,18 @@ def git_init(path: Path) -> str:
     return result.stdout.strip()
 
 
+def add_worktree(source: Path, branch: str) -> Path:
+    """Adds a git worktree of source on a new branch and returns its path."""
+    worktree = source.parent / f"{source.name}-worktree"
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", branch, str(worktree)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    return worktree
+
+
 def run(argv: list) -> tuple:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
@@ -377,6 +389,55 @@ class InstallTestCase(unittest.TestCase):
         self.assertIn("old-skill removed legacy link", output)
         self.assertFalse(target.exists())
         self.assertFalse(target.is_symlink())
+
+    def test_install_from_a_worktree_of_the_same_repository_installs_its_skills(self) -> None:
+        git_init(self.source)
+        self._install()
+        worktree = add_worktree(self.source, "feature")
+
+        code, output = run(["install", "--home", str(self.home), "--source", str(worktree)])
+
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("conflict", output)
+        self.assertIn("test-skill replaced worktree link", output)
+        target = self.home / ".claude" / "skills" / "test-skill"
+        expected = (worktree / "skills" / "testcat" / "test-skill").resolve()
+        self.assertEqual(target.resolve(), expected)
+
+    def test_install_reports_conflict_for_a_symlink_into_an_unrelated_checkout(self) -> None:
+        git_init(self.source)
+        unrelated = Path(self.tmp.name) / "unrelated"
+        write(
+            unrelated / "skills" / "testcat" / "test-skill" / "SKILL.md",
+            "---\nname: test-skill\ndescription: unrelated\n---\nBody.\n",
+        )
+        git_init(unrelated)
+        foreign_target = unrelated / "skills" / "testcat" / "test-skill"
+        target = self.home / ".claude" / "skills" / "test-skill"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(foreign_target, target_is_directory=True)
+
+        code, output = self._install()
+
+        self.assertEqual(code, 1)
+        self.assertIn("test-skill conflict", output)
+        self.assertEqual(target.resolve(), foreign_target.resolve())
+
+    def test_install_reports_conflict_when_the_worktree_comparison_cannot_be_made(self) -> None:
+        # self.source is never turned into a git checkout here, so neither side of
+        # the comparison can be made: the installer must fall back to a conflict
+        # exactly as it did before the worktree check existed.
+        elsewhere = Path(self.tmp.name) / "elsewhere" / "test-skill"
+        write(elsewhere / "README.md", "not ours\n")
+        target = self.home / ".claude" / "skills" / "test-skill"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(elsewhere, target_is_directory=True)
+
+        code, output = self._install()
+
+        self.assertEqual(code, 1)
+        self.assertIn("test-skill conflict", output)
+        self.assertEqual(target.resolve(), elsewhere.resolve())
 
     def test_default_install_uses_unnamed_claude_dir_and_state_paths(self) -> None:
         self._install()

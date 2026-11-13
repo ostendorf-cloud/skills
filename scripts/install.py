@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import hashlib
 import json
 import os
@@ -76,6 +77,61 @@ def source_commit(source: Path) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip()
+
+
+@functools.cache
+def git_common_dir(path: Path) -> Path | None:
+    """The shared git directory for the repository containing path.
+
+    Cached: a sync walks every skill and would otherwise ask git the same two
+    questions once per skill.
+
+    Every worktree of one repository, and its own checkout, report the same path
+    here, which is what lets the installer recognise a symlink into another
+    worktree of the repository it is installing from. Returns None when path is
+    not inside a git checkout, when git cannot be run, or on a timeout, so the
+    caller falls back to the conflict classification used before this existed.
+    """
+    cwd = path if path.is_dir() else path.parent
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    output = result.stdout.strip()
+    if not output:
+        return None
+    common = Path(output)
+    if not common.is_absolute():
+        common = cwd / common
+    return resolve_dir(common)
+
+
+def same_repository(resolved: Path, source: Path) -> bool:
+    """Whether resolved and source are worktrees, or the checkout, of one repository.
+
+    Compares git-common-dir rather than the working tree paths themselves: two
+    worktrees of the same repository share that one path even though their
+    working trees live at different locations on disk, which is exactly the case
+    a worktree install needs to recognise. Either side failing to resolve, for
+    instance because it is not a git checkout at all, means the comparison could
+    not be made, and the caller then treats it exactly like two unrelated
+    checkouts: a conflict.
+    """
+    resolved_common = git_common_dir(resolved)
+    if resolved_common is None:
+        return False
+    source_common = git_common_dir(source)
+    if source_common is None:
+        return False
+    return resolved_common == source_common
 
 
 def read_state(home: Path, target: str) -> dict[str, Any] | None:
@@ -174,10 +230,13 @@ def tree_hash(path: Path) -> str:
 
 def inspect_target(target: Path, source: Path) -> str:
     """Classify an installed skill entry: missing, stale, owned_link, owned_copy,
-    legacy, conflict.
+    legacy, other_worktree, conflict.
 
     "legacy" is a symlink the previous installer created, pointing into a checkout
     path that still contains "/ai-setup/skills/" rather than this installer's source.
+    "other_worktree" is a symlink into a different worktree, or the checkout, of the
+    same repository as source: a session installing from a feature branch worktree
+    after a previous install from the main checkout, or the other way round.
     """
     if target.is_symlink():
         if not target.exists():
@@ -188,6 +247,8 @@ def inspect_target(target: Path, source: Path) -> str:
         except ValueError:
             if LEGACY_SKILL_MARKER in str(resolved):
                 return "legacy"
+            if same_repository(resolved, source):
+                return "other_worktree"
             return "conflict"
         return "owned_link"
     if not target.exists():
@@ -223,11 +284,11 @@ def sync_skill(skill: Skill, skills_dir: Path, source: Path, mode: str, dry_run:
             install_skill(skill, target, mode)
         return "installed"
 
-    if state == "legacy":
+    if state in ("legacy", "other_worktree"):
         if not dry_run:
             target.unlink()
             install_skill(skill, target, mode)
-        return "replaced legacy link"
+        return "replaced legacy link" if state == "legacy" else "replaced worktree link"
 
     if state == "owned_link":
         if mode == "link" and target.resolve() == skill.path.resolve():
@@ -264,7 +325,7 @@ def prune_skills(
         if entry.name in keep or entry.name.startswith("."):
             continue
         state = inspect_target(entry, source)
-        if state not in ("owned_link", "owned_copy", "stale", "legacy"):
+        if state not in ("owned_link", "owned_copy", "stale", "legacy", "other_worktree"):
             continue
         if not dry_run:
             if entry.is_symlink() or entry.is_file():
