@@ -9,6 +9,7 @@ or remote.
 
 import os
 import re
+import subprocess
 import sys
 from typing import Optional
 
@@ -26,6 +27,8 @@ USE_FORCE_WITH_LEASE = (
     "Use --force-with-lease on a feature branch, it fails when the remote moved since "
     "the last fetch."
 )
+
+LS_REMOTE_TIMEOUT = 5
 
 
 def current_branch(cwd: Optional[str]) -> str:
@@ -57,6 +60,40 @@ def has_forced_refspec(tokens: list[str]) -> bool:
     force push marker."""
     non_flag = [token for token in tokens if not token.startswith("-")]
     return any(token.startswith("+") for token in non_flag[1:])
+
+
+def remote_branch_exists(remote: str, branch: str, cwd: Optional[str]) -> Optional[bool]:
+    """Whether branch exists on remote, checked with `git ls-remote --heads`.
+
+    True or False when the remote answered. None when the check itself failed, timed
+    out or could not reach the remote, so a caller falls back to denying rather than
+    treat an error as "missing" and open the gate.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", "--heads", remote, branch],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=LS_REMOTE_TIMEOUT,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
+
+
+def push_remote(tokens: list[str], cwd: Optional[str]) -> str:
+    """The remote a `git push` with these tokens (after "push") reaches: the first
+    non flag token when one is given, otherwise the current branch's configured
+    remote, "origin" when none is configured."""
+    non_flag = [token for token in tokens if not token.startswith("-")]
+    if non_flag:
+        return non_flag[0]
+    branch = current_branch(cwd)
+    configured = _common.run_git(["config", f"branch.{branch}.remote"], cwd) if branch else None
+    return configured or "origin"
 
 
 def push_targets_default(tokens: list[str], cwd: Optional[str], default: str) -> bool:
@@ -92,7 +129,19 @@ def push_violation(part: str, cwd: Optional[str], default: str) -> Optional[str]
         return f"This deletes {default} on the remote. The default branch is never deleted."
 
     if push_targets_default(tokens, cwd, default):
-        return f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH}"
+        remote = push_remote(tokens, cwd)
+        exists = remote_branch_exists(remote, default, cwd)
+        if exists is False:
+            return None
+        if exists is None:
+            detail = f"{remote} could not be checked, so this is denied like an existing branch."
+        else:
+            detail = f"{remote} already has {default}."
+        return (
+            f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH} "
+            f"Only the first push counts as an exception, when the remote has no "
+            f"{default} branch yet for a pull request to target. {detail}"
+        )
 
     has_plain_force = any(token in ("--force", "-f") for token in tokens) or has_forced_refspec(
         tokens

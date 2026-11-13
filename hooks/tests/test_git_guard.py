@@ -34,6 +34,20 @@ def checkout_feature(path: str) -> None:
     )
 
 
+def bare_remote() -> str:
+    """A temporary bare repository with no branches, usable as a remote that nothing
+    has been pushed to yet."""
+    path = tempfile.mkdtemp(prefix="git-guard-remote-")
+    subprocess.run(["git", "init", "-q", "--bare", path], check=True, capture_output=True)
+    return path
+
+
+def add_remote(repo: str, remote: str, name: str = "origin") -> None:
+    subprocess.run(
+        ["git", "remote", "add", name, remote], cwd=repo, check=True, capture_output=True
+    )
+
+
 class GitGuardTest(unittest.TestCase):
     def test_allows_ordinary_commands(self):
         repo = git_repo()
@@ -462,6 +476,42 @@ class GitGuardTest(unittest.TestCase):
             ),
             "deny",
         )
+
+    def test_allows_first_push_to_missing_default_branch(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        remote = bare_remote()
+        add_remote(repo, remote)
+        self.assertIsNone(
+            decision(run_hook("git_guard.py", bash_payload("git push origin main", repo)))
+        )
+
+    def test_denies_push_to_default_branch_that_already_exists_on_remote(self):
+        repo = git_repo()
+        remote = bare_remote()
+        add_remote(repo, remote)
+        subprocess.run(
+            ["git", "push", "-q", "origin", "main"], cwd=repo, check=True, capture_output=True
+        )
+        checkout_feature(repo)
+        output = run_hook("git_guard.py", bash_payload("git push origin main", repo))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("already has", reason(output))
+
+    def test_denies_push_to_default_branch_when_the_remote_check_fails(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for remote in [
+            "/nonexistent/git-guard-remote-path",
+            tempfile.mkdtemp(prefix="git-guard-not-a-repo-"),
+        ]:
+            add_remote(repo, remote)
+            output = run_hook("git_guard.py", bash_payload("git push origin main", repo))
+            self.assertEqual(decision(output), "deny", remote)
+            self.assertIn("could not be checked", reason(output), remote)
+            subprocess.run(
+                ["git", "remote", "remove", "origin"], cwd=repo, check=True, capture_output=True
+            )
 
 
 if __name__ == "__main__":
