@@ -39,6 +39,8 @@ Turn the working tree into atomic, well described commits.
 - Never commit on the default branch. Branch first.
 - Never commit a secret, a state file or a credential shaped value. Scan the staged diff for one.
 - Signing stays whatever the repository already has configured. Never disable it.
+- An unfixed security vulnerability in a public repository gets no exploit detail in a commit
+  message: see the baseline's Plans and issues rule.
 
 ## References
 
