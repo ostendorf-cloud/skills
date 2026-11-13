@@ -79,7 +79,16 @@ Judge one pushed pull request as a different agent than the one that built it.
 
 ## Guardrails
 
-- Review only: no edits, no commits, no merges.
+- Review only: no edit to the code under review, no commit, no merge.
+- A reviewer may write a throwaway probe to settle a claim it cannot settle by reading: a
+  script in the session scratch directory, or a temporary test file it deletes in the same
+  task.
+- The probe is never committed, never staged, never pushed. The worktree is left exactly as it
+  was found.
+- A claim the reviewer could not settle by running something is named unverified in the
+  verdict, with what it rests on instead.
+- The probe never touches the code under review. It is a separate file, not a carve out in
+  the rule above.
 - Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
   remains after the move.
 - The supervising session picks the model before it spawns this review: `models.reviewBoundary`
