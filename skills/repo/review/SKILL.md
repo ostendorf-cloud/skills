@@ -18,7 +18,9 @@ Review a change the way a peer does who has to maintain it afterwards.
 ## Steps
 
 1. Establish the scope: `git diff <base>...HEAD`, or `gh pr diff <number>`. Read the issue or
-   the pull request body for the intent before judging the code.
+   the pull request body for the intent before judging the code. The description becomes the
+   merge commit's record. A claim it makes that the branch itself refutes is a finding, filed
+   like any other.
 2. Read the changed code in its context, not only the diff hunks. A hunk that looks fine can
    still break a caller.
 3. Check, in this order, and stop guessing where something cannot be verified:
