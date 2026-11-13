@@ -105,7 +105,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Plans and issues
 
-- A security vulnerability in a public repository gets no public write-up before a fix is merged. This covers an issue, a pull request description, a comment on either, and a commit message.
+- A security vulnerability in a public repository gets no public write-up spelling out how it is exploitable. This applies before a fix is merged. It covers an issue, a pull request description, a comment on either, and a commit message.
 - Use a draft security advisory instead, or go straight to a branch and pull request with a plain, non-descriptive message.
 - In a private repository the normal issue flow applies.
 - Non-trivial work starts with a plan in the issue: goal, steps, verification, model choice. Not in `docs/`.

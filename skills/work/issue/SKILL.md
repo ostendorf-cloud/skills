@@ -63,8 +63,8 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - `ai: ready` and `needs triage` are set only on explicit instruction from the user, never
   guessed.
 - A label absent on the tracker is named in the report, never created by this skill.
-- An unfixed security vulnerability in a public repository gets no issue: see the baseline's
-  Plans and issues rule.
+- An unfixed security vulnerability in a public repository gets no exploit detail in an issue:
+  see the baseline's Plans and issues rule.
 
 ## Config
 
