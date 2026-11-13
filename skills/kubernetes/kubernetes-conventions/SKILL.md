@@ -4,8 +4,8 @@ description: Kubernetes conventions for how a workload reaches the cluster, how 
   CRDs are organised, and the baseline every workload meets: resources, probes, non root, secrets
   through the secret manager, default deny network policy. Use when installing, changing or
   reviewing anything that runs in Kubernetes. Trigger phrases: helm_release, install a chart,
-  CRD, namespace, network policy, pod security, Kubernetes Workload, Namespace anlegen,
-  Secret einbinden.
+  CRD, namespace, network policy, pod security, Ingress, Gateway API, HTTPRoute,
+  Kubernetes Workload, Namespace anlegen, Secret einbinden.
 ---
 
 # Kubernetes conventions
@@ -55,6 +55,23 @@ How workloads reach the cluster and how they are organized.
   reconciles and removes itself. That is the operator's own teardown, not a chart accident, and
   `install-crds` does not duplicate it.
 
+### External routing
+
+- A chart exposes a workload externally through an `Ingress` or a Gateway API `HTTPRoute`,
+  never both for the same hostname. Picking one is a deliberate choice, not a migration path.
+- `Gateway`, `HTTPRoute` and the rest of the Gateway API are CRDs. They follow the CRDs rule
+  above: a dedicated `install-crds` release installs the bundle once per cluster, no chart that
+  renders an `HTTPRoute` ships it.
+- An `HTTPRoute` names its `Gateway` through `parentRefs`. The `Gateway` usually lives in a
+  different, platform owned namespace than the `HTTPRoute`, so `parentRefs` is a cross
+  namespace reference by design.
+- The `Gateway`'s `allowedRoutes` decides which namespaces and kinds may attach to it. A
+  chart's `HTTPRoute` only works where the cluster's `Gateway` allows it. The chart owns the
+  `HTTPRoute` and its hostnames; the cluster owns the `Gateway` and that decision.
+- TLS for an `Ingress` is a `tls` block on the `Ingress` itself, so the chart owns the
+  certificate configuration. TLS for an `HTTPRoute` terminates on the `Gateway`'s listener, so
+  the cluster owns it; an `HTTPRoute` carries no `tls` field of its own.
+
 ### Workloads
 
 - Resource requests always, limits where the workload tolerates them. State the reasoning when a
@@ -73,7 +90,7 @@ How workloads reach the cluster and how they are organized.
 ## Guardrails
 
 - Never set `create_namespace = true`.
-- Never let a chart own a CRD it ships.
+- Never let a chart own a CRD it ships, the Gateway API kinds included.
 - Never put a secret's value directly into a `Secret` manifest.
 - Never skip resource requests, probes or the non root defaults without stating why.
 
