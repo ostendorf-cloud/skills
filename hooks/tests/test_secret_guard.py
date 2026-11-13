@@ -359,10 +359,22 @@ class SecretGuardTest(unittest.TestCase):
         for command in [
             "cat .env.example.local",
             "grep -r password .env.example.local",
+            "cat .env.example.bak",
+            "cat .env.local",
         ]:
             self.assertEqual(
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
+
+    def test_denies_reading_an_env_template_file_that_symlinks_to_a_real_env_file(self):
+        directory = tempfile.mkdtemp(prefix="secret-guard-")
+        with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+            handle.write("API_KEY=value\n")
+        os.symlink(os.path.join(directory, ".env"), os.path.join(directory, ".env.example"))
+        self.assertEqual(
+            decision(run_hook("secret_guard.py", bash_payload("cat .env.example"), cwd=directory)),
+            "deny",
+        )
 
     def test_denies_echoing_a_credential_variable(self):
         for command in [
@@ -471,8 +483,24 @@ class SecretGuardTest(unittest.TestCase):
             )
 
     def test_denies_staging_an_env_example_local_file(self):
+        for name in [".env.example.local", ".env.example.bak", ".env.local"]:
+            repo = git_repo()
+            stage(repo, name, "API_KEY=value\n")
+            self.assertEqual(
+                decision(
+                    run_hook(
+                        "secret_guard.py",
+                        bash_payload("git commit -m 'chore: add config'", repo),
+                        env=no_gitleaks_env(),
+                    )
+                ),
+                "deny",
+                name,
+            )
+
+    def test_denies_staging_an_env_template_file_holding_a_credential_pattern(self):
         repo = git_repo()
-        stage(repo, ".env.example.local", "API_KEY=value\n")
+        stage(repo, ".env.example", "AWS_ACCESS_KEY_ID=AKIA" + "A" * 16 + "\n")
         self.assertEqual(
             decision(
                 run_hook(

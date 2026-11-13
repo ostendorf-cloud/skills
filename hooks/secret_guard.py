@@ -112,6 +112,21 @@ def is_secret_filename(basename: str) -> bool:
     return bool(SECRET_FILENAME.match(basename))
 
 
+def resolved_basename(path: str) -> str:
+    """The basename of path with any symlink in it resolved, so a template basename that
+    is really a symlink to a secret file is judged by the file it points at, not by the
+    name of the link. `.env.example` pointing at a real `.env` resolves to `.env` here
+    and stays denied.
+
+    Falls back to the basename of the unresolved path when the resolution itself raises,
+    so a broken resolution denies exactly as it did before this existed, never by
+    accident allowing one through."""
+    try:
+        return os.path.basename(os.path.realpath(path))
+    except Exception:
+        return os.path.basename(path)
+
+
 ECHO_LIKE = re.compile(r"^(echo|printf)\b")
 VAR_EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 # A variable name component: TOKEN, SECRET, PASSWORD or KEY set off by a non letter or
@@ -322,7 +337,7 @@ def secret_file_read_violation(part: str) -> Optional[str]:
         operands = operands[1:]
 
     for operand in operands:
-        basename = operand.rsplit("/", 1)[-1]
+        basename = resolved_basename(operand)
         if is_secret_filename(basename):
             return f"{name} reads {operand}, a file that holds secrets. {NEVER_PRINT}"
     return None
@@ -488,7 +503,10 @@ def commit_violation(cwd: Optional[str]) -> Optional[str]:
     names = _common.run_git(["diff", "--cached", "--name-only"], cwd) or ""
     for path in names.splitlines():
         path = path.strip()
-        if path and is_secret_filename(os.path.basename(path)):
+        if not path:
+            continue
+        target = os.path.join(cwd, path) if cwd else path
+        if is_secret_filename(resolved_basename(target)):
             return f"{path} is staged and matches a file pattern that never belongs in git."
 
     reason, handled = gitleaks_violation(cwd)
