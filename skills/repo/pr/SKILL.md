@@ -26,8 +26,8 @@ Open a pull request a reviewer can judge without reading the whole diff first.
    reads before the diff. The merge is a merge commit by default, so the atomic commits
    underneath stay in history on their own.
 5. Write the body in four sections: What, Why, Verification, Risk, each a short list of bullets.
-   The Verification section opens with the short SHA it was verified against, then lists every
-   verify target on its own line, passed or not. Link an issue with `Closes #123`.
+   The Verification section opens with `Verified on <short sha>.`, then lists every verify
+   target on its own line, passed or not. Link an issue with `Closes #123`.
 6. Set labels: the type label matching the linked issue's type, and a stack label for every
    config `stacks` glob the changed files match.
 7. Create it with `gh pr create`, or update an existing one with `gh pr edit`. Open as draft
