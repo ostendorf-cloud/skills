@@ -215,6 +215,10 @@
         "~/Code/**/.env.dist"
       ],
       "allowWrite": [
+        "~/Code/**/.env.example",
+        "~/Code/**/.env.sample",
+        "~/Code/**/.env.template",
+        "~/Code/**/.env.dist",
         "~/Library/Caches/go-build",
         "~/Library/Caches/golangci-lint",
         "~/Library/Caches/mise",
