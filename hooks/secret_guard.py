@@ -98,6 +98,20 @@ SECRET_FILENAME = re.compile(
     r".*\.tfstate(\..+)?|secrets(\.auto)?\.tfvars(\.json)?|secrets\.ya?ml|\.netrc)$"
 )
 
+# The four conventional template basenames meant to be committed and read: a project
+# tracks one of these instead of the real .env it is a placeholder for. The exemption
+# is exact: .env.example.local still matches SECRET_FILENAME and stays denied.
+ENV_TEMPLATE_BASENAMES = frozenset({".env.example", ".env.sample", ".env.template", ".env.dist"})
+
+
+def is_secret_filename(basename: str) -> bool:
+    """Whether basename is a file that holds secrets and never belongs in git or in a
+    transcript, excluding the four committed template basenames in ENV_TEMPLATE_BASENAMES."""
+    if basename in ENV_TEMPLATE_BASENAMES:
+        return False
+    return bool(SECRET_FILENAME.match(basename))
+
+
 ECHO_LIKE = re.compile(r"^(echo|printf)\b")
 VAR_EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 # A variable name component: TOKEN, SECRET, PASSWORD or KEY set off by a non letter or
@@ -309,7 +323,7 @@ def secret_file_read_violation(part: str) -> Optional[str]:
 
     for operand in operands:
         basename = operand.rsplit("/", 1)[-1]
-        if SECRET_FILENAME.match(basename):
+        if is_secret_filename(basename):
             return f"{name} reads {operand}, a file that holds secrets. {NEVER_PRINT}"
     return None
 
@@ -474,7 +488,7 @@ def commit_violation(cwd: Optional[str]) -> Optional[str]:
     names = _common.run_git(["diff", "--cached", "--name-only"], cwd) or ""
     for path in names.splitlines():
         path = path.strip()
-        if path and SECRET_FILENAME.match(os.path.basename(path)):
+        if path and is_secret_filename(os.path.basename(path)):
             return f"{path} is staged and matches a file pattern that never belongs in git."
 
     reason, handled = gitleaks_violation(cwd)

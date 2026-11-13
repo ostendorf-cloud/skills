@@ -344,6 +344,26 @@ class SecretGuardTest(unittest.TestCase):
         ]:
             self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
 
+    def test_allows_reading_an_env_template_file(self):
+        for command in [
+            "cat .env.example",
+            "head .env.sample",
+            "tail .env.template",
+            "less .env.dist",
+            "grep -r PORT .env.example",
+            "cat config/.env.example",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
+    def test_denies_reading_an_env_example_local_file(self):
+        for command in [
+            "cat .env.example.local",
+            "grep -r password .env.example.local",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
     def test_denies_echoing_a_credential_variable(self):
         for command in [
             "echo $GH_TOKEN",
@@ -434,6 +454,35 @@ class SecretGuardTest(unittest.TestCase):
                 "deny",
                 command,
             )
+
+    def test_allows_staging_an_env_template_file(self):
+        for name in [".env.example", ".env.sample", ".env.template", ".env.dist"]:
+            repo = git_repo()
+            stage(repo, name, "PORT=3000\n")
+            self.assertIsNone(
+                decision(
+                    run_hook(
+                        "secret_guard.py",
+                        bash_payload("git commit -m 'chore: add config'", repo),
+                        env=no_gitleaks_env(),
+                    )
+                ),
+                name,
+            )
+
+    def test_denies_staging_an_env_example_local_file(self):
+        repo = git_repo()
+        stage(repo, ".env.example.local", "API_KEY=value\n")
+        self.assertEqual(
+            decision(
+                run_hook(
+                    "secret_guard.py",
+                    bash_payload("git commit -m 'chore: add config'", repo),
+                    env=no_gitleaks_env(),
+                )
+            ),
+            "deny",
+        )
 
     def test_allows_an_ordinary_commit(self):
         repo = git_repo()
