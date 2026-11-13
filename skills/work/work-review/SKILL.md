@@ -43,14 +43,14 @@ Judge one pushed pull request as a different agent than the one that built it.
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
    second thread for the same problem.
-8. Review only, per Guardrails: no edit and no commit of its own, whichever posting path
-   follows. The pull request's author differs from this review's identity, or config
-   `review.token` names an environment variable holding a token of such a reviewer: post the
-   verdict as a formal review, `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through
-   `gh api`, with
-   `event` from the verdict, `commit_id` the pull request's full 40 character head SHA (a short
-   SHA fails with 422), and `comments`: one entry per finding, `{path, line, side: "RIGHT",
-   body: "<Blocker|Should|Nit>: <problem and fix>"}`. This formal review is the verdict; post no
+8. Review only, per Guardrails: no edit to the code under review and no commit of its own,
+   whichever posting path follows. The pull request's author differs from this review's
+   identity, or config `review.token` names an environment variable holding a token of such a
+   reviewer: post the verdict as a formal review,
+   `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through `gh api`, with `event` from the
+   verdict, `commit_id` the pull request's full 40 character head SHA (a short SHA fails with
+   422), and `comments`: one entry per finding, `{path, line, side: "RIGHT", body:
+   "<Blocker|Should|Nit>: <problem and fix>"}`. This formal review is the verdict; post no
    separate comment.
 9. The pull request's author is this review's own identity, or the token in step 8 is absent:
    GitHub refuses the review call. Post the verdict with `gh pr comment` instead: first line
@@ -81,12 +81,12 @@ Judge one pushed pull request as a different agent than the one that built it.
 
 - Review only: no edit to the code under review, no commit, no merge.
 - A reviewer may write a throwaway probe to settle a claim it cannot settle by reading: a
-  script in the session scratch directory, or a temporary test file it deletes in the same
-  task.
+  script in the session's scratch directory, or a temporary test file in the worktree. Both
+  forms are deleted in the same task, never left behind.
 - The probe is never committed, never staged, never pushed. The worktree is left exactly as it
   was found.
-- A claim the reviewer could not settle by running something is named unverified in the
-  verdict, with what it rests on instead.
+- A claim settled only by reading, and not by running something, is named unverified in the
+  verdict, with what it rests on instead, whether or not running it was ever attempted.
 - The probe never touches the code under review. It is a separate file, not a carve out in
   the rule above.
 - Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label

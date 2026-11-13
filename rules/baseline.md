@@ -62,7 +62,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Read files with the read tool. Shell reads only for a targeted search or a few lines of a large file.
 - Search for an existing tool before building anything that checks, validates or lints. "No tool exists" needs a search behind it.
 - Scripts only where they earn it: run repeatedly, complex logic, or needed by CI. A script useful in one repository lives in its `scripts/`. A script useful everywhere belongs in the shared scripts repository of the same organisation.
-- A throwaway script, deleted within the same task that created it, lives in the session's scratch directory instead. Neither `scripts/` nor the shared scripts repository is for a script that does not outlive the task.
+- A throwaway script, deleted within the same task that created it, lives in the session's scratch directory instead: the directory the harness gives the session for the task, outside every repository and outside the worktree. Neither `scripts/` nor the shared scripts repository is for a script that does not outlive the task.
 - No inline interpreter one liners that will run again, and never one that spans lines.
 
 ## Autonomy and safety
