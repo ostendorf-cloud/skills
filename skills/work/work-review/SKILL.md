@@ -26,7 +26,7 @@ Judge one pushed pull request as a different agent than the one that built it.
   `implement` ran the code through its own bounded subagent for this issue, never when the
   supervising session wrote the code directly. The fork would otherwise inherit that work.
 - Not independent: `approve` can still be the judgment, but the label never reaches `done`
-  through it, see step 12.
+  through it, see step 13.
 
 ## Steps
 
@@ -35,47 +35,52 @@ Judge one pushed pull request as a different agent than the one that built it.
 3. Read the issue body, the `## Plan` section, the pull request diff, and every review thread
    already on the pull request through `gh api graphql` (`reviewThreads`, with `isResolved` and
    each comment's body). A rework round starts from these, not from memory of the first pass.
-4. Run the verify command from config `verify` against the pushed branch.
-5. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
+4. Read the pull request's own CI result for the current head commit, for example `gh pr
+   checks`, before trusting any `## Verification` section in the body or a comment. A
+   verification claim that names no commit is unverified, not true, whatever it claims passed.
+5. Run the verify command from config `verify` against the pushed branch.
+6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.
-6. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`.
-7. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
+7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`. Name the
+   commit CI was green on; this becomes part of the verdict text in steps 9 and 10.
+8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
    second thread for the same problem.
-8. Review only, per Guardrails: no edit to the code under review and no commit of its own,
+9. Review only, per Guardrails: no edit to the code under review and no commit of its own,
    whichever posting path follows. The pull request's author differs from this review's
    identity, or config `review.token` names an environment variable holding a token of such a
    reviewer: post the verdict as a formal review,
    `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through `gh api`, with `event` from the
    verdict, `commit_id` the pull request's full 40 character head SHA (a short SHA fails with
-   422), and `comments`: one entry per finding, `{path, line, side: "RIGHT", body:
-   "<Blocker|Should|Nit>: <problem and fix>"}`. This formal review is the verdict; post no
-   separate comment.
-9. The pull request's author is this review's own identity, or the token in step 8 is absent:
-   GitHub refuses the review call. Post the verdict with `gh pr comment` instead: first line
-   `Verdict: <verdict>`, then findings grouped `Blocker`, `Should`, `Nit`, each naming the file,
-   the line and a concrete fix. Name the fallback in the report.
-10. A finding's line falls outside every diff hunk in either path: anchor the inline comment at
+   422), `body` naming the commit CI was green on, and `comments`: one entry per finding,
+   `{path, line, side: "RIGHT", body: "<Blocker|Should|Nit>: <problem and fix>"}`. This formal
+   review is the verdict; post no separate comment.
+10. The pull request's author is this review's own identity, or the token in step 9 is absent:
+    GitHub refuses the review call. Post the verdict with `gh pr comment` instead: first line
+    `Verdict: <verdict>`, naming the commit CI was green on, then findings grouped `Blocker`,
+    `Should`, `Nit`, each naming the file, the line and a concrete fix. Name the fallback in the
+    report.
+11. A finding's line falls outside every diff hunk in either path: anchor the inline comment at
     the nearest changed line in the same file and name the real location in its body, or, with
     no changed line in that file at all, put the finding in the top level review or comment body.
-11. Verdict approve, and this review is independent per Independence: move the label to `done`,
+12. Verdict approve, and this review is independent per Independence: move the label to `done`,
     mark the pull request ready for review with `gh pr ready`.
-12. Verdict approve, not independent: treat it like step 14, `needs human`, naming in the report
+13. Verdict approve, not independent: treat it like step 15, `needs human`, naming in the report
     that the judgment was approve but independence was missing.
-13. Verdict changes requested: move the label to `changes requested`. The pull request stays
+14. Verdict changes requested: move the label to `changes requested`. The pull request stays
     a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
-14. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
+15. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
     label to `needs human`. The round count is the number of this skill's own verdict comments
     and formal reviews already on the pull request, including the one just posted.
-15. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
+16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
     skill's ready condition holds and only a human decision is left. Leave it a draft
     otherwise.
-16. Verdict blocked: move the label to `blocked`.
-17. Changes requested or blocked: point the issue comment at the `implement` skill for the
+17. Verdict blocked: move the label to `blocked`.
+18. Changes requested or blocked: point the issue comment at the `implement` skill for the
     rework round.
-18. Never merge the pull request.
-19. Never approve a pull request implemented in this same session, formal review included.
+19. Never merge the pull request.
+20. Never approve a pull request implemented in this same session, formal review included.
 
 ## Guardrails
 
@@ -97,6 +102,9 @@ Judge one pushed pull request as a different agent than the one that built it.
 - A different agent than the implementer, every time, per Independence.
 - `done` is a real acceptance, and only reachable through an independent review. When unsure,
   `needs human`, never a rubber stamp.
+- A `## Verification` section is a claim, not evidence. The pull request's own CI result for
+  the current head decides whether it still holds.
+- Every verdict names the commit CI was green on, formal review and comment path alike.
 - The round cap is a floor for a human decision, never a ceiling that waves through unfinished
   work.
 - A formal review or a `gh pr comment`, never both, for the same round's verdict. Resolving a
