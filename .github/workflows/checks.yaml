@@ -28,7 +28,7 @@ jobs:
   # checkout whose mise.toml has drifted. "task lint:license" stays for local
   # use and runs the same tool with the same flags over the same files.
   license:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@0906f36104c9a448d409732f4b24ece1a0398d26 # v0.1.0
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@f64e9f521dd9d66f0233cd8e8035c778b9567f0c # v0.1.1
     with:
       copyright-holder: Simon Ostendorf
       year: "2026"
