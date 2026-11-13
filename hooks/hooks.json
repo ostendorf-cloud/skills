@@ -14,10 +14,10 @@
       "id": "secret-guard",
       "script": "secret_guard.py",
       "event": "PreToolUse",
-      "matcher": "Bash",
+      "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit",
       "timeout": 15,
       "decision": "deny",
-      "description": "Commands that print a secret, and a commit whose staged diff holds a credential pattern or a file that never belongs in git."
+      "description": "Commands that print a secret, a commit whose staged diff holds a credential pattern or a file that never belongs in git, and a Read, Edit, Write, MultiEdit or NotebookEdit targeting a file that holds secrets."
     },
     {
       "id": "shell-hygiene",

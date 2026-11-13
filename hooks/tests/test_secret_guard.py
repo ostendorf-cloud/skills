@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from helper import bash_payload, decision, reason, run_hook
+from helper import bash_payload, decision, file_tool_payload, reason, run_hook
 
 GITLEAKS_REAL_BINARY = shutil.which("gitleaks")
 NO_GITLEAKS_PATH = "/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -774,6 +774,45 @@ class SecretGuardTest(unittest.TestCase):
     def test_allows_a_secret_read_behind_an_unlisted_wrapper(self):
         command = "timeout 5 bao kv get secret/prod/app"
         self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))
+
+    def test_denies_a_read_of_a_secret_file(self):
+        self.assertEqual(
+            decision(run_hook("secret_guard.py", file_tool_payload("Read", "/repo/.env"))),
+            "deny",
+        )
+
+    def test_allows_a_read_of_an_env_template_file(self):
+        self.assertIsNone(
+            decision(run_hook("secret_guard.py", file_tool_payload("Read", "/repo/.env.example")))
+        )
+
+    def test_denies_an_edit_of_a_secret_file(self):
+        self.assertEqual(
+            decision(
+                run_hook("secret_guard.py", file_tool_payload("Edit", "/repo/.env.production"))
+            ),
+            "deny",
+        )
+
+    def test_allows_a_write_of_an_env_template_file(self):
+        self.assertIsNone(
+            decision(run_hook("secret_guard.py", file_tool_payload("Write", "/repo/.env.example")))
+        )
+
+    def test_denies_a_read_of_an_env_template_file_that_symlinks_to_a_real_env_file(self):
+        directory = tempfile.mkdtemp(prefix="secret-guard-")
+        with open(os.path.join(directory, ".env"), "w", encoding="utf-8") as handle:
+            handle.write("API_KEY=value\n")
+        link = os.path.join(directory, ".env.example")
+        os.symlink(os.path.join(directory, ".env"), link)
+        self.assertEqual(
+            decision(run_hook("secret_guard.py", file_tool_payload("Read", link))),
+            "deny",
+        )
+
+    def test_ignores_a_file_tool_payload_with_no_path(self):
+        payload = {"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {}}
+        self.assertIsNone(decision(run_hook("secret_guard.py", payload)))
 
 
 if __name__ == "__main__":

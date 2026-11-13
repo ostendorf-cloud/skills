@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
-"""PreToolUse hook on Bash. Denies a command that prints a secret to the transcript, and
-a `git commit` whose staged diff holds a credential pattern or a file that never belongs
-in git. The commit check runs gitleaks when it is on PATH and falls back to a regex scan
-otherwise. Never prints the matched value, only the file and line number.
+"""PreToolUse hook on Bash, Read, Edit, Write, MultiEdit and NotebookEdit. Denies a
+command that prints a secret to the transcript, a `git commit` whose staged diff holds
+a credential pattern or a file that never belongs in git, and a file tool whose target
+path is a file that holds secrets. The commit check runs gitleaks when it is on PATH
+and falls back to a regex scan otherwise. Never prints the matched value, only the file
+and line number.
 
 A command that prints a secret is found behind the flags in front of its subcommand, so
 a global option placed before the noun or between the noun and the subcommand does not
@@ -12,6 +14,11 @@ hide it. Every part is normalised before any check runs, so a wrapper prefix suc
 `sudo`, `env`, `nice -n 10` or `mise exec --` hides neither a command that prints a
 secret nor the staged diff scan behind a wrapped `git commit`. A policed command whose
 own quoting does not parse is denied rather than passed through unexamined.
+
+The file tool check carries the broad net that `permissions.deny`'s `Read(**/.env.*)`
+used to provide before it was narrowed to the explicit deployment names: it denies every
+`.env` variant everywhere for Read, Edit, Write, MultiEdit and NotebookEdit alike, the
+four template basenames in ENV_TEMPLATE_BASENAMES still exempt.
 """
 
 import json
@@ -343,6 +350,37 @@ def secret_file_read_violation(part: str) -> Optional[str]:
     return None
 
 
+# The tool_input key each file tool carries its target path under. Read, Edit, Write
+# and MultiEdit all use file_path; NotebookEdit uses notebook_path.
+FILE_TOOL_PATH_KEYS = {
+    "Read": "file_path",
+    "Edit": "file_path",
+    "Write": "file_path",
+    "MultiEdit": "file_path",
+    "NotebookEdit": "notebook_path",
+}
+
+
+def file_tool_violation(tool_name: str, tool_input: dict) -> Optional[str]:
+    """The deny reason when tool_name's target path is a file that holds secrets.
+
+    Reads the path from the key tool_input carries for tool_name, resolves any symlink
+    in it the same way secret_file_read_violation does, so a template basename that is
+    really a symlink to a secret file is judged by the file it points at, and runs it
+    through the same is_secret_filename test the shell file-reader check uses. A tool
+    input without a usable path is not a violation.
+    """
+    key = FILE_TOOL_PATH_KEYS.get(tool_name)
+    if not key:
+        return None
+    path = tool_input.get(key)
+    if not isinstance(path, str) or not path:
+        return None
+    if not is_secret_filename(resolved_basename(path)):
+        return None
+    return f"{tool_name} targets {path}, a file that holds secrets. {NEVER_PRINT}"
+
+
 def echoes_credential_var(part: str) -> Optional[str]:
     """The deny reason when part echoes a variable whose name looks like a credential."""
     if not ECHO_LIKE.match(part):
@@ -534,7 +572,16 @@ def part_violation(part: str) -> Optional[str]:
 
 def main() -> int:
     payload = _common.read_payload()
-    command = (payload.get("tool_input") or {}).get("command") or ""
+    tool_name = payload.get("tool_name") or ""
+    tool_input = payload.get("tool_input") or {}
+
+    if tool_name in FILE_TOOL_PATH_KEYS:
+        reason = file_tool_violation(tool_name, tool_input)
+        if reason:
+            return _common.deny(EVENT, reason)
+        return _common.emit_empty()
+
+    command = tool_input.get("command") or ""
     if not command:
         return _common.emit_empty()
 

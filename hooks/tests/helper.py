@@ -49,6 +49,20 @@ def bash_payload(command: str, cwd: Optional[str] = None) -> dict[str, Any]:
     return payload
 
 
+def file_tool_payload(tool_name: str, path: str) -> dict[str, Any]:
+    """A PreToolUse payload for tool_name targeting path.
+
+    Read, Edit, Write and MultiEdit carry their target under file_path; NotebookEdit
+    carries it under notebook_path.
+    """
+    key = "notebook_path" if tool_name == "NotebookEdit" else "file_path"
+    return {
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_input": {key: path},
+    }
+
+
 def write_payload(file_path: str, content: str = "", tool_name: str = "Write") -> dict[str, Any]:
     """A PostToolUse Write or Edit payload for file_path."""
     tool_input: dict[str, Any] = {"file_path": file_path}
