@@ -72,6 +72,7 @@ npx skills add ostendorf-cloud/skills -g
 | `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |
 | `session-lock` | context | Records the session for the checkout and warns when another live session already works in it. |
 | `session-unlock` | context | Removes the session record at session end. |
+| `stale-skills` | context | Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is behind `origin/main` as last fetched. |
 | `skill-reminder` | context | Names the skills that cover the request. |
 | `file-parses` | context | A YAML, JSON or TOML file that no longer parses after a write. |
 | `tofu-fmt` | context | Reports when a written `.tf` or `.tfvars` file is not formatted. |

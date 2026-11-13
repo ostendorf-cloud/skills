@@ -13,6 +13,7 @@ import os
 import py_compile
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -53,6 +54,28 @@ def target_label(target: str) -> str:
 
 def resolve_dir(path: Path) -> Path:
     return path.expanduser().resolve()
+
+
+def source_commit(source: Path) -> str | None:
+    """The commit source's checkout is at, or None when it is not a git checkout.
+
+    Recorded into the state file so a session-start hook can later tell an installed
+    copy apart from the checkout it came from, offline and without trusting a
+    timestamp.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=source,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
 
 
 def read_state(home: Path, target: str) -> dict[str, Any] | None:
@@ -510,6 +533,7 @@ def write_state(
         "profile": profile,
         "mode": mode,
         "skills": sorted(skill_names),
+        "commit": source_commit(source),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "backups": backups,
     }
