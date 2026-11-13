@@ -2,15 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for git_guard.py."""
 
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 
 from helper import bash_payload, decision, reason, run_hook
 
+# How long the slow-remote fixture sleeps on ls-remote. Longer than git_guard's own
+# LS_REMOTE_TIMEOUT (5 seconds), so the hook's subprocess call times out first.
+SLOW_REMOTE_SECONDS = 8
 
-def git_repo() -> str:
-    """A temporary repository on branch main with one commit."""
+
+def git_repo(with_remote: bool = True) -> str:
+    """A temporary repository on branch main with one commit.
+
+    with_remote, the default, gives it an origin remote that already carries that
+    commit, the way a real clone of an existing repository would. A test that needs a
+    different remote, or none at all, passes with_remote=False and sets one up itself.
+    """
     path = tempfile.mkdtemp(prefix="git-guard-")
     for args in (
         ["init", "-q", "-b", "main"],
@@ -25,6 +36,9 @@ def git_repo() -> str:
     subprocess.run(
         ["git", "commit", "-q", "-m", "chore: init"], cwd=path, check=True, capture_output=True
     )
+    if with_remote:
+        add_remote(path, bare_remote())
+        push_branch(path, "origin", "main")
     return path
 
 
@@ -32,6 +46,75 @@ def checkout_feature(path: str) -> None:
     subprocess.run(
         ["git", "checkout", "-q", "-b", "feat/thing"], cwd=path, check=True, capture_output=True
     )
+
+
+def bare_remote() -> str:
+    """A temporary bare repository with no branches, usable as a remote that nothing
+    has been pushed to yet."""
+    path = tempfile.mkdtemp(prefix="git-guard-remote-")
+    subprocess.run(["git", "init", "-q", "--bare", path], check=True, capture_output=True)
+    return path
+
+
+def add_remote(repo: str, remote: str, name: str = "origin") -> None:
+    subprocess.run(
+        ["git", "remote", "add", name, remote], cwd=repo, check=True, capture_output=True
+    )
+
+
+def push_branch(repo: str, remote: str, branch: str) -> None:
+    """Pushes branch to remote for real, setting up fixture state. Never goes through
+    the hook: this is the test's own git, not a Bash command Claude would run."""
+    subprocess.run(["git", "push", "-q", remote, branch], cwd=repo, check=True, capture_output=True)
+
+
+def set_config(repo: str, key: str, value: str) -> None:
+    subprocess.run(["git", "config", key, value], cwd=repo, check=True, capture_output=True)
+
+
+def slow_git_env() -> dict:
+    """An environment whose PATH resolves "git" to a wrapper that sleeps past
+    git_guard's ls-remote timeout before delegating to the real git for ls-remote, and
+    runs the real git immediately for every other subcommand.
+
+    Used to test the timeout path without any network: the delay is a local sleep.
+    """
+    real_git = shutil.which("git")
+    shim_dir = tempfile.mkdtemp(prefix="git-guard-slow-git-")
+    shim_path = os.path.join(shim_dir, "git")
+    with open(shim_path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "#!/bin/sh\n"
+            f'if [ "$1" = "ls-remote" ]; then sleep {SLOW_REMOTE_SECONDS}; fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+    os.chmod(shim_path, 0o755)
+    env = dict(os.environ)
+    env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
+    return env
+
+
+def counting_git_env() -> tuple[dict, str]:
+    """An environment whose PATH resolves "git" to a wrapper that appends a line to a
+    log file every time it is run with ls-remote, then delegates to the real git.
+
+    Used to assert how many times the hook actually asked a remote: a count from a
+    log file stays deterministic and fast, a wall clock measurement would not.
+    """
+    real_git = shutil.which("git")
+    shim_dir = tempfile.mkdtemp(prefix="git-guard-count-git-")
+    log_path = os.path.join(shim_dir, "ls-remote.log")
+    shim_path = os.path.join(shim_dir, "git")
+    with open(shim_path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "#!/bin/sh\n"
+            f'if [ "$1" = "ls-remote" ]; then echo x >> "{log_path}"; fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+    os.chmod(shim_path, 0o755)
+    env = dict(os.environ)
+    env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
+    return env, log_path
 
 
 class GitGuardTest(unittest.TestCase):
@@ -462,6 +545,146 @@ class GitGuardTest(unittest.TestCase):
             ),
             "deny",
         )
+
+    def test_allows_first_push_to_missing_default_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        self.assertIsNone(
+            decision(run_hook("git_guard.py", bash_payload("git push origin main", repo)))
+        )
+
+    def test_denies_push_to_default_branch_that_already_exists_on_remote(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        output = run_hook("git_guard.py", bash_payload("git push origin main", repo))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("needs a remote with no branch at all", reason(output))
+
+    def test_denies_push_to_missing_default_branch_when_remote_holds_another_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        push_branch(repo, "origin", "feat/thing")
+        output = run_hook("git_guard.py", bash_payload("git push origin main", repo))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("needs a remote with no branch at all", reason(output))
+
+    def test_denies_force_push_naming_an_existing_branch_and_the_missing_default_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        push_branch(repo, "origin", "feat/thing")
+        output = run_hook(
+            "git_guard.py", bash_payload("git push --force origin feat/thing main", repo)
+        )
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("--force-with-lease", reason(output))
+
+    def test_denies_push_to_default_branch_when_the_remote_check_fails(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        for remote in [
+            "/nonexistent/git-guard-remote-path",
+            tempfile.mkdtemp(prefix="git-guard-not-a-repo-"),
+        ]:
+            add_remote(repo, remote)
+            output = run_hook("git_guard.py", bash_payload("git push origin main", repo))
+            self.assertEqual(decision(output), "deny", remote)
+            self.assertIn("could not be checked", reason(output), remote)
+            subprocess.run(
+                ["git", "remote", "remove", "origin"], cwd=repo, check=True, capture_output=True
+            )
+
+    def test_denies_push_to_default_branch_when_the_remote_check_times_out(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        output = run_hook(
+            "git_guard.py", bash_payload("git push origin main", repo), env=slow_git_env()
+        )
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("could not be checked", reason(output))
+
+    def test_asks_the_remote_at_most_once_for_several_pushes_to_the_default_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        env, log_path = counting_git_env()
+        command = "git push origin main; git push origin main; git push origin main"
+        output = run_hook("git_guard.py", bash_payload(command, repo), env=env)
+        self.assertIsNone(decision(output))
+        with open(log_path, encoding="utf-8") as handle:
+            calls = handle.read().splitlines()
+        self.assertEqual(len(calls), 1)
+
+    def test_force_with_lease_onto_the_default_branch_follows_the_remote_state(self):
+        denied = git_repo()
+        output = run_hook(
+            "git_guard.py", bash_payload("git push --force-with-lease origin main", denied)
+        )
+        self.assertEqual(decision(output), "deny")
+
+        allowed = git_repo(with_remote=False)
+        add_remote(allowed, bare_remote())
+        self.assertIsNone(
+            decision(
+                run_hook(
+                    "git_guard.py",
+                    bash_payload("git push --force-with-lease origin main", allowed),
+                )
+            )
+        )
+
+    def test_push_remote_prefers_the_explicit_remote_with_dash_u(self):
+        repo = git_repo(with_remote=False)
+        decoy = bare_remote()
+        add_remote(repo, decoy, name="decoy")
+        push_branch(repo, "decoy", "main")
+        set_config(repo, "branch.main.remote", "decoy")
+        add_remote(repo, bare_remote())
+        self.assertIsNone(
+            decision(run_hook("git_guard.py", bash_payload("git push -u origin main", repo)))
+        )
+
+    def test_push_remote_resolves_a_url(self):
+        repo = git_repo(with_remote=False)
+        remote = bare_remote()
+        self.assertIsNone(
+            decision(run_hook("git_guard.py", bash_payload(f"git push file://{remote} main", repo)))
+        )
+
+    def test_push_remote_falls_back_to_the_configured_branch_remote(self):
+        repo = git_repo(with_remote=False)
+        wrong_default = bare_remote()
+        add_remote(repo, wrong_default, name="origin")
+        push_branch(repo, "origin", "main")
+        upstream = bare_remote()
+        add_remote(repo, upstream, name="upstream")
+        set_config(repo, "branch.main.remote", "upstream")
+        self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
+
+    def test_push_remote_prefers_branch_push_remote_over_branch_remote(self):
+        repo = git_repo(with_remote=False)
+        decoy = bare_remote()
+        add_remote(repo, decoy, name="origin")
+        push_branch(repo, "origin", "main")
+        upstream = bare_remote()
+        add_remote(repo, upstream, name="upstream")
+        set_config(repo, "branch.main.remote", "origin")
+        set_config(repo, "branch.main.pushRemote", "upstream")
+        self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
+
+    def test_push_remote_prefers_remote_push_default_over_branch_remote(self):
+        repo = git_repo(with_remote=False)
+        decoy = bare_remote()
+        add_remote(repo, decoy, name="origin")
+        push_branch(repo, "origin", "main")
+        upstream = bare_remote()
+        add_remote(repo, upstream, name="upstream")
+        set_config(repo, "branch.main.remote", "origin")
+        set_config(repo, "remote.pushDefault", "upstream")
+        self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
 
 
 if __name__ == "__main__":
