@@ -39,6 +39,14 @@ chat answer.
 - OpenTofu: a secret input is a variable marked `sensitive = true`, supplied from the environment
   or the secret store, never a default in code. Wrap a derived secret value in `sensitive()` and
   mark the output `sensitive = true` too. A secret never reaches a plain state output.
+- Application config: environment variables only, no dedicated config file format, no remote
+  config client.
+- Every secret carrying environment variable has a `_FILE` twin, for example
+  `DATABASE_PASSWORD` and `DATABASE_PASSWORD_FILE`. A set `_FILE` variable wins: read the value
+  from that path. The plain variable stays the local development fallback.
+- Application code never links a secret manager SDK or client. The backend stays an
+  infrastructure concern: OpenBao, External Secrets, a Kubernetes secret mount and a compose
+  `.env` file all satisfy the same `_FILE` contract with no code change.
 
 ### Handling them in a session
 
