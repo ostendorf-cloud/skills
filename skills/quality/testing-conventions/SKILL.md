@@ -38,7 +38,7 @@ When a test is written, what earns one, and the environment as part of the contr
 ### A refusal names the mechanism
 
 - A test asserting a write was refused names the mechanism that refused it: an error code, a
-  constraint name, or the message.
+  constraint name, or a message that carries one of those, not a generic phrase.
 - A non nil error alone keeps passing when the check under test is removed and an unrelated one
   refuses in its place.
 - Database: name the SQLSTATE or the constraint name carried on the error, not only that a query
@@ -52,7 +52,8 @@ When a test is written, what earns one, and the environment as part of the contr
 
 ### A policy test carries no predicate of its own
 
-- A test of a database row level policy issues a query with no predicate of its own.
+- A test of a database row level policy issues a query with no predicate repeating the policy's
+  own condition.
 - A query that repeats the policy's condition in its own filter still passes once the policy is
   removed.
 
@@ -93,8 +94,8 @@ When a test is written, what earns one, and the environment as part of the contr
 - A bug fix has two commits: the failing test, then the fix.
 - New behaviour covered: branches, failure paths, boundaries, environment values.
 - No test added to a getter, glue code or generated code only to raise a count.
-- A refusal assertion names the error code, constraint name or message, never a non nil check
-  alone.
+- A refusal assertion names the error code, the constraint name, or a message carrying one of
+  those, never a non nil check or a generic message alone.
 - An invisibility test proves the row exists through a privileged path.
 - A database policy test's query carries no predicate repeating the policy's own condition.
 - An environment input has an empty or redirected case.
