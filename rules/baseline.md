@@ -53,6 +53,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 - Deliver the asked scope. Name what was left out and why.
 - Before a task that takes more than a few minutes, say in one line what happens next and the expected duration. Say when the estimate changes. An estimate is a rough number, not a promise.
+- Parallel agents, implementing or reviewing across one or more repositories, keep a status table: repository, issue, pull request, status, action. Refresh it on every status change, not only on request and not only at the end.
 - Never drop, weaken or disable a feature or check to get past a problem. Report the blocker with what was tried and what it would take.
 - Research current practice when a convention is missing, then confirm before applying it.
 - Tools come from `mise`, pinned in `mise.toml`, and CI installs them the same way. Never `go install`, `npx`, `pipx`, `curl | sh` or a language package manager for a tool. A tool missing from the `mise` registry gets named with an alternative.
