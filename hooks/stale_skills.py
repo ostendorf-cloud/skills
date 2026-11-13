@@ -2,13 +2,16 @@
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
 """SessionStart hook. Warns once when the installed skills lag the checkout they were
-installed from, or when that checkout itself lags origin/main.
+installed from, or when that checkout itself lags its default branch on origin.
 
 Reads every installed target's state file under ~/.config/agent-skills, written by
 scripts/install.py, and compares the commit it recorded against the checkout on this
 machine. Both comparisons are offline: no fetch, only the commit already recorded and
 the remote tracking ref the checkout already has locally. A machine with no checkout,
-or a checkout with no origin/main ref, says nothing for that half of the check.
+or a checkout with no tracking ref for its default branch, says nothing for that half
+of the check. The origin comparison only runs while the checkout is actually on its
+default branch: on a feature branch or a worktree, HEAD never equals that ref, and
+warning there would fire every session for a mismatch pulling cannot fix.
 """
 
 import json
@@ -62,9 +65,14 @@ def check_source(source: str, recorded: Optional[str]) -> list[str]:
     """The warning lines for one installed source checkout. [] when nothing to say.
 
     The first line compares the commit recorded at install time against the checkout's
-    current HEAD. The second compares that same HEAD against origin's default branch as
-    last fetched, independent of the first: the installed copy can match a checkout
-    that itself lags origin/main, which is the lag the first comparison alone misses.
+    current HEAD, and runs regardless of which branch is checked out. The second
+    compares that same HEAD against origin's default branch as last fetched,
+    independent of the first: the installed copy can match a checkout that itself lags
+    its default branch on origin, which is the lag the first comparison alone misses.
+    It only runs while the checkout is on that default branch. On any other branch,
+    such as a feature worktree, HEAD never equals the origin ref, so the comparison
+    would warn every session about a mismatch that pulling cannot fix, and says
+    nothing instead.
     """
     if not source or not os.path.isdir(source):
         return []
@@ -80,17 +88,25 @@ def check_source(source: str, recorded: Optional[str]) -> list[str]:
         )
 
     branch = _common.default_branch(source)
-    origin_ref = _common.run_git(["rev-parse", f"refs/remotes/origin/{branch}"], source)
-    if origin_ref and origin_ref != current:
-        lines.append(
-            f"The checkout at {source} is at {short(current)}, but its last known "
-            f"origin/{branch} is {short(origin_ref)}. Pull the checkout, the comparison "
-            "above only sees what it has on disk."
-        )
+    current_branch = _common.run_git(["rev-parse", "--abbrev-ref", "HEAD"], source)
+    if current_branch == branch:
+        origin_ref = _common.run_git(["rev-parse", f"refs/remotes/origin/{branch}"], source)
+        if origin_ref and origin_ref != current:
+            lines.append(
+                f"The checkout at {source} is at {short(current)}, but its last known "
+                f"origin/{branch} is {short(origin_ref)}. Pull the checkout, the "
+                "comparison above only sees what it has on disk."
+            )
     return lines
 
 
 def collect_messages() -> list[str]:
+    """The warning lines for every distinct installed source checkout.
+
+    Several targets can share the same source checkout. Each distinct source is
+    checked once, keyed on the first state file that names it in state_paths order;
+    any other target recording the same source is skipped rather than checked again.
+    """
     messages: list[str] = []
     seen_sources: set[str] = set()
     for path in state_paths(agent_skills_dir()):

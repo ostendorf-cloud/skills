@@ -44,6 +44,10 @@ def commit_of(path: str) -> str:
     return run_git(["rev-parse", "HEAD"], path)
 
 
+def checkout_new_branch(path: str, name: str) -> None:
+    subprocess.run(["git", "checkout", "-q", "-b", name], cwd=path, check=True, capture_output=True)
+
+
 def write_state(home: str, source: str, commit: str, target: str = "") -> None:
     directory = os.path.join(home, ".config", "agent-skills")
     os.makedirs(directory, exist_ok=True)
@@ -51,6 +55,22 @@ def write_state(home: str, source: str, commit: str, target: str = "") -> None:
     data = {"source": source, "commit": commit}
     with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
+
+
+def write_state_data(home: str, data: dict, target: str = "") -> None:
+    directory = os.path.join(home, ".config", "agent-skills")
+    os.makedirs(directory, exist_ok=True)
+    name = f"{target}.state.json" if target else "state.json"
+    with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
+
+
+def write_raw_state(home: str, content: str, target: str = "") -> None:
+    directory = os.path.join(home, ".config", "agent-skills")
+    os.makedirs(directory, exist_ok=True)
+    name = f"{target}.state.json" if target else "state.json"
+    with open(os.path.join(directory, name), "w", encoding="utf-8") as handle:
+        handle.write(content)
 
 
 def start_payload() -> dict:
@@ -144,6 +164,52 @@ class StaleSkillsTest(unittest.TestCase):
         self.assertIn("task install", message)
         self.assertIn("origin/main", message)
         self.assertEqual(len(message.splitlines()), 2)
+
+    def test_stays_quiet_about_origin_when_the_checkout_is_on_another_branch(self):
+        home = tempfile.mkdtemp(prefix="stale-skills-home-")
+        remote = checkout()
+        source = tempfile.mkdtemp(prefix="stale-skills-clone-")
+        subprocess.run(["git", "clone", "-q", remote, source], check=True, capture_output=True)
+        run_git(
+            [
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "second",
+            ],
+            remote,
+        )
+        subprocess.run(["git", "fetch", "-q"], cwd=source, check=True, capture_output=True)
+        checkout_new_branch(source, "feature")
+
+        # The checkout matches the recorded commit, so only the origin comparison
+        # could fire here, and it must not: the checkout is not on its default
+        # branch, the normal state of a feature worktree.
+        write_state(home, source, commit_of(source))
+        self.assertEqual(context(run_with_home(home)), "")
+
+    def test_stays_quiet_when_the_state_file_is_empty(self):
+        home = tempfile.mkdtemp(prefix="stale-skills-home-")
+        checkout()
+        write_raw_state(home, "")
+        self.assertEqual(context(run_with_home(home)), "")
+
+    def test_stays_quiet_when_the_state_file_is_not_valid_json(self):
+        home = tempfile.mkdtemp(prefix="stale-skills-home-")
+        checkout()
+        write_raw_state(home, "{not json")
+        self.assertEqual(context(run_with_home(home)), "")
+
+    def test_stays_quiet_when_the_state_has_no_commit_key(self):
+        home = tempfile.mkdtemp(prefix="stale-skills-home-")
+        source = checkout()
+        write_state_data(home, {"source": source})
+        self.assertEqual(context(run_with_home(home)), "")
 
     def test_stays_quiet_when_origin_was_never_fetched(self):
         home = tempfile.mkdtemp(prefix="stale-skills-home-")
