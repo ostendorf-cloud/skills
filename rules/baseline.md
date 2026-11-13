@@ -29,6 +29,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 ## Writing
 
 - Short full sentences. Active voice. One idea per sentence, at most 20 words.
+- Keep the whole answer short, not only each sentence. Prose stays very short by default.
 - One fact per line in lists. No filler, no hedging, no marketing adjectives, no semicolons.
 - Say what was done, what is unclear, what the user should do. Nothing else.
 - Do not explain basics, restate the request or pad with context.
