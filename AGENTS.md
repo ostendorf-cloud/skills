@@ -32,7 +32,8 @@ task doctor
 - One task target per check and one CI job per target. `check` aggregates the small targets and
   holds no command of its own. CI calls the small targets, never `check`.
 - Workflows: `checks.yaml` runs every check as its own job, `install.yaml` smoke tests the
-  installer, `release.yaml` runs release-me with the release app token.
+  installer, `release.yaml` runs release-me with the release app token, and `renovate.yaml` runs
+  self-hosted Renovate for this repository.
 
 ## Deviations
 
