@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   renovate:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate.yaml@v0.2.0
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate.yaml@v0.2.1
     with:
       runs-on-runner: blacksmith-2vcpu-ubuntu-2404
     secrets: inherit
