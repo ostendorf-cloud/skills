@@ -6,6 +6,7 @@
 import contextlib
 import io
 import json
+import subprocess
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +19,32 @@ install = load_module("install")
 def write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
+
+
+def git_init(path: Path) -> str:
+    """Turns path into a one-commit git checkout and returns that commit's hash."""
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True, capture_output=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+        cwd=path,
+        check=True,
+        capture_output=True,
+    )
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=path, check=True, capture_output=True, text=True
+    )
+    return result.stdout.strip()
 
 
 def run(argv: list) -> tuple:
@@ -197,6 +224,17 @@ class InstallTestCase(unittest.TestCase):
         self.assertEqual(state["mode"], "link")
         self.assertEqual(state["profile"], "laptop")
         self.assertIn("test-skill", state["skills"])
+
+    def test_install_records_the_source_commit_in_state(self) -> None:
+        commit = git_init(self.source)
+        self._install()
+        state = json.loads((self.home / ".config" / "agent-skills" / "state.json").read_text())
+        self.assertEqual(state["commit"], commit)
+
+    def test_install_records_no_commit_when_source_is_not_a_git_checkout(self) -> None:
+        self._install()
+        state = json.loads((self.home / ".config" / "agent-skills" / "state.json").read_text())
+        self.assertIsNone(state["commit"])
 
     def test_status_in_sync_after_install_returns_zero(self) -> None:
         self._install()

@@ -92,6 +92,15 @@
       "description": "Removes the session record at session end."
     },
     {
+      "id": "stale-skills",
+      "script": "stale_skills.py",
+      "event": "SessionStart",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is on its default branch and behind origin as last fetched."
+    },
+    {
       "id": "skill-reminder",
       "script": "skill_reminder.py",
       "event": "UserPromptSubmit",
