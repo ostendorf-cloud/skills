@@ -70,6 +70,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Without a prompt: read, edit, lint, test, commit, push to a feature branch, open a draft or ready pull request, take a pull request out of draft, comment, label, review, rerun a workflow, open an issue.
 - Confirm first: merge a pull request, cut a release, `apply` infrastructure, delete anything that existed before the session.
 - Never: push to the default branch, force push without `--force-with-lease`, force push to the default branch, `destroy` infrastructure, print a secret, write a secret into a file or a message.
+- One exception to the first of those: the push that creates the default branch on a remote carrying no branch at all.
 - A command the harness denies is a decision. Do not route around it with another tool, agent or spelling.
 - Repository and organisation settings, labels, rulesets and secrets are infrastructure as code. Do not change them with a CLI or the web UI. Propose the change in the infrastructure repository instead.
 

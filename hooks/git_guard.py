@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
-"""PreToolUse hook on Bash. Denies a push to the default branch, a force push without
-`--force-with-lease` or one onto the default branch, `git push --all` or `--mirror`, a
-command that bypasses hooks or commit signing, and deletion of the default branch, local
-or remote.
+"""PreToolUse hook on Bash. Denies a push to the default branch, unless the remote
+carries no branch at all yet, a force push without `--force-with-lease` or one onto the
+default branch, `git push --all` or `--mirror`, a command that bypasses hooks or commit
+signing, and deletion of the default branch, local or remote.
 """
 
 import os
@@ -62,38 +62,64 @@ def has_forced_refspec(tokens: list[str]) -> bool:
     return any(token.startswith("+") for token in non_flag[1:])
 
 
-def remote_branch_exists(remote: str, branch: str, cwd: Optional[str]) -> Optional[bool]:
-    """Whether branch exists on remote, checked with `git ls-remote --heads`.
+def remote_is_empty(remote: str, cwd: Optional[str]) -> Optional[bool]:
+    """Whether remote carries no branch at all, checked with `git ls-remote --heads`.
 
     True or False when the remote answered. None when the check itself failed, timed
     out or could not reach the remote, so a caller falls back to denying rather than
-    treat an error as "missing" and open the gate.
+    treat an error as "empty" and open the gate.
+
+    Checks every branch on the remote, not only the default one: a remote already
+    holding some other branch is not the brand new, empty remote the exemption is for,
+    even when the default branch itself is still absent from it.
+
+    Sets GIT_TERMINAL_PROMPT=0 and an empty GIT_ASKPASS so a remote that would ask for
+    credentials fails fast instead of prompting from inside a hook.
     """
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="")
     try:
         result = subprocess.run(
-            ["git", "ls-remote", "--heads", remote, branch],
+            ["git", "ls-remote", "--heads", remote],
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=LS_REMOTE_TIMEOUT,
+            env=env,
         )
     except Exception:
         return None
     if result.returncode != 0:
         return None
-    return bool(result.stdout.strip())
+    return not result.stdout.strip()
 
 
 def push_remote(tokens: list[str], cwd: Optional[str]) -> str:
-    """The remote a `git push` with these tokens (after "push") reaches: the first
-    non flag token when one is given, otherwise the current branch's configured
-    remote, "origin" when none is configured."""
+    """The remote a `git push` with these tokens (after "push") reaches.
+
+    The first non flag token when one is given, a URL included. Otherwise git's own
+    resolution order for the current branch: `branch.<name>.pushRemote`, then
+    `remote.pushDefault`, then `branch.<name>.remote`, then "origin".
+    """
     non_flag = [token for token in tokens if not token.startswith("-")]
     if non_flag:
         return non_flag[0]
+
     branch = current_branch(cwd)
-    configured = _common.run_git(["config", f"branch.{branch}.remote"], cwd) if branch else None
-    return configured or "origin"
+    if branch:
+        push_remote_cfg = _common.run_git(["config", f"branch.{branch}.pushRemote"], cwd)
+        if push_remote_cfg:
+            return push_remote_cfg
+
+    push_default = _common.run_git(["config", "remote.pushDefault"], cwd)
+    if push_default:
+        return push_default
+
+    if branch:
+        configured = _common.run_git(["config", f"branch.{branch}.remote"], cwd)
+        if configured:
+            return configured
+
+    return "origin"
 
 
 def push_targets_default(tokens: list[str], cwd: Optional[str], default: str) -> bool:
@@ -128,33 +154,27 @@ def push_violation(part: str, cwd: Optional[str], default: str) -> Optional[str]
     if "--delete" in tokens and default in non_flag:
         return f"This deletes {default} on the remote. The default branch is never deleted."
 
-    if push_targets_default(tokens, cwd, default):
-        remote = push_remote(tokens, cwd)
-        exists = remote_branch_exists(remote, default, cwd)
-        if exists is False:
-            return None
-        if exists is None:
-            detail = f"{remote} could not be checked, so this is denied like an existing branch."
-        else:
-            detail = f"{remote} already has {default}."
-        return (
-            f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH} "
-            f"Only the first push counts as an exception, when the remote has no "
-            f"{default} branch yet for a pull request to target. {detail}"
-        )
-
+    # The force and lease checks never depend on the default branch exemption below:
+    # a plain force push is denied outright, whatever ref it also names, so a command
+    # that forces one branch while also naming the still-missing default branch (for
+    # example "git push --force origin feature main") is still caught here.
     has_plain_force = any(token in ("--force", "-f") for token in tokens) or has_forced_refspec(
         tokens
     )
-    has_lease = any(
-        token == "--force-with-lease" or token.startswith("--force-with-lease=") for token in tokens
-    )
-
     if has_plain_force:
         return f"This force pushes without --force-with-lease. {USE_FORCE_WITH_LEASE}"
 
-    if has_lease and push_targets_default(tokens, cwd, default):
-        return f"This force pushes to {default}. {USE_FORCE_WITH_LEASE}"
+    if push_targets_default(tokens, cwd, default):
+        remote = push_remote(tokens, cwd)
+        empty = remote_is_empty(remote, cwd)
+        if empty is True:
+            return None
+        detail = (
+            "the first push exemption needs a remote with no branch at all"
+            if empty is False
+            else "the first push exemption could not be checked"
+        )
+        return f"This pushes to {default}, the default branch, and {detail}. {USE_FEATURE_BRANCH}"
 
     return None
 

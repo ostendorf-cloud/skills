@@ -62,7 +62,7 @@ npx skills add ostendorf-cloud/skills -g
 
 | Hook | Decision | What it does |
 | --- | --- | --- |
-| `git-guard` | deny | Push to the default branch, force push without lease or onto the default branch, `git push --all` or `--mirror`, bypassed hooks or signing, deletion of the default branch. |
+| `git-guard` | deny | Push to the default branch, unless the remote has no branch yet, force push without lease or onto the default branch, `git push --all` or `--mirror`, bypassed hooks or signing, deletion of the default branch. |
 | `secret-guard` | deny | Commands that print a secret, and a commit whose staged diff holds a credential pattern or a file that never belongs in git. |
 | `shell-hygiene` | deny | File content written through the shell: heredoc or redirect into a file, `tee`, `sed -i`. Inline interpreter one liners that span lines or that open a file for writing. |
 | `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit message carrying an attribution trailer, a "Generated with" line or a vendor link outside the documentation hosts. |
