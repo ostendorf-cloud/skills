@@ -30,6 +30,13 @@ USE_FORCE_WITH_LEASE = (
 
 LS_REMOTE_TIMEOUT = 5
 
+# Caches remote_is_empty by (remote, cwd) for the duration of one hook run, so a
+# command chaining several pushes to the default branch against the same remote asks
+# it once. The caller creates one of these per invocation and threads it through,
+# rather than a module level cache, so nothing needs resetting between hook runs or
+# between tests that call these functions directly.
+RemoteCache = dict[tuple[str, Optional[str]], Optional[bool]]
+
 
 def current_branch(cwd: Optional[str]) -> str:
     """The checked out branch in cwd, or "" when it cannot be determined."""
@@ -62,7 +69,7 @@ def has_forced_refspec(tokens: list[str]) -> bool:
     return any(token.startswith("+") for token in non_flag[1:])
 
 
-def remote_is_empty(remote: str, cwd: Optional[str]) -> Optional[bool]:
+def remote_is_empty(remote: str, cwd: Optional[str], cache: RemoteCache) -> Optional[bool]:
     """Whether remote carries no branch at all, checked with `git ls-remote --heads`.
 
     True or False when the remote answered. None when the check itself failed, timed
@@ -75,7 +82,14 @@ def remote_is_empty(remote: str, cwd: Optional[str]) -> Optional[bool]:
 
     Sets GIT_TERMINAL_PROMPT=0 and an empty GIT_ASKPASS so a remote that would ask for
     credentials fails fast instead of prompting from inside a hook.
+
+    cache holds the result per (remote, cwd) for the rest of this call: a command that
+    names the same remote more than once asks it only the first time.
     """
+    key = (remote, cwd)
+    if key in cache:
+        return cache[key]
+
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="")
     try:
         result = subprocess.run(
@@ -86,11 +100,12 @@ def remote_is_empty(remote: str, cwd: Optional[str]) -> Optional[bool]:
             timeout=LS_REMOTE_TIMEOUT,
             env=env,
         )
+        empty = None if result.returncode != 0 else not result.stdout.strip()
     except Exception:
-        return None
-    if result.returncode != 0:
-        return None
-    return not result.stdout.strip()
+        empty = None
+
+    cache[key] = empty
+    return empty
 
 
 def push_remote(tokens: list[str], cwd: Optional[str]) -> str:
@@ -137,7 +152,9 @@ def push_targets_default(tokens: list[str], cwd: Optional[str], default: str) ->
     return False
 
 
-def push_violation(part: str, cwd: Optional[str], default: str) -> Optional[str]:
+def push_violation(
+    part: str, cwd: Optional[str], default: str, remote_cache: RemoteCache
+) -> Optional[str]:
     """The deny reason for a `git push` part, or None when it is fine."""
     if not GIT_PUSH.match(part):
         return None
@@ -166,7 +183,7 @@ def push_violation(part: str, cwd: Optional[str], default: str) -> Optional[str]
 
     if push_targets_default(tokens, cwd, default):
         remote = push_remote(tokens, cwd)
-        empty = remote_is_empty(remote, cwd)
+        empty = remote_is_empty(remote, cwd, remote_cache)
         if empty is True:
             return None
         detail = (
@@ -212,6 +229,7 @@ def main() -> int:
         return _common.emit_empty()
 
     cwd = payload.get("cwd") or os.getcwd()
+    remote_cache: RemoteCache = {}
 
     for raw_part in _common.command_parts(command):
         part = _common.normalize_command_part(raw_part)
@@ -224,7 +242,7 @@ def main() -> int:
 
         reason = (
             bypass_violation(part)
-            or push_violation(normalized, part_cwd, default)
+            or push_violation(normalized, part_cwd, default, remote_cache)
             or branch_delete_violation(normalized, default)
         )
         if reason:

@@ -94,6 +94,29 @@ def slow_git_env() -> dict:
     return env
 
 
+def counting_git_env() -> tuple[dict, str]:
+    """An environment whose PATH resolves "git" to a wrapper that appends a line to a
+    log file every time it is run with ls-remote, then delegates to the real git.
+
+    Used to assert how many times the hook actually asked a remote: a count from a
+    log file stays deterministic and fast, a wall clock measurement would not.
+    """
+    real_git = shutil.which("git")
+    shim_dir = tempfile.mkdtemp(prefix="git-guard-count-git-")
+    log_path = os.path.join(shim_dir, "ls-remote.log")
+    shim_path = os.path.join(shim_dir, "git")
+    with open(shim_path, "w", encoding="utf-8") as handle:
+        handle.write(
+            "#!/bin/sh\n"
+            f'if [ "$1" = "ls-remote" ]; then echo x >> "{log_path}"; fi\n'
+            f'exec "{real_git}" "$@"\n'
+        )
+    os.chmod(shim_path, 0o755)
+    env = dict(os.environ)
+    env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
+    return env, log_path
+
+
 class GitGuardTest(unittest.TestCase):
     def test_allows_ordinary_commands(self):
         repo = git_repo()
@@ -582,6 +605,36 @@ class GitGuardTest(unittest.TestCase):
         )
         self.assertEqual(decision(output), "deny")
         self.assertIn("could not be checked", reason(output))
+
+    def test_asks_the_remote_at_most_once_for_several_pushes_to_the_default_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        env, log_path = counting_git_env()
+        command = "git push origin main; git push origin main; git push origin main"
+        output = run_hook("git_guard.py", bash_payload(command, repo), env=env)
+        self.assertIsNone(decision(output))
+        with open(log_path, encoding="utf-8") as handle:
+            calls = handle.read().splitlines()
+        self.assertEqual(len(calls), 1)
+
+    def test_force_with_lease_onto_the_default_branch_follows_the_remote_state(self):
+        denied = git_repo()
+        output = run_hook(
+            "git_guard.py", bash_payload("git push --force-with-lease origin main", denied)
+        )
+        self.assertEqual(decision(output), "deny")
+
+        allowed = git_repo(with_remote=False)
+        add_remote(allowed, bare_remote())
+        self.assertIsNone(
+            decision(
+                run_hook(
+                    "git_guard.py",
+                    bash_payload("git push --force-with-lease origin main", allowed),
+                )
+            )
+        )
 
     def test_push_remote_prefers_the_explicit_remote_with_dash_u(self):
         repo = git_repo(with_remote=False)
