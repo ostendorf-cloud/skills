@@ -12,6 +12,8 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - Opening a new issue in any repository.
 - Updating an existing issue's body, labels or milestone.
 - Issue exists but is too thin to implement: use `refine-issue` instead.
+- A security vulnerability in a public repository with no fix merged yet: skip this skill,
+  follow the baseline's disclosure rule instead.
 
 ## Steps
 
@@ -60,6 +62,8 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - `ai: ready` and `needs triage` are set only on explicit instruction from the user, never
   guessed.
 - A label absent on the tracker is named in the report, never created by this skill.
+- An unfixed security vulnerability in a public repository gets no issue: see the baseline's
+  Plans and issues rule.
 
 ## Config
 

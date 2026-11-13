@@ -105,6 +105,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Plans and issues
 
+- A security vulnerability in a public repository gets no public write-up spelling out how it is exploitable before a fix is merged: not in an issue, a pull request description or a commit message. Use a draft security advisory instead, or skip the public trail and go straight to a branch and a pull request with a plain, non-descriptive message. A private repository is exempt: its tracker is not a public disclosure.
 - Non-trivial work starts with a plan in the issue: goal, steps, verification, model choice. Not in `docs/`.
 - Work on an issue moves its `ai:` label: `ready` to `working` to `review requested` to `done`, with `changes requested`, `needs human` and `blocked` as exits.
 - `done` needs a review independent of the implementation. A review that forked the same session that wrote the code is independent only when that code went through `implement`'s own bounded subagent; one the supervising session wrote directly can approve but ends on `needs human` instead, never `done`.
