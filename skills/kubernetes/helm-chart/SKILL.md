@@ -45,8 +45,12 @@ Write a chart that renders correctly for every documented combination of values.
      rule.
 4. Keep `values.schema.json` in sync with `values.yaml` so a misconfiguration fails early.
 5. Verify and report the real output:
-   - `helm lint`.
+   - `helm lint`. It cannot see a render-time `fail`: that call is logged, not propagated, and
+     the exit code stays zero. A lint pass proves nothing about a guard built on it.
    - `helm template` for the default values and for every documented non default combination.
+   - for every render-time guard, a must-fail set: the combinations it must reject. Render them
+     with `helm template` and assert the failure, not merely the render. Removing the guard must
+     turn this check red on its own.
    - `kubeconform` (or an equivalent schema check) on the rendered output. Its default schema set
      has no Gateway API schemas. A chart that renders `HTTPRoute` or `Gateway` adds a second
      `-schema-location` pointing at a community CRD schema catalog, keyed by group, kind and
@@ -54,9 +58,11 @@ Write a chart that renders correctly for every documented combination of values.
    - `helm-unittest` suites in `tests/*_test.yaml`, one case per values combination, asserting what
      the rendered output says. Schema validity is `kubeconform`'s job, the decisions the chart
      encodes are not. Never render a chart in a throwaway script to grep the output.
-   - for external routing specifically: one case asserts the `Ingress` flag renders an `Ingress`
-     and no `HTTPRoute`, one asserts the `HTTPRoute` flag renders an `HTTPRoute` and no `Ingress`,
-     one asserts both flags on fails the render.
+   - for external routing specifically, the must-fail set has three cases: one asserts the
+     `Ingress` flag renders an `Ingress` and no `HTTPRoute`, one asserts the `HTTPRoute` flag
+     renders an `HTTPRoute` and no `Ingress`, one asserts both flags on fails the render. Keep
+     each as a `helm-unittest` case and as a must-fail render. The two must agree before a guard
+     can be trusted.
    - `helm-unittest` is a Helm plugin, not in `mise`'s curated registry. Pin it as a generic
      GitHub release backend entry in `mise.toml` instead of an ad hoc `helm plugin install`,
      version pinned the same way as every other tool. A task target builds the plugin directory
@@ -78,6 +84,8 @@ Write a chart that renders correctly for every documented combination of values.
 - No namespace hardcoded in a template.
 - No feature flag that leaves an orphaned object behind when turned off.
 - Never claim `helm lint`, `helm template` or `helm-unittest` passed without having run them.
+- `helm lint` never covers a render-time guard. A chart relying on lint alone for one is relying
+  on nothing.
 
 ## References
 

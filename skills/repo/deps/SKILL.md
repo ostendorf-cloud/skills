@@ -30,8 +30,15 @@ Get dependency updates in without turning them into an incident.
    when the test suite does not cover the changed behaviour.
 5. For a container base image or a GitHub Action: keep the digest pinning, update the tag and
    the digest together, and verify the image still builds and still runs as non root.
-6. Keep a lock file consistent by regenerating it with the repository's own tooling. Never hand
-   edit one.
+6. Keep a lock file consistent by regenerating it with the package manager version this
+   repository pins. Never hand edit one.
+   - Check that the pinned package manager version writes the resolution fields correctly
+     before trusting its output. A bug in the regenerating tool is invisible in its own output.
+   - Verify what the regenerated lock file installs with a fresh, frozen install into an empty
+     directory and a cold store. An already populated dependency directory proves nothing: a
+     frozen install leaves it untouched.
+   - Never verify by matching a string in the lock file. The field that matters can move
+     between lock file format versions. A grep gives both false negatives and false positives.
 7. Never merge a failing pull request. Close a pull request a later update has superseded.
 8. After a batch, verify the default branch is still green.
 9. Report what was merged, what was deferred and why, in one table.
