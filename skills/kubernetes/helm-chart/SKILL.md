@@ -3,8 +3,8 @@ name: helm-chart
 description: Creates or changes a Helm chart with a documented values interface, templates that
   render for every supported configuration, and lint, kubeconform and helm-unittest verification.
   Use when writing, changing or reviewing a Helm chart. Trigger phrases: write a chart,
-  helm template, values.yaml, helm lint, helm-unittest, Helm Chart schreiben, Chart Werte,
-  Chart Version.
+  helm template, values.yaml, helm lint, helm-unittest, Ingress, Gateway API, HTTPRoute,
+  Helm Chart schreiben, Chart Werte, Chart Version.
 ---
 
 # Helm chart
@@ -28,21 +28,41 @@ Write a chart that renders correctly for every documented combination of values.
    - the standard labels, including `app.kubernetes.io/version` and the chart version.
    - no namespace in a template, the release decides the namespace.
    - every object guarded by its feature flag, no orphaned object when a feature is off.
+   - external routing is two feature flags: an `Ingress` values block and an `HTTPRoute` values
+     block, both default off. A default install renders neither, so there is no external route
+     until one is chosen. Both on fails the render with `fail`, naming which one to turn off.
+   - an enabled `HTTPRoute` sets a `parentRefs` entry naming its `Gateway`. See
+     `kubernetes-conventions` for the cross namespace reference this usually is and the
+     `Gateway`'s `allowedRoutes`.
+   - `Ingress` carries its own `tls` block, so the chart owns that certificate configuration.
+     `HTTPRoute` carries none; its TLS lives on the `Gateway`'s listener, owned by the cluster,
+     see `kubernetes-conventions`.
    - resources, probes, security context and service account configurable with safe defaults.
    - a checksum annotation on the pod template for a ConfigMap or Secret that must trigger a
      restart.
-   - no CRD in `templates/`. CRDs are a separate concern, see `kubernetes-conventions`.
+   - no CRD in `templates/`. CRDs are a separate concern, see `kubernetes-conventions`. The
+     Gateway API kinds, `Gateway` and `HTTPRoute` included, are CRDs and fall under this same
+     rule.
 4. Keep `values.schema.json` in sync with `values.yaml` so a misconfiguration fails early.
 5. Verify and report the real output:
    - `helm lint`.
    - `helm template` for the default values and for every documented non default combination.
-   - `kubeconform` (or an equivalent schema check) on the rendered output.
+   - `kubeconform` (or an equivalent schema check) on the rendered output. Its default schema set
+     has no Gateway API schemas. A chart that renders `HTTPRoute` or `Gateway` adds a second
+     `-schema-location` pointing at a community CRD schema catalog, keyed by group, kind and
+     version, alongside the default location.
    - `helm-unittest` suites in `tests/*_test.yaml`, one case per values combination, asserting what
      the rendered output says. Schema validity is `kubeconform`'s job, the decisions the chart
      encodes are not. Never render a chart in a throwaway script to grep the output.
-   - `helm-unittest` is a Helm plugin, not a `mise` tool. Install it with
-     `helm plugin install <url> --version <tag>`, pinned, with the version stated in the chart's
-     own documentation so a machine and CI use the same one.
+   - for external routing specifically: one case asserts the `Ingress` flag renders an `Ingress`
+     and no `HTTPRoute`, one asserts the `HTTPRoute` flag renders an `HTTPRoute` and no `Ingress`,
+     one asserts both flags on fails the render.
+   - `helm-unittest` is a Helm plugin, not in `mise`'s curated registry. Pin it as a generic
+     GitHub release backend entry in `mise.toml` instead of an ad hoc `helm plugin install`,
+     version pinned the same way as every other tool. A task target builds the plugin directory
+     Helm expects around that pinned binary and sets `HELM_PLUGINS` to it before every run. Do
+     this in a task, not a postinstall hook: the hook only fires on a fresh install, not on a
+     cache hit, and skipping it made the check flaky in CI.
 6. Document the chart `README.md`: purpose, prerequisites, the values table, upgrade notes, and
    the uninstall behaviour including what stays behind.
 7. Version the chart with the repository's release tool: release-me's helm updater writes
@@ -61,5 +81,7 @@ Write a chart that renders correctly for every documented combination of values.
 
 ## References
 
-- `kubernetes-conventions` for CRDs, namespaces and the workload baseline.
+- `kubernetes-conventions` for CRDs, namespaces, external routing and the workload baseline.
 - `opentofu-conventions` for the `helm_release` that installs the chart.
+- a community CRD schema catalog for `kubeconform`'s Gateway API schemas, for example
+  <https://github.com/datreeio/CRDs-catalog>.
