@@ -45,3 +45,17 @@ Date: 2026-11-13
   the current entries were chosen.
 - Reaching the old breadth again, denying every `.env.*` name everywhere again, needs the sandbox
   matcher to support a recursive pattern. It does not today.
+
+## permissions.deny is narrowed too, the hook carries the net
+
+- `permissions.deny`'s `Read(**/.env.*)` is projected into the sandbox's own read deny list, next
+  to `sandbox.filesystem.denyRead`. Verified in a running profile: it shows `**/.env.*` and the
+  four `Read(!.env.example)` style entries verbatim.
+- The sandbox matches `!.env.example` as a literal filename, not a negation. Those four entries
+  exempted the Read tool's own permission check and denied nothing in the sandbox.
+- `permissions.deny` in `settings/claude.json` and `settings/claude-ci.json` now lists the same
+  six explicit `.env.*` names as `sandbox.filesystem.denyRead`, replacing the broad pattern and
+  the four negations. The two lists stay identical by convention.
+- `hooks/secret_guard.py` now runs its `is_secret_filename` check for `Read`, `Edit`, `Write`,
+  `MultiEdit` and `NotebookEdit`, not only inside a `Bash` command. Narrowing both path-rule lists
+  to explicit names loses no coverage: the hook is the broad net for every tool now.
