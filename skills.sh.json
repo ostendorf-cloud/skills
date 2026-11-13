@@ -31,6 +31,11 @@
       "skills": ["release", "release-conventions"]
     },
     {
+      "title": "Containers",
+      "description": "Building and publishing container images.",
+      "skills": ["container-images"]
+    },
+    {
       "title": "Infrastructure",
       "description": "OpenTofu, Kubernetes, Helm, Talos and Ansible.",
       "skills": ["opentofu-conventions", "tofu-module", "tofu-plan", "github-as-code", "kubernetes-conventions", "helm-chart", "k8s-debug", "talos-ops", "ansible-conventions"]
