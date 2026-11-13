@@ -1,0 +1,20 @@
+name: renovate
+
+on:
+  schedule:
+    - cron: "38 4 * * *"
+  workflow_dispatch:
+  issues:
+    types: [edited]
+  pull_request:
+    types: [edited]
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate.yaml@v0.2.1
+    with:
+      runs-on-runner: blacksmith-2vcpu-ubuntu-2404
+    secrets: inherit

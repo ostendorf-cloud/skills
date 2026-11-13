@@ -37,6 +37,11 @@ jobs:
       find-commands: |
         find . \( -name "*.py" -o -name "*.sh" \) -not -path "./.worktrees/*" -not -path "./.claude/*"
 
+  renovate-config:
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@v0.2.1
+    with:
+      runs-on-runner: blacksmith-2vcpu-ubuntu-2404
+
   markdownlint:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:

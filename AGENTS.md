@@ -32,7 +32,8 @@ task doctor
 - One task target per check and one CI job per target. `check` aggregates the small targets and
   holds no command of its own. CI calls the small targets, never `check`.
 - Workflows: `checks.yaml` runs every check as its own job, `install.yaml` smoke tests the
-  installer, `release.yaml` runs release-me with the release app token.
+  installer, `release.yaml` runs release-me with the release app token, and `renovate.yaml` runs
+  self-hosted Renovate for this repository.
 
 ## Deviations
 
@@ -40,6 +41,10 @@ task doctor
   `ostendorf-cloud/workflows`' `reusable-license.yaml` instead of `task lint:license`. The shared
   workflow pins addlicense itself, so the check cannot drift with this repository's `mise.toml`.
   `task lint:license` stays and runs the same tool, flags and files locally.
+- The `renovate-config` job in `checks.yaml` calls `ostendorf-cloud/workflows`'
+  `reusable-renovate-config.yaml` instead of a local Task target. The shared workflow pins
+  Renovate itself, independent of this repository's `mise.toml`. No local equivalent exists
+  to run outside CI.
 
 ## Changing the baseline
 
