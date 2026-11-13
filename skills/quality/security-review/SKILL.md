@@ -53,6 +53,9 @@ Find security problems in a change and report them where the change lives.
 - Never weaken a check to make a finding disappear.
 - No speculative findings. A finding without a code location is a question, not a finding.
 - In CI, post only through the review API. No labels, no pushes.
+- Public repository, finding not fixed yet in the branch, working tree or pull request: no
+  exploit detail in a `gh pr comment`. Report it to the user directly, the same way step 7
+  already handles a branch or working tree. The baseline's Plans and issues rule requires this.
 - Setting `labels.needsHuman` uses the snippet in `skills/README.md`: exactly one `ai:`
   state label remains afterwards.
 

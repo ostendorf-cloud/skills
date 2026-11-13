@@ -53,6 +53,8 @@ Open a pull request a reviewer can judge without reading the whole diff first.
   on the own branch, only before the merge.
 - The target commit is not clear, or the fix changes something of its own: a new commit instead.
   Never fold a fix into the last commit or an arbitrary one.
+- An unfixed security vulnerability in a public repository gets no exploit detail in a pull
+  request description: see the baseline's Plans and issues rule.
 
 ## Config
 

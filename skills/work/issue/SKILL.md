@@ -12,8 +12,9 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - Opening a new issue in any repository.
 - Updating an existing issue's body, labels or milestone.
 - Issue exists but is too thin to implement: use `refine-issue` instead.
-- A security vulnerability in a public repository with no fix merged yet: skip this skill,
-  follow the baseline's disclosure rule instead.
+- A security vulnerability in a public repository with no fix merged yet: skip this skill, open
+  a draft security advisory, or go straight to a branch and pull request instead. See the
+  baseline's Plans and issues rule.
 
 ## Steps
 
