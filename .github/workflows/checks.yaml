@@ -37,7 +37,7 @@ jobs:
         find . \( -name "*.py" -o -name "*.sh" \) -not -path "./.worktrees/*" -not -path "./.claude/*"
 
   renovate-config:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@v0.2.1
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@52cffb7b98063f12833bf09ca1b0ab20293a483c # v0.2.1
 
   markdownlint:
     runs-on: ubuntu-latest
