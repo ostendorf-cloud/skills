@@ -35,9 +35,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 3. Read the issue body, the `## Plan` section, the pull request diff, and every review thread
    already on the pull request through `gh api graphql` (`reviewThreads`, with `isResolved` and
    each comment's body). A rework round starts from these, not from memory of the first pass.
-4. Read the pull request's own CI result for the current head commit, for example `gh pr
-   checks`, before trusting any `## Verification` section in the body or a comment. A
-   verification claim that names no commit is unverified, not true, whatever it claims passed.
+4. Read the pull request's own CI result for the current head, `gh pr checks`, before trusting
+   any `## Verification` section. One that names no commit is unverified, not true.
 5. Run the verify command from config `verify` against the pushed branch.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.
@@ -88,12 +87,10 @@ Judge one pushed pull request as a different agent than the one that built it.
 - A reviewer may write a throwaway probe to settle a claim it cannot settle by reading: a
   script in the session's scratch directory, or a temporary test file in the worktree. Both
   forms are deleted in the same task, never left behind.
-- The probe is never committed, never staged, never pushed. The worktree is left exactly as it
-  was found.
+- The probe is a file of its own, never the code under review. It is never committed, never
+  staged, never pushed, and the worktree is left exactly as it was found.
 - A claim settled only by reading, and not by running something, is named unverified in the
   verdict, with what it rests on instead, whether or not running it was ever attempted.
-- The probe never touches the code under review. It is a separate file, not a carve out in
-  the rule above.
 - Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
   remains after the move.
 - The supervising session picks the model before it spawns this review: `models.reviewBoundary`
