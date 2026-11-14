@@ -48,6 +48,10 @@ Write a chart that renders correctly for every documented combination of values.
    - `helm lint`. It cannot see a render-time `fail`: that call is logged, not propagated, and
      the exit code stays zero. A lint pass proves nothing about a guard built on it.
    - `helm template` for the default values and for every documented non default combination.
+   - a values override documented as changing a default map is asserted to replace it: the new
+     key present and the default key absent. Helm merges maps key by key, so an assertion on the
+     new key alone passes while the default silently survives, which widens or narrows the
+     result without changing the test.
    - for every render-time guard, a must-fail set: the combinations it must reject. Render them
      with `helm template` and assert the failure, not merely the render. Removing the guard must
      turn this check red on its own.
