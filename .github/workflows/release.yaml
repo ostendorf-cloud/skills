@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     # The label list is release-me.yaml's defaults, spelled out: the condition cannot read the
     # configuration.
     if: >-
