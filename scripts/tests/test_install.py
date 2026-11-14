@@ -563,10 +563,12 @@ class InstallTestCase(unittest.TestCase):
 
     def test_install_from_a_worktree_of_the_same_repository_installs_its_skills(self) -> None:
         git_init(self.source)
-        self._install()
+        run(["install", "--home", str(self.home), "--source", str(self.source), "--link"])
         worktree = add_worktree(self.source, "feature")
 
-        code, output = run(["install", "--home", str(self.home), "--source", str(worktree)])
+        code, output = run(
+            ["install", "--home", str(self.home), "--source", str(worktree), "--link"]
+        )
 
         self.assertEqual(code, 0, output)
         self.assertNotIn("conflict", output)
