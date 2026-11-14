@@ -6,6 +6,8 @@
 import contextlib
 import io
 import json
+import py_compile
+import shutil
 import subprocess
 import unittest
 from pathlib import Path
@@ -128,22 +130,47 @@ class InstallTestCase(unittest.TestCase):
     def _install(self, *extra: str) -> tuple:
         return run(["install", "--home", str(self.home), "--source", str(self.source), *extra])
 
-    def test_install_links_skill_into_home_skills_dir(self) -> None:
+    def test_default_install_copies_skill_directory(self) -> None:
         code, _ = self._install()
-        self.assertEqual(code, 0)
-        target = self.home / ".claude" / "skills" / "test-skill"
-        self.assertTrue(target.is_symlink())
-        expected = (self.source / "skills" / "testcat" / "test-skill").resolve()
-        self.assertEqual(target.resolve(), expected)
-
-    def test_copy_mode_copies_skill_directory(self) -> None:
-        code, _ = self._install("--copy")
         self.assertEqual(code, 0)
         target = self.home / ".claude" / "skills" / "test-skill"
         self.assertTrue(target.is_dir())
         self.assertFalse(target.is_symlink())
         self.assertTrue((target / "SKILL.md").is_file())
         self.assertTrue((target / install.MARKER_NAME).is_file())
+
+    def test_link_mode_links_skill_into_home_skills_dir(self) -> None:
+        code, _ = self._install("--link")
+        self.assertEqual(code, 0)
+        target = self.home / ".claude" / "skills" / "test-skill"
+        self.assertTrue(target.is_symlink())
+        expected = (self.source / "skills" / "testcat" / "test-skill").resolve()
+        self.assertEqual(target.resolve(), expected)
+
+    def test_upgrade_from_a_linked_installation_replaces_the_symlink_with_a_copy(self) -> None:
+        self._install("--link")
+        target = self.home / ".claude" / "skills" / "test-skill"
+        self.assertTrue(target.is_symlink())
+
+        code, output = self._install()
+        self.assertEqual(code, 0)
+        self.assertIn("test-skill updated", output)
+        self.assertFalse(target.is_symlink())
+        self.assertTrue(target.is_dir())
+        self.assertTrue((target / install.MARKER_NAME).is_file())
+        source_skill = self.source / "skills" / "testcat" / "test-skill" / "SKILL.md"
+        self.assertEqual((target / "SKILL.md").read_text(), source_skill.read_text())
+
+        state = json.loads((self.home / ".config" / "agent-skills" / "state.json").read_text())
+        self.assertEqual(state["mode"], "copy")
+
+    def test_fresh_install_copies_hooks_into_their_own_install_directory(self) -> None:
+        code, _ = self._install()
+        self.assertEqual(code, 0)
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        self.assertTrue(hooks_dir.is_dir())
+        self.assertTrue((hooks_dir / "test_hook.py").is_file())
+        self.assertTrue((hooks_dir / install.MARKER_NAME).is_file())
 
     def test_install_writes_rules_file_and_agents_export(self) -> None:
         self._install()
@@ -172,7 +199,9 @@ class InstallTestCase(unittest.TestCase):
         self.assertEqual(block["matcher"], "Bash")
         command = block["hooks"][0]["command"]
         self.assertIn("python3", command)
-        self.assertIn(str(self.source / "hooks" / "test_hook.py"), command)
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        self.assertIn(str(hooks_dir / "test_hook.py"), command)
+        self.assertNotIn(str(self.source), command)
 
     def test_install_keeps_foreign_hook_blocks(self) -> None:
         settings_path = self.home / ".claude" / "settings.json"
@@ -233,7 +262,7 @@ class InstallTestCase(unittest.TestCase):
     def test_install_writes_state_file(self) -> None:
         self._install()
         state = json.loads((self.home / ".config" / "agent-skills" / "state.json").read_text())
-        self.assertEqual(state["mode"], "link")
+        self.assertEqual(state["mode"], "copy")
         self.assertEqual(state["profile"], "laptop")
         self.assertIn("test-skill", state["skills"])
 
@@ -261,14 +290,12 @@ class InstallTestCase(unittest.TestCase):
         self.assertIn("rules   drift", output)
 
     def test_status_reports_copy_drift_when_skill_content_changes(self) -> None:
-        self._install("--copy")
+        self._install()
         write(
             self.source / "skills" / "testcat" / "test-skill" / "SKILL.md",
             "---\nname: test-skill\ndescription: changed\n---\nNew body.\n",
         )
-        code, output = run(
-            ["status", "--copy", "--home", str(self.home), "--source", str(self.source)]
-        )
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
         self.assertEqual(code, 1)
         self.assertIn("test-skill updated", output)
 
@@ -295,6 +322,19 @@ class InstallTestCase(unittest.TestCase):
         settings = json.loads(settings_path.read_text())
         self.assertNotIn("PreToolUse", settings.get("hooks", {}))
 
+    def test_uninstall_removes_the_copied_skill_and_hooks_directories(self) -> None:
+        self._install()
+        skill_target = self.home / ".claude" / "skills" / "test-skill"
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        self.assertTrue(skill_target.is_dir())
+        self.assertTrue(hooks_dir.is_dir())
+
+        code, output = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertIn("hooks   removed", output)
+        self.assertFalse(skill_target.exists())
+        self.assertFalse(hooks_dir.exists())
+
     def test_doctor_reports_missing_hook_script(self) -> None:
         self._install()
         (self.source / "hooks" / "test_hook.py").unlink()
@@ -307,6 +347,28 @@ class InstallTestCase(unittest.TestCase):
         self._install()
         code, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
         self.assertEqual(code, 0, output)
+        self.assertIn("ok  settings.json contains the hook commands", output)
+
+    def test_installation_keeps_working_after_the_source_checkout_is_removed(self) -> None:
+        self._install()
+        skill_target = self.home / ".claude" / "skills" / "test-skill"
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        hook_script = hooks_dir / "test_hook.py"
+
+        shutil.rmtree(self.source)
+
+        self.assertTrue(skill_target.is_dir())
+        self.assertIn("a test skill", (skill_target / "SKILL.md").read_text())
+        self.assertTrue(hook_script.is_file())
+        py_compile.compile(str(hook_script), doraise=True)
+
+        settings = json.loads((self.home / ".claude" / "settings.json").read_text())
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        self.assertIn(str(hook_script), command)
+
+        code, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 1)
+        self.assertIn(f"fail  recorded source exists ({self.source.resolve()})", output)
         self.assertIn("ok  settings.json contains the hook commands", output)
 
     def test_status_exits_zero_right_after_install(self) -> None:
@@ -371,7 +433,7 @@ class InstallTestCase(unittest.TestCase):
         target.parent.mkdir(parents=True, exist_ok=True)
         target.symlink_to(legacy_dir, target_is_directory=True)
 
-        code, output = self._install()
+        code, output = self._install("--link")
         self.assertEqual(code, 0)
         self.assertIn("test-skill replaced legacy link", output)
         expected = (self.source / "skills" / "testcat" / "test-skill").resolve()

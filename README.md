@@ -27,10 +27,14 @@ task setup
 task install
 ```
 
-`task install` links the skills into `~/.claude/skills`, writes `rules/baseline.md` as
-`~/.claude/CLAUDE.md`, merges `settings/claude.json` and the hooks into `~/.claude/settings.json`,
-and keeps a backup of every file it replaces. Personal values go into
-`~/.config/agent-skills/local.json`, see `settings/local.example.json`.
+`task install` copies the skills into `~/.claude/skills` and the hooks into
+`~/.claude/.agent-skills-hooks`, writes `rules/baseline.md` as `~/.claude/CLAUDE.md`, merges
+`settings/claude.json` into `~/.claude/settings.json` with the hooks pointing at the installed
+copies, and keeps a backup of every file it replaces. The installation keeps working once this
+checkout moves, is removed, or sits on another branch; `task install` picks up a change made
+here only on the next run. Personal values go into `~/.config/agent-skills/local.json`, see
+`settings/local.example.json`. `--link` symlinks the skills into this checkout instead, for a
+live view while editing them.
 
 A second, independent installation, for example a work profile at `~/.claude-work`, runs
 `python3 scripts/install.py install --claude-dir ~/.claude-work --target work` directly. The

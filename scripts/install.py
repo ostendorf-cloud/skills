@@ -25,7 +25,15 @@ BACKUP_SUFFIX = ".before-agent-skills"
 # Stands in for the directory an install writes into, wherever the shipped settings name it.
 CLAUDE_DIR_PLACEHOLDER = "{{claude_dir}}"
 MARKER_NAME = ".agent-skills-checksum"
-OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/")
+# Subdirectory of claude_dir that holds the installed copy of the hook scripts. Named
+# independently of claude_dir itself, so the marker below recognises an installed
+# command regardless of what a target calls its claude_dir.
+OWN_HOOKS_DIRNAME = ".agent-skills-hooks"
+# Substrings that mark a settings hook command as ours. The first two are the paths an
+# older installer wrote straight into a source checkout; they stay here so an upgrade
+# still recognises, and replaces, a block an earlier version installed. The last one is
+# the installed hooks copy this version writes.
+OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/", f"/{OWN_HOOKS_DIRNAME}/")
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 LEGACY_SKILL_MARKER = "/ai-setup/skills/"
 
@@ -367,6 +375,54 @@ def install_rules(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, s
     return "overwritten", backed_up
 
 
+def hooks_source_files(source: Path) -> list[Path]:
+    """Every file to copy into the installed hooks directory: every top level .py file
+    under hooks/, flat. Covers each hook script and the shared _common module they
+    import, and leaves hooks/hooks.json and hooks/tests/ out, neither of which the
+    installed copy needs at run time."""
+    hooks_root = source / "hooks"
+    if not hooks_root.is_dir():
+        return []
+    return sorted(p for p in hooks_root.iterdir() if p.is_file() and p.suffix == ".py")
+
+
+def hooks_hash(files: list[Path]) -> str:
+    digest = hashlib.sha256()
+    for file in files:
+        digest.update(file.name.encode())
+        digest.update(file.read_bytes())
+    return digest.hexdigest()
+
+
+def install_hooks_dir(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, Path]:
+    """Copy the hook scripts into claude_dir/OWN_HOOKS_DIRNAME. Returns (action, dir).
+
+    Reuses the tree hash marker idea install_skill already writes for a copied skill:
+    a marker file records a hash of what was copied, so an unchanged source is a no-op
+    and a changed one replaces the whole directory rather than merging into it.
+    """
+    files = hooks_source_files(source)
+    target_dir = claude_dir / OWN_HOOKS_DIRNAME
+    if not files:
+        return "unchanged", target_dir
+
+    marker = target_dir / MARKER_NAME
+    digest = hooks_hash(files)
+    existed = target_dir.is_dir()
+    current = marker.read_text().strip() if marker.is_file() else None
+    if existed and current == digest:
+        return "unchanged", target_dir
+
+    if not dry_run:
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for file in files:
+            shutil.copy2(file, target_dir / file.name)
+        marker.write_text(digest + "\n")
+    return ("updated" if existed else "created"), target_dir
+
+
 def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
     content = normalize_text((source / "rules" / "baseline.md").read_text())
     dest = target_file(home, target, "AGENTS.md")
@@ -432,8 +488,15 @@ def load_hook_manifest(source: Path) -> list[dict[str, Any]]:
     return read_json(path).get("hooks", [])
 
 
-def build_hook_blocks(hooks: list[dict[str, Any]], source: Path) -> dict[str, list[dict[str, Any]]]:
-    """Build the Claude Code settings hook blocks, grouped by event and matcher."""
+def build_hook_blocks(
+    hooks: list[dict[str, Any]], hooks_dir: Path
+) -> dict[str, list[dict[str, Any]]]:
+    """Build the Claude Code settings hook blocks, grouped by event and matcher.
+
+    hooks_dir is the directory the installed copy's scripts live in, not the source
+    checkout: the settings reference the copy, so it keeps working once the checkout
+    that installed it is gone.
+    """
     order: list[tuple[str, str]] = []
     handlers: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for hook in hooks:
@@ -441,7 +504,7 @@ def build_hook_blocks(hooks: list[dict[str, Any]], source: Path) -> dict[str, li
         if key not in handlers:
             handlers[key] = []
             order.append(key)
-        script = (source / "hooks" / hook["script"]).resolve()
+        script = (hooks_dir / hook["script"]).resolve()
         handler: dict[str, Any] = {"type": "command", "command": f'python3 "{script}"'}
         if hook.get("timeout"):
             handler["timeout"] = hook["timeout"]
@@ -536,7 +599,7 @@ def install_settings(
     )
 
     hooks = load_hook_manifest(source)
-    hook_blocks = build_hook_blocks(hooks, source)
+    hook_blocks = build_hook_blocks(hooks, claude_dir / OWN_HOOKS_DIRNAME)
     composed = compose_settings(profile_settings, hook_blocks)
 
     dest = claude_dir / "settings.json"
@@ -621,7 +684,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     if refusal:
         return [f"error   {refusal}"], 1
 
-    mode = "copy" if args.copy else "link"
+    mode = "link" if args.link else "copy"
     skills = discover_skills(args.source)
     skills_dir = args.claude_dir / "skills"
     if not args.dry_run:
@@ -640,6 +703,9 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     keep = {s.name for s in skills}
     for name, status in prune_skills(skills_dir, keep, args.source, args.dry_run):
         lines.append(f"skill   {name} {status}")
+
+    hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, args.dry_run)
+    lines.append(f"hooks   {hooks_action}")
 
     rules_action, rules_backup = install_rules(args.source, args.claude_dir, args.dry_run)
     lines.append(f"rules   {rules_action}")
@@ -679,7 +745,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         return [f"error   {mismatch}"], 1
 
     drift = False
-    mode = "copy" if args.copy else "link"
+    mode = "link" if args.link else "copy"
     skills = discover_skills(args.source)
     skills_dir = args.claude_dir / "skills"
 
@@ -690,6 +756,13 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         else:
             lines.append(f"skill   {skill.name} {status}")
             drift = True
+
+    hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, dry_run=True)
+    if hooks_action == "unchanged":
+        lines.append("hooks   in sync")
+    else:
+        lines.append(f"hooks   drift ({hooks_action})")
+        drift = True
 
     rules_action, _ = install_rules(args.source, args.claude_dir, dry_run=True)
     if rules_action == "unchanged":
@@ -748,7 +821,7 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
             settings_ok = False
             settings_data = {}
         if settings_ok and hooks:
-            hook_blocks = build_hook_blocks(hooks, args.source)
+            hook_blocks = build_hook_blocks(hooks, args.claude_dir / OWN_HOOKS_DIRNAME)
             installed_commands = {
                 handler.get("command")
                 for blocks in settings_data.get("hooks", {}).values()
@@ -772,6 +845,15 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
 
     mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
     check(mismatch is None, mismatch or "state records the claude-dir in use")
+
+    state = read_state(args.home, args.target)
+    if state is not None:
+        recorded_source = state.get("source")
+        if recorded_source:
+            check(
+                Path(recorded_source).is_dir(),
+                f"recorded source exists ({recorded_source})",
+            )
 
     overlay_path = target_file(args.home, args.target, "local.json")
     overlay_ok = True
@@ -817,6 +899,12 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
                 else:
                     shutil.rmtree(target)
             lines.append(f"skill   {name} removed")
+
+    hooks_dir = claude_dir / OWN_HOOKS_DIRNAME
+    if hooks_dir.is_dir() and (hooks_dir / MARKER_NAME).is_file():
+        lines.append("hooks   removed")
+        if not args.dry_run:
+            shutil.rmtree(hooks_dir)
 
     claude_md = claude_dir / "CLAUDE.md"
     claude_backup = Path(str(claude_md) + BACKUP_SUFFIX)
@@ -892,7 +980,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claude-dir", type=Path, default=None)
     parser.add_argument("--target", type=str, default="")
     parser.add_argument("--source", type=Path, default=None)
-    parser.add_argument("--copy", action="store_true")
+    parser.add_argument(
+        "--link",
+        action="store_true",
+        help="Symlink skills into the source checkout instead of copying them. Hooks are "
+        "always copied.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser
 
