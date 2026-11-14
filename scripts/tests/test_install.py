@@ -213,6 +213,24 @@ class InstallTestCase(unittest.TestCase):
         self.assertTrue(hooks_dir.is_symlink())
         self.assertEqual(hooks_dir.resolve(), elsewhere.resolve())
 
+    def test_install_refuses_settings_and_state_writes_when_hooks_conflict(self) -> None:
+        # A conflicted hooks directory holds none of this run's scripts. Writing
+        # settings.json with commands into it, or a state file claiming a clean
+        # install, would leave the installation inconsistent rather than just
+        # loudly incomplete.
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        write(hooks_dir / "foreign.txt", "not ours\n")
+        settings_path = self.home / ".claude" / "settings.json"
+        state_path = self.home / ".config" / "agent-skills" / "state.json"
+
+        code, output = self._install()
+        self.assertEqual(code, 1)
+        self.assertIn("hooks   conflict", output)
+        self.assertIn("settings skipped, hooks conflict", output)
+        self.assertIn("state   skipped, hooks conflict", output)
+        self.assertFalse(settings_path.exists())
+        self.assertFalse(state_path.exists())
+
     def test_install_writes_rules_file_and_agents_export(self) -> None:
         self._install()
         claude_md = self.home / ".claude" / "CLAUDE.md"
@@ -337,6 +355,56 @@ class InstallTestCase(unittest.TestCase):
             self.assertNotIn(str(old_source), command)
             self.assertIn(install_dir, command)
 
+    def test_install_strips_hook_commands_from_every_previous_source_not_only_the_last(
+        self,
+    ) -> None:
+        # Reproduces a real machine: a pre-PR install from one checkout, a second
+        # pre-PR install from a differently named checkout, then this installer.
+        # Only the second source is ever recorded in state.json, so ownership must
+        # not rely on that recorded source alone, or the first generation's commands
+        # stay invisible forever.
+        clone_source = Path(self.tmp.name) / "clone"
+        cloneb_source = Path(self.tmp.name) / "cloneb"
+        clone_command = f'python3 "{(clone_source / "hooks" / "test_hook.py").resolve()}"'
+        cloneb_command = f'python3 "{(cloneb_source / "hooks" / "test_hook.py").resolve()}"'
+
+        write(
+            self.home / ".config" / "agent-skills" / "state.json",
+            json.dumps({"source": str(cloneb_source)}),
+        )
+        write(
+            self.home / ".claude" / "settings.json",
+            json.dumps(
+                {
+                    "hooks": {
+                        "PreToolUse": [
+                            {
+                                "matcher": "Bash",
+                                "hooks": [
+                                    {"type": "command", "command": clone_command},
+                                    {"type": "command", "command": cloneb_command},
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+        )
+
+        code, _ = self._install()
+        self.assertEqual(code, 0)
+
+        settings = json.loads((self.home / ".claude" / "settings.json").read_text())
+        commands = [
+            handler["command"]
+            for blocks in settings["hooks"].values()
+            for block in blocks
+            for handler in block["hooks"]
+        ]
+        self.assertEqual(len(commands), 1)
+        self.assertNotIn(clone_command, commands)
+        self.assertNotIn(cloneb_command, commands)
+
     def test_install_reports_conflict_for_foreign_skill_directory(self) -> None:
         foreign = self.home / ".claude" / "skills" / "test-skill"
         write(foreign / "README.md", "not ours\n")
@@ -446,6 +514,51 @@ class InstallTestCase(unittest.TestCase):
         code, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
         self.assertEqual(code, 1, output)
         self.assertIn("fail  hook script test_hook.py compiles in the installed copy", output)
+        commands_line = next(
+            line
+            for line in output.splitlines()
+            if "settings.json contains the hook commands" in line
+        )
+        self.assertTrue(commands_line.startswith("fail"))
+        self.assertIn("broken", commands_line)
+
+    def test_doctor_detects_a_broken_command_when_claude_dir_is_a_symlink(self) -> None:
+        # A symlinked claude_dir is a common dotfiles layout. Resolving the hooks
+        # path while building the command, but not while checking it, used to spell
+        # the same directory two ways and make this check inert for exactly this
+        # layout: the copy could be deleted and doctor would still read as clean.
+        real_dir = self.home / "claude-real"
+        claude_dir = self.home / "claude-link"
+        real_dir.mkdir(parents=True)
+        claude_dir.symlink_to(real_dir, target_is_directory=True)
+
+        code, _ = run(
+            [
+                "install",
+                "--home",
+                str(self.home),
+                "--source",
+                str(self.source),
+                "--claude-dir",
+                str(claude_dir),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+        shutil.rmtree(real_dir / install.OWN_HOOKS_DIRNAME)
+
+        code, output = run(
+            [
+                "doctor",
+                "--home",
+                str(self.home),
+                "--source",
+                str(self.source),
+                "--claude-dir",
+                str(claude_dir),
+            ]
+        )
+        self.assertEqual(code, 1, output)
         commands_line = next(
             line
             for line in output.splitlines()
@@ -576,6 +689,46 @@ class InstallTestCase(unittest.TestCase):
         target = self.home / ".claude" / "skills" / "test-skill"
         expected = (worktree / "skills" / "testcat" / "test-skill").resolve()
         self.assertEqual(target.resolve(), expected)
+
+    def test_install_from_another_worktree_in_copy_mode_replaces_the_link_with_a_copy(
+        self,
+    ) -> None:
+        # The upgrade every existing user actually hits: an old, linked install from
+        # one worktree, then a plain "task install", copy mode, run from another
+        # worktree or the checkout itself after a pull request merges.
+        git_init(self.source)
+        run(["install", "--home", str(self.home), "--source", str(self.source), "--link"])
+        worktree = add_worktree(self.source, "feature")
+
+        code, output = run(["install", "--home", str(self.home), "--source", str(worktree)])
+
+        self.assertEqual(code, 0, output)
+        self.assertIn("test-skill replaced worktree link", output)
+        target = self.home / ".claude" / "skills" / "test-skill"
+        self.assertFalse(target.is_symlink())
+        self.assertTrue(target.is_dir())
+        self.assertTrue((target / install.MARKER_NAME).is_file())
+        expected = (worktree / "skills" / "testcat" / "test-skill" / "SKILL.md").read_text()
+        self.assertEqual((target / "SKILL.md").read_text(), expected)
+
+    def test_prune_removes_a_worktree_linked_skill_no_longer_in_the_source(self) -> None:
+        git_init(self.source)
+        run(["install", "--home", str(self.home), "--source", str(self.source), "--link"])
+        worktree = add_worktree(self.source, "feature")
+        # Removed from the worktree's own working tree, not from the checkout the
+        # installed link still points at: the next install, run from the worktree,
+        # must prune that link rather than try to replace it.
+        shutil.rmtree(worktree / "skills" / "testcat" / "test-skill")
+
+        code, output = run(
+            ["install", "--home", str(self.home), "--source", str(worktree), "--link"]
+        )
+
+        self.assertEqual(code, 0, output)
+        self.assertIn("test-skill removed", output)
+        target = self.home / ".claude" / "skills" / "test-skill"
+        self.assertFalse(target.exists())
+        self.assertFalse(target.is_symlink())
 
     def test_install_reports_conflict_for_a_symlink_into_an_unrelated_checkout(self) -> None:
         git_init(self.source)

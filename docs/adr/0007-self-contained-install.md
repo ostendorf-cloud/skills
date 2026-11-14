@@ -14,7 +14,11 @@ Date: 2026-11-14
 ## Decision
 
 - Skills are copied into `claude_dir/skills` by default, reusing `install_skill`'s existing
-  copy path and its `.agent-skills-checksum` tree hash marker.
+  copy path and its `.agent-skills-checksum` tree hash marker. `settings/claude.json` denies
+  `Edit({{claude_dir}}/skills/**)` the way it already denies the installed hooks copy: while
+  skills were symlinks, an edit through the installed path landed in the checkout, which
+  `AGENTS.md` sanctions; against a copy that same edit is forbidden, and the next install
+  would silently discard it besides.
 - Hooks are copied into `claude_dir/.agent-skills-hooks`, one flat directory holding every
   top level `.py` file under `hooks/`, including the shared `_common` module. The settings
   hook commands point into that directory, not the checkout.
@@ -22,20 +26,37 @@ Date: 2026-11-14
   wants a live view without a reinstall per change. It costs nothing in `inspect_target`'s
   classification, which already tells a symlink from a copy regardless of which one a run
   asks for. Hooks have no such flag: they are always copied, since the whole point of this
-  change is a settings file that still works once the checkout is gone. A plain `status` or
-  `install` that passes no mode flag reads the mode the last install recorded instead of
-  assuming `copy`, so a `status` right after `install --link` does not read 49 links as
-  drift just because the installer's own default changed.
+  change is a settings file that still works once the checkout is gone. `install` keeps
+  defaulting to `copy` on every run regardless of what was recorded, since that default is
+  exactly what turns an existing link into a copy on a plain `task install`, the upgrade path
+  the next bullet relies on. `status`, which only reports and never installs anything, reads
+  the mode the last install recorded instead of assuming `copy`, so a `status` right after
+  `install --link` does not read every linked skill as drift just because the installer's own
+  default changed.
 - `OWN_HOOK_MARKERS` gains a third fragment, `/.agent-skills-hooks/`, naming the installed
   copy, and the two existing fragments stay for a state file an older installer wrote. Naming
   alone cannot carry the rest: an install run from `.claude/worktrees/<branch>`, this
   repository's own mandated workflow, names neither "skills" nor "ai-setup", so the fragments
-  never matched its commands in the first place. The state file's recorded `source`, read
-  before this run overwrites it, is the real signal: a command is also ours when it names one
-  of the current manifest's scripts and sits under that previous source, whatever it was
-  named. The two signals combine on every hook block this installer may need to replace or
-  strip: on an upgrade, in `strip_own_hooks` restoring a backup, and in `strip_own_hooks` on a
-  plain uninstall.
+  never matched its commands in the first place. The real signal is the manifest script's own
+  basename: every command this installer has ever written has the shape
+  `python3 "<dir>/<script>"`, so matching that basename alone, in whatever directory it sits,
+  recognises a command from any previous source, a machine that installed from several
+  differently named checkouts over time included, not only the one the state file's recorded
+  `source` last named. That recorded `source`, read before this run overwrites it, stays as a
+  second signal: a command sitting under it is also ours even when its script is no longer in
+  the current manifest, which the basename test alone would miss. Both signals apply to every
+  hook block this installer may need to replace or strip: on an upgrade, in `strip_own_hooks`
+  restoring a backup, and in `strip_own_hooks` on a plain uninstall.
+- `build_hook_blocks` joins `claude_dir` and `OWN_HOOKS_DIRNAME` without resolving the result,
+  and every other place that names the installed hooks directory, `doctor`'s broken-command
+  check and `install_hooks_dir` included, spells it the same unresolved way. Resolving would
+  follow a symlinked hooks directory, or a symlinked `claude_dir`, a common dotfiles layout,
+  to wherever it actually points: the settings would then reference a path outside the install
+  directory that no marker and no broken-command check recognises as this installer's own.
+  A hooks conflict stops `install` before `settings.json` or the state file are written at
+  all, for the same reason: a command built against a directory `install_hooks_dir` refused to
+  populate points nowhere, and writing it, or a state file claiming a clean install, would
+  make the installation inconsistent rather than loudly incomplete.
 - An upgrade from a linked skill to a copy needs no new case: `sync_skill` already replaces
   an `owned_link` entry whenever the requested mode is not `link`, so a plain `task install`
   after this change turns every existing link into a copy in one pass.

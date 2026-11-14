@@ -544,6 +544,14 @@ def build_hook_blocks(
     hooks_dir is the directory the installed copy's scripts live in, not the source
     checkout: the settings reference the copy, so it keeps working once the checkout
     that installed it is gone.
+
+    Joins the path without resolving it, deliberately: resolving would follow a
+    symlinked hooks directory, or a symlinked claude_dir, to wherever it actually
+    points, spelling the command differently from every other place that names this
+    same directory by joining claude_dir and OWN_HOOKS_DIRNAME without resolving
+    either. One path spelled two ways is what let a command wired through a
+    symlinked target end up pointing outside the install directory, unrecognised by
+    doctor's broken-command check and by block_is_own alike.
     """
     order: list[tuple[str, str]] = []
     handlers: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -552,7 +560,7 @@ def build_hook_blocks(
         if key not in handlers:
             handlers[key] = []
             order.append(key)
-        script = (hooks_dir / hook["script"]).resolve()
+        script = hooks_dir / hook["script"]
         handler: dict[str, Any] = {"type": "command", "command": f'python3 "{script}"'}
         if hook.get("timeout"):
             handler["timeout"] = hook["timeout"]
@@ -608,14 +616,20 @@ def block_is_own(
 ) -> bool:
     """A hook block this installer wrote.
 
-    Recognised either by an OWN_HOOK_MARKERS path fragment (the installed copy, or a
-    checkout path an older installer used literally, the checkout itself named
-    "ai-setup" or "skills"), or, when old_source and script_names are given, by a
-    command that both names one of this manifest's scripts and sits under old_source.
-    The second test recognises an older installation's commands regardless of what
-    its checkout happened to be named: a worktree at .claude/worktrees/<branch>, say,
-    which the directory-name markers alone miss, since nothing in that path reads
-    "skills" or "ai-setup".
+    Recognised by any of:
+    - an OWN_HOOK_MARKERS path fragment (the installed copy, or a checkout path an
+      older installer used literally, the checkout itself named "ai-setup" or
+      "skills").
+    - a command naming one of this manifest's own scripts by basename, in whatever
+      directory it sits. Every command this installer has ever written has exactly
+      the shape python3 "<dir>/<script>", so the basename alone recognises a command
+      from any previous source, not only the one old_source names: a machine that
+      installed from several differently named checkouts over time, one per pull
+      request worktree say, leaves every one of those generations findable at once
+      rather than only the last.
+    - as a second signal, a command that sits under old_source regardless of
+      basename: catches a hook the current manifest no longer lists, which the
+      basename test alone would miss.
     """
     resolved_source: Path | None = None
     if old_source is not None:
@@ -627,10 +641,12 @@ def block_is_own(
         command = handler.get("command", "")
         if any(marker in command for marker in OWN_HOOK_MARKERS):
             return True
-        if resolved_source is None:
-            continue
         script_path = extract_script_path(command)
-        if script_path is None or script_path.name not in script_names:
+        if script_path is None:
+            continue
+        if script_path.name in script_names:
+            return True
+        if resolved_source is None:
             continue
         try:
             script_path.resolve().relative_to(resolved_source)
@@ -851,25 +867,34 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     export_agents(args.source, args.home, args.target, args.dry_run)
     lines.append("agents  exported")
 
-    settings_action, settings_backup, keys, hook_count = install_settings(
-        args.source, args.claude_dir, args.home, args.target, args.profile, args.dry_run
-    )
-    lines.append(f"settings {settings_action} keys={keys} hooks={hook_count}")
-    if settings_backup:
-        lines.append(f"settings previous file kept at {settings_backup}")
+    # A conflicted hooks directory holds none of this run's scripts, so the commands
+    # install_settings would build point nowhere. Writing them, and the state file
+    # that would claim this run installed cleanly, would leave the installation
+    # inconsistent instead of just loudly incomplete: refuse both and let the next
+    # clean install write them once the conflict is resolved.
+    if hooks_action == "conflict":
+        lines.append("settings skipped, hooks conflict")
+        lines.append("state   skipped, hooks conflict")
+    else:
+        settings_action, settings_backup, keys, hook_count = install_settings(
+            args.source, args.claude_dir, args.home, args.target, args.profile, args.dry_run
+        )
+        lines.append(f"settings {settings_action} keys={keys} hooks={hook_count}")
+        if settings_backup:
+            lines.append(f"settings previous file kept at {settings_backup}")
 
-    write_state(
-        args.home,
-        args.target,
-        args.claude_dir,
-        args.source,
-        args.profile,
-        mode,
-        installed_names,
-        collect_backups(args.claude_dir),
-        args.dry_run,
-    )
-    lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
+        write_state(
+            args.home,
+            args.target,
+            args.claude_dir,
+            args.source,
+            args.profile,
+            mode,
+            installed_names,
+            collect_backups(args.claude_dir),
+            args.dry_run,
+        )
+        lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
 
     return lines, 1 if conflicts else 0
 
