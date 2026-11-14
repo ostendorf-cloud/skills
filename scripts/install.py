@@ -620,16 +620,24 @@ def block_is_own(
     - an OWN_HOOK_MARKERS path fragment (the installed copy, or a checkout path an
       older installer used literally, the checkout itself named "ai-setup" or
       "skills").
-    - a command naming one of this manifest's own scripts by basename, in whatever
-      directory it sits. Every command this installer has ever written has exactly
-      the shape python3 "<dir>/<script>", so the basename alone recognises a command
-      from any previous source, not only the one old_source names: a machine that
-      installed from several differently named checkouts over time, one per pull
-      request worktree say, leaves every one of those generations findable at once
-      rather than only the last.
+    - a command naming one of this manifest's own scripts by basename, when the
+      script also sits directly inside a directory named "hooks" or OWN_HOOKS_DIRNAME.
+      Every command this installer has ever written has exactly the shape
+      python3 "<dir>/<script>" with that one of those two names, so the basename
+      alone recognises a command from any previous source, not only the one
+      old_source names: a machine that installed from several differently named
+      checkouts over time, one per pull request worktree say, leaves every one of
+      those generations findable at once rather than only the last. The directory
+      name gate keeps this from matching a foreign hook that merely happens to share
+      one of these distinctive names elsewhere on disk, say a personal
+      ~/tools/commit_message.py: that collision is unrecoverable, since install
+      would strip it on sight and uninstall would strip it from a settings file no
+      fresh backup then cushions.
     - as a second signal, a command that sits under old_source regardless of
-      basename: catches a hook the current manifest no longer lists, which the
-      basename test alone would miss.
+      basename or directory name: catches a hook the current manifest no longer
+      lists, which the basename test alone would miss. This one is already narrow,
+      since it requires the exact previously recorded source, so it needs no
+      further gate.
     """
     resolved_source: Path | None = None
     if old_source is not None:
@@ -644,7 +652,10 @@ def block_is_own(
         script_path = extract_script_path(command)
         if script_path is None:
             continue
-        if script_path.name in script_names:
+        if script_path.name in script_names and script_path.parent.name in (
+            "hooks",
+            OWN_HOOKS_DIRNAME,
+        ):
             return True
         if resolved_source is None:
             continue
@@ -1230,7 +1241,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     args.home = (args.home or Path(os.environ.get("HOME", str(Path.home())))).expanduser()
-    args.claude_dir = (args.claude_dir or (args.home / ".claude")).expanduser()
+    # abspath, not resolve: lexical, so it makes a relative --claude-dir absolute and
+    # collapses a ".." segment without following a symlink in the path, the way
+    # build_hook_blocks also spells this same directory. Without this, a relative
+    # --claude-dir reaches the wired commands and the deny rule verbatim, correct only
+    # for a session whose working directory happens to still be the one it was typed
+    # in, while the state file records the fully resolved path regardless, so the two
+    # disagree.
+    args.claude_dir = Path(
+        os.path.abspath((args.claude_dir or (args.home / ".claude")).expanduser())
+    )
     default_source = Path(__file__).resolve().parent.parent
     args.source = (args.source or default_source).expanduser().resolve()
 

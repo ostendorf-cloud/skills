@@ -6,6 +6,7 @@
 import contextlib
 import io
 import json
+import os
 import py_compile
 import shutil
 import subprocess
@@ -372,6 +373,11 @@ class InstallTestCase(unittest.TestCase):
             self.home / ".config" / "agent-skills" / "state.json",
             json.dumps({"source": str(cloneb_source)}),
         )
+        # Separate blocks, different matchers: ownership is decided per block, so a
+        # shared block would let cloneb's command, which the recorded source alone
+        # already recognises, strip clone's command for free alongside it. Only two
+        # blocks each holding one command isolates whether clone's own, unrecorded
+        # command is found by the basename match alone.
         write(
             self.home / ".claude" / "settings.json",
             json.dumps(
@@ -380,11 +386,12 @@ class InstallTestCase(unittest.TestCase):
                         "PreToolUse": [
                             {
                                 "matcher": "Bash",
-                                "hooks": [
-                                    {"type": "command", "command": clone_command},
-                                    {"type": "command", "command": cloneb_command},
-                                ],
-                            }
+                                "hooks": [{"type": "command", "command": clone_command}],
+                            },
+                            {
+                                "matcher": "Read",
+                                "hooks": [{"type": "command", "command": cloneb_command}],
+                            },
                         ]
                     }
                 }
@@ -404,6 +411,40 @@ class InstallTestCase(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertNotIn(clone_command, commands)
         self.assertNotIn(cloneb_command, commands)
+
+    def test_a_foreign_command_naming_a_manifest_basename_outside_hooks_survives(self) -> None:
+        # Several of the manifest's own script names are exactly what an unrelated
+        # hook could be called. The basename match alone would strip this on
+        # install and again on uninstall, with no backup to recover it from the
+        # second time: the directory name gate is what keeps it foreign.
+        foreign_script = Path(self.tmp.name) / "tools" / "test_hook.py"
+        foreign_command = f'python3 "{foreign_script.resolve()}"'
+        settings_path = self.home / ".claude" / "settings.json"
+        write(
+            settings_path,
+            json.dumps(
+                {
+                    "hooks": {
+                        "Notification": [
+                            {"hooks": [{"type": "command", "command": foreign_command}]}
+                        ]
+                    }
+                }
+            ),
+        )
+
+        code, _ = self._install()
+        self.assertEqual(code, 0)
+        settings = json.loads(settings_path.read_text())
+        self.assertEqual(
+            settings["hooks"]["Notification"][0]["hooks"][0]["command"], foreign_command
+        )
+
+        run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        settings = json.loads(settings_path.read_text())
+        self.assertEqual(
+            settings["hooks"]["Notification"][0]["hooks"][0]["command"], foreign_command
+        )
 
     def test_install_reports_conflict_for_foreign_skill_directory(self) -> None:
         foreign = self.home / ".claude" / "skills" / "test-skill"
@@ -1058,6 +1099,55 @@ class InstallTestCase(unittest.TestCase):
         self.assertNotIn("Edit(~/.claude/settings.json)", deny)
         self.assertNotIn("Edit(~/.claude/CLAUDE.md)", deny)
         self.assertFalse(any(install.CLAUDE_DIR_PLACEHOLDER in entry for entry in deny))
+
+    def test_relative_claude_dir_is_made_absolute_in_command_and_deny_rule(self) -> None:
+        # A relative --claude-dir used to reach the wired command and the deny rule
+        # verbatim, correct only for a session whose working directory happened to
+        # still be the one it was typed in.
+        outside_home = Path(self.tmp.name) / "elsewhere"
+        outside_home.mkdir(parents=True)
+        original_cwd = os.getcwd()
+        os.chdir(outside_home)
+        self.addCleanup(os.chdir, original_cwd)
+        # getcwd, not outside_home itself: macOS reports the realpath once chdir
+        # resolves a symlinked /tmp, and the expected value must be computed the
+        # same way os.path.abspath will see it, or the two disagree for a reason
+        # that has nothing to do with the behaviour under test.
+        cwd = Path(os.getcwd())
+
+        code, _ = self._install("--claude-dir", "cdir")
+        self.assertEqual(code, 0)
+
+        target_dir = cwd / "cdir"
+        self.assertTrue(target_dir.is_absolute())
+        settings = json.loads((target_dir / "settings.json").read_text())
+
+        hooks_dir = target_dir / install.OWN_HOOKS_DIRNAME
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        self.assertIn(str(hooks_dir), command)
+        self.assertTrue(Path(hooks_dir).is_absolute())
+
+        deny = settings["permissions"]["deny"]
+        self.assertIn(f"Edit({target_dir}/settings.json)", deny)
+
+    def test_claude_dir_with_a_dotdot_segment_is_normalised(self) -> None:
+        nested = self.home / "nested"
+        nested.mkdir(parents=True)
+        claude_dir_arg = str(nested / ".." / "claude-dotdot")
+        target_dir = self.home / "claude-dotdot"
+
+        code, _ = self._install("--claude-dir", claude_dir_arg)
+        self.assertEqual(code, 0)
+
+        settings = json.loads((target_dir / "settings.json").read_text())
+        hooks_dir = target_dir / install.OWN_HOOKS_DIRNAME
+        command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        self.assertIn(str(hooks_dir), command)
+        self.assertNotIn("..", command)
+
+        deny = settings["permissions"]["deny"]
+        self.assertIn("Edit(~/claude-dotdot/settings.json)", deny)
+        self.assertNotIn("..", "".join(deny))
 
     def test_default_install_keeps_the_home_relative_protection_paths(self) -> None:
         self._install()
