@@ -272,7 +272,15 @@ def check_hooks_manifest(root: Path) -> list[str]:
         ids[hook_id] = ids.get(hook_id, 0) + 1
 
         script = entry.get("script", "")
-        if not (hooks_dir / script).is_file():
+        # The installer copies every hook script into the installed copy with a flat
+        # listing of hooks/, so a script named with a path separator would exist on
+        # disk and still never be installed.
+        if len(Path(script).parts) != 1:
+            findings.append(
+                f"hooks/hooks.json: {hook_id}: script '{script}' is not a top level "
+                "file directly under hooks/"
+            )
+        elif not (hooks_dir / script).is_file():
             findings.append(f"hooks/hooks.json: {hook_id}: script '{script}' does not exist")
 
         stem = script[:-3] if script.endswith(".py") else script

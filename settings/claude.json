@@ -176,6 +176,8 @@
       "Read(~/.zshenv)",
       "Edit({{claude_dir}}/settings.json)",
       "Edit({{claude_dir}}/CLAUDE.md)",
+      "Edit({{claude_dir}}/skills/**)",
+      "Edit({{claude_dir}}/.agent-skills-hooks/**)",
       "Edit(~/.config/agent-skills/**)"
     ]
   },
