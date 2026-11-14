@@ -153,6 +153,22 @@ def read_state(home: Path, target: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def resolve_mode(home: Path, target: str, link_flag: bool) -> str:
+    """The skill install mode for a run that did not pass --link explicitly.
+
+    --link always wins. Otherwise fall back to the mode the last install recorded, and
+    only default to "copy" when nothing is recorded yet. Without this, a plain status
+    right after "install --link" would compare against "copy" and report every linked
+    skill as drift, since copy, not link, is this installer's own default now.
+    """
+    if link_flag:
+        return "link"
+    state = read_state(home, target)
+    if state and state.get("mode") == "link":
+        return "link"
+    return "copy"
+
+
 def installed_targets(home: Path) -> list[tuple[str, dict[str, Any]]]:
     """Every target that has a state file in this home, as (target name, state) pairs."""
     config_dir = home / ".config" / "agent-skills"
@@ -268,6 +284,25 @@ def inspect_target(target: Path, source: Path) -> str:
     return "conflict"
 
 
+def inspect_hooks_dir(target_dir: Path) -> str:
+    """Classify claude_dir/OWN_HOOKS_DIRNAME before install_hooks_dir touches it:
+    missing, owned (carries the checksum marker this installer writes), or conflict (a
+    symlink, a file, or a plain directory with no marker). Mirrors inspect_target's
+    conflict case for a skill, so a target this installer did not write is refused
+    rather than deleted, and a symlink is never handed to shutil.rmtree, which raises
+    on one.
+    """
+    if target_dir.is_symlink():
+        return "conflict"
+    if not target_dir.exists():
+        return "missing"
+    if not target_dir.is_dir():
+        return "conflict"
+    if (target_dir / MARKER_NAME).is_file():
+        return "owned"
+    return "conflict"
+
+
 def install_skill(skill: Skill, target: Path, mode: str) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if mode == "link":
@@ -379,7 +414,12 @@ def hooks_source_files(source: Path) -> list[Path]:
     """Every file to copy into the installed hooks directory: every top level .py file
     under hooks/, flat. Covers each hook script and the shared _common module they
     import, and leaves hooks/hooks.json and hooks/tests/ out, neither of which the
-    installed copy needs at run time."""
+    installed copy needs at run time.
+
+    Copies whatever it finds here, flat. A hooks.json entry naming a script that is
+    not directly a top level file under hooks/ is a repository invariant, checked by
+    scripts/validate.py, not by this installer at run time.
+    """
     hooks_root = source / "hooks"
     if not hooks_root.is_dir():
         return []
@@ -395,32 +435,40 @@ def hooks_hash(files: list[Path]) -> str:
 
 
 def install_hooks_dir(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, Path]:
-    """Copy the hook scripts into claude_dir/OWN_HOOKS_DIRNAME. Returns (action, dir).
+    """Copy the hook scripts into claude_dir/OWN_HOOKS_DIRNAME. Returns (action, dir),
+    action one of "unchanged", "created", "updated" or "conflict".
 
     Reuses the tree hash marker idea install_skill already writes for a copied skill:
     a marker file records a hash of what was copied, so an unchanged source is a no-op
     and a changed one replaces the whole directory rather than merging into it.
+    Refuses, rather than deletes, a target it did not write itself: inspect_hooks_dir
+    classifies a symlink, a file, or an unmarked directory as a conflict before this
+    ever reaches shutil.rmtree.
     """
     files = hooks_source_files(source)
     target_dir = claude_dir / OWN_HOOKS_DIRNAME
     if not files:
         return "unchanged", target_dir
 
+    state = inspect_hooks_dir(target_dir)
+    if state == "conflict":
+        return "conflict", target_dir
+
     marker = target_dir / MARKER_NAME
     digest = hooks_hash(files)
-    existed = target_dir.is_dir()
-    current = marker.read_text().strip() if marker.is_file() else None
-    if existed and current == digest:
-        return "unchanged", target_dir
+    if state == "owned":
+        current = marker.read_text().strip() if marker.is_file() else None
+        if current == digest:
+            return "unchanged", target_dir
 
     if not dry_run:
-        if target_dir.exists():
+        if state == "owned":
             shutil.rmtree(target_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         for file in files:
             shutil.copy2(file, target_dir / file.name)
         marker.write_text(digest + "\n")
-    return ("updated" if existed else "created"), target_dir
+    return ("updated" if state == "owned" else "created"), target_dir
 
 
 def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
@@ -531,22 +579,83 @@ def compose_settings(
     return composed
 
 
-def block_is_own(block: dict[str, Any]) -> bool:
+def extract_script_path(command: str) -> Path | None:
+    """The quoted script path out of a 'python3 "<path>"' hook command, or None when
+    the command carries no quoted path, such as a foreign command."""
+    match = re.search(r'"([^"]*)"', command)
+    return Path(match.group(1)) if match else None
+
+
+def script_compiles(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        py_compile.compile(str(path), doraise=True)
+        return True
+    except py_compile.PyCompileError:
+        return False
+
+
+def _wired_script_exists(command: str) -> bool:
+    script_path = extract_script_path(command)
+    return script_path is not None and script_path.is_file()
+
+
+def block_is_own(
+    block: dict[str, Any],
+    old_source: Path | None = None,
+    script_names: frozenset[str] = frozenset(),
+) -> bool:
+    """A hook block this installer wrote.
+
+    Recognised either by an OWN_HOOK_MARKERS path fragment (the installed copy, or a
+    checkout path an older installer used literally, the checkout itself named
+    "ai-setup" or "skills"), or, when old_source and script_names are given, by a
+    command that both names one of this manifest's scripts and sits under old_source.
+    The second test recognises an older installation's commands regardless of what
+    its checkout happened to be named: a worktree at .claude/worktrees/<branch>, say,
+    which the directory-name markers alone miss, since nothing in that path reads
+    "skills" or "ai-setup".
+    """
+    resolved_source: Path | None = None
+    if old_source is not None:
+        try:
+            resolved_source = old_source.resolve()
+        except OSError:
+            resolved_source = old_source
     for handler in block.get("hooks", []):
         command = handler.get("command", "")
         if any(marker in command for marker in OWN_HOOK_MARKERS):
             return True
+        if resolved_source is None:
+            continue
+        script_path = extract_script_path(command)
+        if script_path is None or script_path.name not in script_names:
+            continue
+        try:
+            script_path.resolve().relative_to(resolved_source)
+            return True
+        except ValueError:
+            continue
     return False
 
 
-def strip_own_hooks(data: dict[str, Any]) -> bool:
+def strip_own_hooks(
+    data: dict[str, Any],
+    old_source: Path | None = None,
+    script_names: frozenset[str] = frozenset(),
+) -> bool:
     """Removes own hook blocks from data's "hooks" object in place. Returns whether
     anything was removed, so the caller can tell a genuine change from a no-op."""
     hooks_obj = data.get("hooks")
     changed = False
     if isinstance(hooks_obj, dict):
         for event in list(hooks_obj.keys()):
-            kept = [block for block in hooks_obj[event] if not block_is_own(block)]
+            kept = [
+                block
+                for block in hooks_obj[event]
+                if not block_is_own(block, old_source, script_names)
+            ]
             if len(kept) != len(hooks_obj[event]):
                 changed = True
             if kept:
@@ -558,7 +667,12 @@ def strip_own_hooks(data: dict[str, Any]) -> bool:
     return changed
 
 
-def merge_hooks(existing_hooks: dict[str, Any], composed_hooks: dict[str, Any]) -> dict[str, Any]:
+def merge_hooks(
+    existing_hooks: dict[str, Any],
+    composed_hooks: dict[str, Any],
+    old_source: Path | None = None,
+    script_names: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     """Merges composed_hooks into existing_hooks, keeping foreign blocks.
 
     Emits events in the existing file's order, then any event only composed_hooks has,
@@ -570,16 +684,27 @@ def merge_hooks(existing_hooks: dict[str, Any], composed_hooks: dict[str, Any]) 
 
     result: dict[str, Any] = {}
     for event in order:
-        kept = [block for block in existing_hooks.get(event, []) if not block_is_own(block)]
+        kept = [
+            block
+            for block in existing_hooks.get(event, [])
+            if not block_is_own(block, old_source, script_names)
+        ]
         result[event] = kept + composed_hooks.get(event, [])
     return result
 
 
-def merge_into_existing(existing: dict[str, Any], composed: dict[str, Any]) -> dict[str, Any]:
+def merge_into_existing(
+    existing: dict[str, Any],
+    composed: dict[str, Any],
+    old_source: Path | None = None,
+    script_names: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
     merged = dict(existing)
     for key, value in composed.items():
         if key == "hooks":
-            merged["hooks"] = merge_hooks(existing.get("hooks", {}), value)
+            merged["hooks"] = merge_hooks(
+                existing.get("hooks", {}), value, old_source, script_names
+            )
         else:
             merged[key] = value
     return merged
@@ -602,6 +727,13 @@ def install_settings(
     hook_blocks = build_hook_blocks(hooks, claude_dir / OWN_HOOKS_DIRNAME)
     composed = compose_settings(profile_settings, hook_blocks)
 
+    # The source a previous install recorded, read before write_state overwrites it
+    # with this run's. Lets block_is_own recognise a hook command that previous
+    # install wrote straight into that checkout, regardless of what it was named.
+    old_state = read_state(home, target)
+    old_source = Path(old_state["source"]) if old_state and old_state.get("source") else None
+    script_names = frozenset(hook["script"] for hook in hooks)
+
     dest = claude_dir / "settings.json"
     backup = Path(str(dest) + BACKUP_SUFFIX)
 
@@ -617,14 +749,16 @@ def install_settings(
         existing = json.loads(existing_raw)
     except json.JSONDecodeError:
         existing = {}
-    merged = merge_into_existing(existing, composed)
+    merged = merge_into_existing(existing, composed, old_source, script_names)
     new_content = json.dumps(merged, indent=2) + "\n"
 
     if new_content == existing_raw:
         return "unchanged", None, len(composed), len(hooks)
 
     existing_has_own_hooks = any(
-        block_is_own(block) for blocks in existing.get("hooks", {}).values() for block in blocks
+        block_is_own(block, old_source, script_names)
+        for blocks in existing.get("hooks", {}).values()
+        for block in blocks
     )
 
     backed_up = None
@@ -706,6 +840,8 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
 
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, args.dry_run)
     lines.append(f"hooks   {hooks_action}")
+    if hooks_action == "conflict":
+        conflicts = True
 
     rules_action, rules_backup = install_rules(args.source, args.claude_dir, args.dry_run)
     lines.append(f"rules   {rules_action}")
@@ -745,7 +881,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         return [f"error   {mismatch}"], 1
 
     drift = False
-    mode = "link" if args.link else "copy"
+    mode = resolve_mode(args.home, args.target, args.link)
     skills = discover_skills(args.source)
     skills_dir = args.claude_dir / "skills"
 
@@ -760,6 +896,9 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, dry_run=True)
     if hooks_action == "unchanged":
         lines.append("hooks   in sync")
+    elif hooks_action == "conflict":
+        lines.append("hooks   conflict")
+        drift = True
     else:
         lines.append(f"hooks   drift ({hooks_action})")
         drift = True
@@ -798,21 +937,42 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
     for tool in ("git", "jq", "mise"):
         check(shutil.which(tool) is not None, f"{tool} on PATH")
 
+    installed_hooks_dir = args.claude_dir / OWN_HOOKS_DIRNAME
     hooks = load_hook_manifest(args.source)
     for hook in hooks:
-        script = args.source / "hooks" / hook["script"]
-        compiles = False
-        if script.is_file():
-            try:
-                py_compile.compile(str(script), doraise=True)
-                compiles = True
-            except py_compile.PyCompileError:
-                compiles = False
-        check(compiles, f"hook script {hook['script']} exists and compiles")
+        check(
+            script_compiles(args.source / "hooks" / hook["script"]),
+            f"hook script {hook['script']} compiles in the source checkout",
+        )
+
+    # What the installed copy should hold: the manifest's own script names when the
+    # source is there to name them, otherwise whatever the copy actually holds, so a
+    # gone source checkout never excuses this loop from running. Catches a hook that
+    # was wired once and then lost its installed script, the copy deleted, say,
+    # exactly the silent per tool call failure this installer exists to remove.
+    if hooks:
+        installed_script_names = sorted({hook["script"] for hook in hooks})
+    elif installed_hooks_dir.is_dir():
+        installed_script_names = sorted(
+            p.name for p in installed_hooks_dir.iterdir() if p.is_file() and p.suffix == ".py"
+        )
+    else:
+        installed_script_names = []
+    for name in installed_script_names:
+        check(
+            script_compiles(installed_hooks_dir / name),
+            f"hook script {name} compiles in the installed copy",
+        )
 
     settings_path = args.claude_dir / "settings.json"
     settings_ok = False
+    # Vacuously true when there is no manifest to check against, for example because
+    # the source checkout this installed from is gone. That alone must never say the
+    # settings are fine: the loop below still holds every wired command installed
+    # against the installed copy on disk, manifest or not.
     commands_present = not hooks
+    missing: list[str] = []
+    broken: list[str] = []
     if settings_path.is_file():
         try:
             settings_data = json.loads(settings_path.read_text())
@@ -820,28 +980,50 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
         except json.JSONDecodeError:
             settings_ok = False
             settings_data = {}
-        if settings_ok and hooks:
-            hook_blocks = build_hook_blocks(hooks, args.claude_dir / OWN_HOOKS_DIRNAME)
-            installed_commands = {
+        if settings_ok:
+            wired_commands = {
                 handler.get("command")
                 for blocks in settings_data.get("hooks", {}).values()
                 for block in blocks
                 for handler in block.get("hooks", [])
             }
-            commands_present = all(
-                handler["command"] in installed_commands
-                for blocks in hook_blocks.values()
-                for block in blocks
-                for handler in block["hooks"]
+            if hooks:
+                hook_blocks = build_hook_blocks(hooks, installed_hooks_dir)
+                expected_commands = {
+                    handler["command"]
+                    for blocks in hook_blocks.values()
+                    for block in blocks
+                    for handler in block["hooks"]
+                }
+                missing = sorted(expected_commands - wired_commands)
+            # Every wired command that already points into the installed hooks copy
+            # must resolve to a real file, independent of the manifest: a hook that
+            # was wired once and then lost its script, the copy deleted, say, is
+            # exactly the silent per tool call failure this installer exists to
+            # catch, and the source being gone must never hide it.
+            hooks_dir_str = str(installed_hooks_dir)
+            broken = sorted(
+                command
+                for command in wired_commands
+                if command and hooks_dir_str in command and not _wired_script_exists(command)
             )
+            commands_present = not missing and not broken
     check(settings_ok, "settings.json is valid JSON")
-    check(commands_present, "settings.json contains the hook commands")
+    check(
+        commands_present,
+        "settings.json contains the hook commands"
+        + (f" (missing: {', '.join(missing)})" if missing else "")
+        + (f" (broken: {', '.join(broken)})" if broken else ""),
+    )
 
     skills_dir = args.claude_dir / "skills"
-    broken = []
+    broken_skills = []
     if skills_dir.is_dir():
-        broken = [e.name for e in skills_dir.iterdir() if e.is_symlink() and not e.exists()]
-    check(not broken, "no broken skill symlinks" + (f" ({', '.join(broken)})" if broken else ""))
+        broken_skills = [e.name for e in skills_dir.iterdir() if e.is_symlink() and not e.exists()]
+    check(
+        not broken_skills,
+        "no broken skill symlinks" + (f" ({', '.join(broken_skills)})" if broken_skills else ""),
+    )
 
     mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
     check(mismatch is None, mismatch or "state records the claude-dir in use")
@@ -883,6 +1065,11 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
 
     state_path = target_file(home, args.target, "state.json")
     state = read_state(home, args.target)
+    # Lets strip_own_hooks recognise a hook command an older install wrote straight
+    # into its checkout, the same signal install_settings uses on an upgrade, so
+    # uninstall strips those too instead of leaving them wired.
+    recorded_source = Path(state["source"]) if state and state.get("source") else None
+    hook_script_names = frozenset(hook["script"] for hook in load_hook_manifest(args.source))
 
     skills_dir = claude_dir / "skills"
     if state:
@@ -901,10 +1088,13 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
             lines.append(f"skill   {name} removed")
 
     hooks_dir = claude_dir / OWN_HOOKS_DIRNAME
-    if hooks_dir.is_dir() and (hooks_dir / MARKER_NAME).is_file():
+    hooks_dir_state = inspect_hooks_dir(hooks_dir)
+    if hooks_dir_state == "owned":
         lines.append("hooks   removed")
         if not args.dry_run:
             shutil.rmtree(hooks_dir)
+    elif hooks_dir_state == "conflict":
+        lines.append("hooks   left untouched, not ours")
 
     claude_md = claude_dir / "CLAUDE.md"
     claude_backup = Path(str(claude_md) + BACKUP_SUFFIX)
@@ -929,7 +1119,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
             backup_data = None
         lines.append("settings restored from backup")
         if isinstance(backup_data, dict):
-            strip_own_hooks(backup_data)
+            strip_own_hooks(backup_data, recorded_source, hook_script_names)
             if not args.dry_run:
                 settings_path.write_text(json.dumps(backup_data, indent=2) + "\n")
                 settings_backup.unlink()
@@ -940,7 +1130,7 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
             data = json.loads(settings_path.read_text())
         except json.JSONDecodeError:
             data = {}
-        changed = strip_own_hooks(data)
+        changed = strip_own_hooks(data, recorded_source, hook_script_names)
         if changed:
             lines.append("settings hooks removed, rest kept")
             if not args.dry_run:

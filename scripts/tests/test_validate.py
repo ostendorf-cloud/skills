@@ -174,6 +174,31 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("script 'ghost.py' does not exist", output)
 
+    def test_detects_hook_script_not_directly_under_hooks(self) -> None:
+        write(self.root / "hooks" / "sub" / "nested.py", "# a hook\n")
+        write(
+            self.root / "hooks" / "hooks.json",
+            json.dumps(
+                {
+                    "version": 1,
+                    "hooks": [
+                        {
+                            "id": "nested-hook",
+                            "script": "sub/nested.py",
+                            "event": "PreToolUse",
+                            "matcher": "",
+                            "decision": "deny",
+                        }
+                    ],
+                }
+            ),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "script 'sub/nested.py' is not a top level file directly under hooks/", output
+        )
+
     def test_detects_unknown_hook_event_and_decision(self) -> None:
         write(self.root / "hooks" / "odd_hook.py", "# a hook\n")
         write(self.root / "hooks" / "tests" / "test_odd_hook.py", "# a test\n")

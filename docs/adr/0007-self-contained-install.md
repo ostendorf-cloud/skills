@@ -22,18 +22,35 @@ Date: 2026-11-14
   wants a live view without a reinstall per change. It costs nothing in `inspect_target`'s
   classification, which already tells a symlink from a copy regardless of which one a run
   asks for. Hooks have no such flag: they are always copied, since the whole point of this
-  change is a settings file that still works once the checkout is gone.
+  change is a settings file that still works once the checkout is gone. A plain `status` or
+  `install` that passes no mode flag reads the mode the last install recorded instead of
+  assuming `copy`, so a `status` right after `install --link` does not read 49 links as
+  drift just because the installer's own default changed.
 - `OWN_HOOK_MARKERS` gains a third fragment, `/.agent-skills-hooks/`, naming the installed
-  copy. The two existing fragments, pointing into a checkout, stay so an older installation's
-  hook blocks are still recognised as ours and get replaced on upgrade rather than kept
-  as a foreign block or orphaned.
+  copy, and the two existing fragments stay for a state file an older installer wrote. Naming
+  alone cannot carry the rest: an install run from `.claude/worktrees/<branch>`, this
+  repository's own mandated workflow, names neither "skills" nor "ai-setup", so the fragments
+  never matched its commands in the first place. The state file's recorded `source`, read
+  before this run overwrites it, is the real signal: a command is also ours when it names one
+  of the current manifest's scripts and sits under that previous source, whatever it was
+  named. The two signals combine on every hook block this installer may need to replace or
+  strip: on an upgrade, in `strip_own_hooks` restoring a backup, and in `strip_own_hooks` on a
+  plain uninstall.
 - An upgrade from a linked skill to a copy needs no new case: `sync_skill` already replaces
   an `owned_link` entry whenever the requested mode is not `link`, so a plain `task install`
   after this change turns every existing link into a copy in one pass.
+- `install_hooks_dir` never deletes a target it did not write. `inspect_hooks_dir` classifies
+  `claude_dir/.agent-skills-hooks` the way `inspect_target` already classifies a skill entry:
+  a symlink, a plain file, or a directory with no checksum marker is a conflict, reported and
+  left alone, never handed to `shutil.rmtree`.
 - `task doctor` reads the installation's state file and reports when the recorded source
   checkout no longer exists, instead of only failing the hook-compiles check that reads from
-  it. The settings and hook checks read the installed copy, so they keep passing once the
-  source is gone, which is the point of the change.
+  it. It also compiles every hook script from the installed copy, not only from the source,
+  and checks that every hook command already wired into `settings.json` still resolves to a
+  real file on disk. Both keep that meaning when the source is gone and its manifest is
+  empty: compiling the installed copy falls back to whatever the copy itself holds, and the
+  wired-command check reads `settings.json`, never the manifest, so neither check goes
+  trivially green just because there is nothing left to compare against.
 - `hooks/stale_skills.py` needs no change. It already compares the commit recorded at
   install time against the checkout's current `HEAD`, and already says nothing when the
   checkout is not there. That comparison was already about the parts that were already
