@@ -62,6 +62,7 @@ npx skills add ostendorf-cloud/skills -g
 - `CLAUDE_CODE_SUBAGENT_MODEL` is `sonnet`. A model passed to a single subagent still wins.
 - Raise the model for one session with `/model`, the effort with `/effort`.
 - The CI profile sets no model or effort and keeps the workflow's own choice.
+- No `language` is set: answers follow the user's language, repository content stays English.
 
 ## Use
 

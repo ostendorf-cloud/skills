@@ -6,7 +6,6 @@
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
   },
   "fileCheckpointingEnabled": true,
-  "language": "english",
   "attribution": {
     "commit": "",
     "pr": "",
