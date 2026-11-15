@@ -56,11 +56,11 @@ Judge one pushed pull request as a different agent than the one that built it.
    422), `body` naming the commit CI was green on, and `comments`: one entry per finding,
    `{path, line, side: "RIGHT", body: "<Blocker|Should|Nit>: <problem and fix>"}`. This formal
    review is the verdict; post no separate comment.
-10. The pull request's author is this review's own identity, or the token in step 9 is absent:
-    GitHub refuses the review call. Post the verdict with `gh pr comment` instead: first line
-    `Verdict: <verdict>`, naming the commit CI was green on, then findings grouped `Blocker`,
-    `Should`, `Nit`, each naming the file, the line and a concrete fix. Name the fallback in the
-    report.
+10. Config `review.token` is unset, or the pull request's author is this review's own identity:
+    GitHub refuses the review call. The comment path is the normal route for a single account
+    setup, not a failure. Post the verdict with `gh pr comment`: first line `Verdict: <verdict>`,
+    naming the commit CI was green on, then findings grouped `Blocker`, `Should`, `Nit`, each
+    naming the file, the line and a concrete fix. Name the route in the report.
 11. A finding's line falls outside every diff hunk in either path: anchor the inline comment at
     the nearest changed line in the same file and name the real location in its body, or, with
     no changed line in that file at all, put the finding in the top level review or comment body.
