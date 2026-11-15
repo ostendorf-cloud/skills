@@ -34,13 +34,19 @@ MAX_PARTS = 64
 WRITE_REDIRECT = re.compile(r"(?<![0-9<>])(>{1,2})\s*(?P<target>[^\s;&|()]+)")
 ALLOWED_TARGETS = re.compile(
     r"^(/dev/(null|stdout|stderr|tty)\b"
-    r"|\$\{?(TMPDIR|GITHUB_OUTPUT|GITHUB_ENV|GITHUB_STEP_SUMMARY)\}?"
-    r"|/tmp(/|$)"
-    r"|/private/tmp(/|$))"
+    r"|\$\{?(GITHUB_OUTPUT|GITHUB_ENV|GITHUB_STEP_SUMMARY)\}?$)"
 )
+# Directories a redirect or tee may write into besides $TMPDIR, the session scratch
+# scope. The path is resolved first, so `$TMPDIR/../repo/x` and `/tmp/../repo/x` are
+# judged by where they land.
+FIXED_SCRATCH_ROOTS = ("/tmp", "/private/tmp")
 
 INLINE_LIMIT = 200
 
+SCOPE_NOTE = (
+    "This applies inside a repository and to any path outside the session scratch "
+    "directory and $TMPDIR."
+)
 USE_FILE_TOOLS = "Use the Write or Edit tool instead, it shows the exact content or diff."
 SCRIPT_FILE = (
     "If this logic will run again, put it in a script file: repository specific under "
@@ -455,15 +461,44 @@ def inline_writes_file(interpreter: str, code: str) -> bool:
     return False
 
 
-def is_allowed_target(target: str) -> bool:
-    """Whether a redirect or tee target is one of the allowed scratch destinations."""
+def is_scratch_path(target: str, directory: Optional[str], tainted: bool = False) -> bool:
+    """Whether target, read against directory when relative, lands inside $TMPDIR, /tmp or
+    /private/tmp once resolved. A target that holds a variable, a substitution or a glob,
+    or is relative while directory is unknown, is not scratch. When tainted, the command
+    can move $TMPDIR or link a path, so $TMPDIR is no scratch root for it."""
+    resolved = _common.resolve_dir(target, directory)
+    if resolved is None:
+        return False
+    roots = [os.path.realpath(root) for root in FIXED_SCRATCH_ROOTS]
+    if not tainted:
+        roots = [*_common.scratch_roots(), *roots]
+    return any(os.path.commonpath([root, resolved]) == root for root in roots)
+
+
+def is_allowed_target(target: str, directory: Optional[str] = None, tainted: bool = False) -> bool:
+    """Whether a redirect or tee target is one of the allowed scratch destinations.
+
+    directory is where the command runs, used to read a relative target. It is the
+    session scratch directory or a fixture below it when a relative target is allowed.
+    """
     stripped = target.strip("'\"")
     if stripped in ("&1", "&2"):
         return True
-    return bool(ALLOWED_TARGETS.match(stripped))
+    if ALLOWED_TARGETS.match(stripped):
+        return True
+    return is_scratch_path(stripped, directory, tainted)
 
 
-def offending_redirect(command: str) -> Optional[str]:
+def command_directory(command: str, cwd: Optional[str]) -> Optional[str]:
+    """The one directory every part of command runs in, None when a `cd` or anything
+    else moves it part way through or it is unknown."""
+    directories = {directory for _, directory in _common.part_dirs(command, cwd)}
+    return directories.pop() if len(directories) == 1 else None
+
+
+def offending_redirect(
+    command: str, directory: Optional[str] = None, tainted: bool = False
+) -> Optional[str]:
     """The first write-redirect target in command that is not an allowed destination.
 
     The operator itself is matched against a quote-masked copy of command, so a `>`
@@ -475,7 +510,7 @@ def offending_redirect(command: str) -> Optional[str]:
     for match in WRITE_REDIRECT.finditer(_common.mask_quoted(command)):
         start, end = match.span("target")
         target = command[start:end]
-        if not is_allowed_target(target):
+        if not is_allowed_target(target, directory, tainted):
             return target.strip("'\"")
     return None
 
@@ -519,21 +554,28 @@ def main() -> int:
             f"through the shell. {USE_FILE_TOOLS}",
         )
 
+    directory = command_directory(command, payload.get("cwd") or os.getcwd())
+    tainted = _common.scope_tainted(command)
+
     for part in stripped_parts:
         target = tee_target(part)
-        if target and not is_allowed_target(target):
-            return _common.deny(EVENT, f"tee writes {target} through the shell. {USE_FILE_TOOLS}")
+        if target and not is_allowed_target(target, directory, tainted):
+            return _common.deny(
+                EVENT, f"tee writes {target} through the shell. {SCOPE_NOTE} {USE_FILE_TOOLS}"
+            )
 
-    redirect = offending_redirect(command)
+    redirect = offending_redirect(command, directory, tainted)
     if redirect:
         if HEREDOC.search(_common.mask_quoted(command)):
             return _common.deny(
                 EVENT,
                 f"This writes {redirect} from a heredoc, which is file authoring "
-                f"through the shell. {USE_FILE_TOOLS}",
+                f"through the shell. {SCOPE_NOTE} {USE_FILE_TOOLS}",
             )
         return _common.deny(
-            EVENT, f"This redirects output into {redirect} through the shell. {USE_FILE_TOOLS}"
+            EVENT,
+            f"This redirects output into {redirect} through the shell. "
+            f"{SCOPE_NOTE} {USE_FILE_TOOLS}",
         )
 
     for interpreter, code in inline_calls(command):

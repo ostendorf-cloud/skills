@@ -42,7 +42,8 @@ FILE_FLAG = re.compile(r"(?:^|\s)(?:-F|--file)(?:\s+|=)(\S+)")
 
 FORMAT_HINT = (
     "Use type(scope)!: subject, with type one of feat, fix, chore, docs, style, "
-    "refactor, perf, test, build, ci, revert, at most 72 characters."
+    "refactor, perf, test, build, ci, revert, at most 72 characters. This applies "
+    "inside a repository, not in a fixture under the session scratch directory."
 )
 
 
@@ -118,7 +119,8 @@ def message_violation(message: str) -> Optional[str]:
         return (
             "Commit message carries an attribution line, a generated-by marker or a link "
             "to Claude or Anthropic. The baseline forbids attribution lines, session links "
-            "or tool names in commits, pull requests and comments."
+            "or tool names in commits, pull requests and comments. This applies inside a "
+            "repository."
         )
 
     return None
@@ -131,15 +133,22 @@ def main() -> int:
 
     git_path: Optional[str] = None
     is_commit = False
-    for raw_part in _common.command_parts(command):
+    commit_dir: Optional[str] = None
+    for raw_part, directory in _common.part_dirs(command, cwd):
         part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
         if normalized.startswith("git commit") or normalized == "git commit":
             is_commit = True
             git_path = path
+            commit_dir = _common.git_part_dir(raw_part, directory, path)
             break
 
     if not is_commit:
+        return _common.emit_empty()
+
+    # A commit in a throwaway fixture repository under the session scratch directory or
+    # $TMPDIR is outside this check. A commit in a real repository is checked as before.
+    if _common.in_scratch(commit_dir):
         return _common.emit_empty()
 
     if "--amend" in command and not MESSAGE_SOURCE.search(command):

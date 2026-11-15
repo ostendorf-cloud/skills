@@ -152,8 +152,59 @@ def push_targets_default(tokens: list[str], cwd: Optional[str], default: str) ->
     return False
 
 
+SCP_LIKE_URL = re.compile(r"^[^/]*:")
+
+
+def remote_is_scratch_local(remote: str, directory: str) -> bool:
+    """Whether remote, as seen from the repository in directory, is a local path inside
+    the session scratch scope.
+
+    A configured remote name is read through `git remote get-url --push`, so a
+    `pushurl` and an `insteadOf` rewrite count. A network URL, an scp style address and
+    a transport helper never qualify. A relative path is read against the repository
+    root, and the path is resolved, so a symlink or `..` out of the scratch scope does
+    not qualify either.
+    """
+    url = _common.run_git(["remote", "get-url", "--push", remote], directory) or remote
+    if url.startswith("file://"):
+        url = url[len("file://") :]
+    elif "://" in url or SCP_LIKE_URL.match(url):
+        return False
+    base = _common.run_git(["rev-parse", "--show-toplevel"], directory) or directory
+    return _common.in_scratch(_common.resolve_dir(url, base))
+
+
+REMOTE_CONFIG_PREFIXES = ("remote.", "url.", "-cremote.", "-curl.", "git_config", "--config-env")
+
+
+def changes_remote_config(command: str) -> bool:
+    """Whether command, anywhere in it, can change where a push goes: a `git remote` or
+    `git config` call, a `-c remote.*` or `-c url.*` option, `--config-env`, a
+    `GIT_CONFIG*` variable or a mention of `.git/config`.
+
+    The scratch exemption reads the remote before the command runs, so a command that
+    rewrites it first would be judged on the old value. Such a command gets the
+    repository rule instead. A part that does not parse counts as changing it."""
+    for raw in _common.command_parts(command):
+        tokens = _common.shell_tokens(raw)
+        if not tokens and raw.strip():
+            return True
+        normalized, _ = _common.strip_global_git_options(_common.normalize_command_part(raw))
+        if normalized.startswith(("git remote", "git config")):
+            return True
+        if ".git/config" in raw:
+            return True
+        if any(token.lower().startswith(REMOTE_CONFIG_PREFIXES) for token in tokens):
+            return True
+    return False
+
+
 def push_violation(
-    part: str, cwd: Optional[str], default: str, remote_cache: RemoteCache
+    part: str,
+    cwd: Optional[str],
+    default: str,
+    remote_cache: RemoteCache,
+    scratch_dir: Optional[str] = None,
 ) -> Optional[str]:
     """The deny reason for a `git push` part, or None when it is fine."""
     if not GIT_PUSH.match(part):
@@ -183,6 +234,10 @@ def push_violation(
 
     if push_targets_default(tokens, cwd, default):
         remote = push_remote(tokens, cwd)
+        # A fixture repository under the session scratch scope pushing to a bare remote
+        # in that same scope is outside the rule. A remote anywhere else is not.
+        if scratch_dir and remote_is_scratch_local(remote, scratch_dir):
+            return None
         empty = remote_is_empty(remote, cwd, remote_cache)
         if empty is True:
             return None
@@ -191,7 +246,10 @@ def push_violation(
             if empty is False
             else "the first push exemption could not be checked"
         )
-        return f"This pushes to {default}, the default branch, and {detail}. {USE_FEATURE_BRANCH}"
+        return (
+            f"Inside a repository this pushes to {default}, the default branch, and "
+            f"{detail}. {USE_FEATURE_BRANCH}"
+        )
 
     return None
 
@@ -231,18 +289,25 @@ def main() -> int:
     cwd = payload.get("cwd") or os.getcwd()
     remote_cache: RemoteCache = {}
 
-    for raw_part in _common.command_parts(command):
+    rewrites_remote = changes_remote_config(command)
+    for raw_part, directory in _common.part_dirs(command, cwd):
         part = _common.normalize_command_part(raw_part)
         if part.split(" ", 1)[0] != "git":
             continue
 
         normalized, git_path = _common.strip_global_git_options(part)
         part_cwd = git_path or cwd
+        scope_dir = _common.git_part_dir(raw_part, directory, git_path)
+        scratch_dir = scope_dir if _common.in_scratch(scope_dir) else None
+        if scratch_dir and rewrites_remote:
+            scratch_dir = None
+        if scratch_dir:
+            part_cwd = scratch_dir
         default = _common.default_branch(part_cwd)
 
         reason = (
             bypass_violation(part)
-            or push_violation(normalized, part_cwd, default, remote_cache)
+            or push_violation(normalized, part_cwd, default, remote_cache, scratch_dir)
             or branch_delete_violation(normalized, default)
         )
         if reason:

@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 
-from helper import bash_payload, decision, reason, run_hook
+from helper import NO_SCRATCH, bash_payload, decision, reason, run_hook, scratch_env
 
 # How long the slow-remote fixture sleeps on ls-remote. Longer than git_guard's own
 # LS_REMOTE_TIMEOUT (5 seconds), so the hook's subprocess call times out first.
@@ -89,7 +89,7 @@ def slow_git_env() -> dict:
             f'exec "{real_git}" "$@"\n'
         )
     os.chmod(shim_path, 0o755)
-    env = dict(os.environ)
+    env = scratch_env(NO_SCRATCH)
     env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
     return env
 
@@ -112,7 +112,7 @@ def counting_git_env() -> tuple[dict, str]:
             f'exec "{real_git}" "$@"\n'
         )
     os.chmod(shim_path, 0o755)
-    env = dict(os.environ)
+    env = scratch_env(NO_SCRATCH)
     env["PATH"] = shim_dir + os.pathsep + env.get("PATH", "")
     return env, log_path
 
