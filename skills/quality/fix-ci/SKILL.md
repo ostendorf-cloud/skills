@@ -21,6 +21,14 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
 
 1. Identify the run: `gh run list` for the branch, then `gh run view <id> --log-failed`.
    Read the first error, not the last line of output.
+   Whether a commit's checks run, passed or failed is read from
+   `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, or `gh pr checks <number>` for a
+   pull request.
+   A runs listing filtered by branch can stay empty for minutes while checks run. Never read
+   it as absence of CI.
+   Call `gh` once per command, never inside a shell loop: several calls in a loop can fail
+   reading gh's own configuration, which looks like a permission problem.
+   Retry a transient dial error once.
 2. Classify the failure before touching anything: a real defect, an environment
    difference (tool version, missing dependency, platform, locale, timezone), a flake
    (timing, network, ordering, shared state), or infrastructure (rate limit, outage,
