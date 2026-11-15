@@ -36,6 +36,10 @@ OWN_HOOKS_DIRNAME = ".agent-skills-hooks"
 OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/", f"/{OWN_HOOKS_DIRNAME}/")
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 LEGACY_SKILL_MARKER = "/ai-setup/skills/"
+# File under skills/ that skills cite by its installed path, next to the skill directories.
+REFERENCE_NAME = "README.md"
+# Records that this installer wrote the file above. Without it a differing file is foreign.
+REFERENCE_MARKER_NAME = ".agent-skills-readme-checksum"
 # Top level settings earlier profiles wrote before the state file recorded them. An
 # install with no recorded footprint removes one only while it still holds this value.
 LEGACY_PROFILE_SETTINGS = {"language": "english"}
@@ -354,6 +358,41 @@ def sync_skill(skill: Skill, skills_dir: Path, source: Path, mode: str, dry_run:
         shutil.rmtree(target)
         install_skill(skill, target, mode)
     return "updated"
+
+
+def sync_reference(source: Path, skills_dir: Path, dry_run: bool) -> str:
+    """Install skills/README.md as skills_dir/README.md: the snippets skills cite by path.
+
+    It is a plain copy in both modes. A marker file next to it records that this installer
+    wrote it. A file without the marker that differs from the source is a conflict and is
+    left alone. Returns installed, updated, unchanged or conflict.
+    """
+    origin = source / "skills" / REFERENCE_NAME
+    target = skills_dir / REFERENCE_NAME
+    marker = skills_dir / REFERENCE_MARKER_NAME
+    if not origin.is_file():
+        return "unchanged"
+    if target.is_symlink() or target.is_dir():
+        return "conflict"
+    owned = marker.is_file()
+    if target.is_file():
+        same = target.read_bytes() == origin.read_bytes()
+        if same and owned:
+            return "unchanged"
+        if not same and not owned:
+            return "conflict"
+        status = "updated"
+    else:
+        status = "installed"
+    if not dry_run:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(origin, target)
+        marker.write_text(tree_hash_file(origin) + "\n")
+    return status
+
+
+def tree_hash_file(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def prune_skills(
@@ -916,6 +955,11 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     for name, status in prune_skills(skills_dir, keep, args.source, args.dry_run):
         lines.append(f"skill   {name} {status}")
 
+    reference_status = sync_reference(args.source, skills_dir, args.dry_run)
+    lines.append(f"skill   {REFERENCE_NAME} {reference_status}")
+    if reference_status == "conflict":
+        conflicts = True
+
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, args.dry_run)
     lines.append(f"hooks   {hooks_action}")
     if hooks_action == "conflict":
@@ -980,6 +1024,13 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         else:
             lines.append(f"skill   {skill.name} {status}")
             drift = True
+
+    reference_status = sync_reference(args.source, skills_dir, dry_run=True)
+    if reference_status == "unchanged":
+        lines.append(f"skill   {REFERENCE_NAME} in sync")
+    else:
+        lines.append(f"skill   {REFERENCE_NAME} {reference_status}")
+        drift = True
 
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, dry_run=True)
     if hooks_action == "unchanged":
@@ -1174,6 +1225,15 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
                 else:
                     shutil.rmtree(target)
             lines.append(f"skill   {name} removed")
+        reference = skills_dir / REFERENCE_NAME
+        reference_marker = skills_dir / REFERENCE_MARKER_NAME
+        if reference_marker.is_file():
+            if reference.is_file() and not reference.is_symlink():
+                if not args.dry_run:
+                    reference.unlink()
+                lines.append(f"skill   {REFERENCE_NAME} removed")
+            if not args.dry_run:
+                reference_marker.unlink()
 
     hooks_dir = claude_dir / OWN_HOOKS_DIRNAME
     hooks_dir_state = inspect_hooks_dir(hooks_dir)

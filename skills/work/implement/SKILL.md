@@ -53,8 +53,8 @@ Take one issue from label to a pushed, reviewable pull request.
 - Label flow: `ready`, `working`, `review requested`, `done`. Exits: `changes requested`,
   `needs human`, `blocked`. List the labels after a move to confirm the result.
 - Non trivial work has a plan in the issue first, via `plan`. Never in `docs/`.
-- Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
-  remains after the move.
+- Move the label with the snippet in `~/.claude/skills/README.md`: exactly one
+  `ai:` state label remains after the move.
 - Never review this skill's own output, never set `done`.
 - On failure or ambiguity: `blocked` with the reason as a comment, never a silent stop.
 - The subagent gets a bounded file scope and the house style, not the full transcript.
@@ -63,13 +63,13 @@ Take one issue from label to a pushed, reviewable pull request.
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `work.branch`: `worktree` or `branch:<name>`. Default `worktree`.
 - `models.implement`: default `sonnet`.
 - `verify`: command that proves a change is good.
 - `labels.working`, `labels.reviewRequested`, `labels.blocked`, `labels.changesRequested`:
-  defaults in `skills/README.md`.
+  defaults in `~/.claude/skills/README.md`.
 - `pr.draft`: must be `true` for this skill's pull requests.
 
 ## References

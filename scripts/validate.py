@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import re
 import subprocess
 from pathlib import Path
@@ -517,8 +518,64 @@ def check_yaml_extension(root: Path) -> list[str]:
     return findings
 
 
+# Files directly under the installed skills directory, besides the skill directories.
+# scripts/install.py installs exactly these.
+INSTALLED_SKILLS_FILES = {"README.md"}
+INSTALLED_SKILLS_PREFIX = "~/.claude/"
+# A path token that names a Markdown file below a "skills/" directory, with any prefix.
+SKILLS_FILE_TOKEN = re.compile(r"[\w$~{}.\/-]*skills/[\w./-]+\.md")
+SKILLS_SPLIT = re.compile(r"^(?P<prefix>(?:.*/)?)skills/(?P<rest>.+)$")
+
+
+def normalise_reference(token: str) -> str:
+    """Spell $HOME, ${HOME} and ~ alike and resolve "." and ".." segments."""
+    token = token.replace("${HOME}", "~").replace("$HOME", "~")
+    return posixpath.normpath(token)
+
+
+def check_skill_references(root: Path) -> list[str]:
+    """A skill may cite a file under skills/ only by a path the installed layout provides.
+
+    The installed layout holds the skill directories and INSTALLED_SKILLS_FILES under
+    ~/.claude/skills. A path into a repository checkout, such as skills/README.md, is
+    not there after install. A repository layout path with a subdirectory, such as
+    skills/<category>/<name>/SKILL.md, is prose about the repository and is not checked.
+    """
+    findings: list[str] = []
+    skill_dirs = {path.name: path for path in iter_skill_dirs(root)}
+    for skill_dir in skill_dirs.values():
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.is_file():
+            continue
+        rel = skill_md.relative_to(root)
+        for number, line in enumerate(skill_md.read_text().splitlines(), start=1):
+            for token in SKILLS_FILE_TOKEN.findall(line):
+                split = SKILLS_SPLIT.match(normalise_reference(token))
+                if split is None:
+                    continue
+                prefix, rest = split.group("prefix"), split.group("rest")
+                head, _, tail = rest.partition("/")
+                where = f"{rel}:{number}: `{token}`"
+                if prefix == INSTALLED_SKILLS_PREFIX:
+                    if not tail and rest in INSTALLED_SKILLS_FILES:
+                        continue
+                    if tail and head in skill_dirs and (skill_dirs[head] / tail).is_file():
+                        continue
+                    findings.append(
+                        f"{where} is not installed, scripts/install.py provides "
+                        f"{sorted(INSTALLED_SKILLS_FILES)} and the skill directories"
+                    )
+                elif not tail:
+                    findings.append(
+                        f"{where} is a repository path that does not exist after install, "
+                        f"use `~/.claude/skills/{rest}`"
+                    )
+    return findings
+
+
 CHECKS = (
     check_skills,
+    check_skill_references,
     check_characters,
     check_forbidden_words,
     check_groupings,

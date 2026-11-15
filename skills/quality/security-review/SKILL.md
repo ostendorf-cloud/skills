@@ -60,8 +60,8 @@ Find security problems in a change and report them where the change lives.
   way step 7 already handles a branch or working tree. A finding about code this pull request
   itself introduces is unaffected and still goes through step 7 as normal. The baseline's
   security vulnerability rule requires this.
-- Setting `labels.needsHuman` uses the snippet in `skills/README.md`: exactly one `ai:`
-  state label remains afterwards.
+- Setting `labels.needsHuman` uses the snippet in `~/.claude/skills/README.md`: exactly
+  one `ai:` state label remains afterwards.
 
 ## Config
 
