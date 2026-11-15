@@ -99,7 +99,7 @@
               "default": "worktree"
             },
             "cap": { "description": "Maximum issues one queue run works.", "type": "integer", "minimum": 1, "default": 5 },
-            "reviewRounds": { "description": "Review rounds before an issue goes to needs human.", "type": "integer", "minimum": 1, "default": 2 }
+            "reviewRounds": { "description": "Review rounds before an issue goes to needs human. Absent means no limit.", "type": "integer", "minimum": 1 }
           }
         }
       ]

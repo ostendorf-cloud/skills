@@ -46,6 +46,17 @@ code comment and a test name.
 - English by default for code, identifiers, commits and documentation. German only when asked
   for German, and code, identifiers, commits and documentation stay English regardless.
 
+### Names, links and commands
+
+- Conventions name no product where several are in use. The repository config and the tools
+  present supply the vendor.
+- Reference sibling repositories only within the same organisation as the current repository.
+  A convention from elsewhere may be used, never linked.
+- A command written into a skill or a README runs under the CI profile. Check it against the
+  allow list before documenting it.
+- A command built from variables is printed, and the printed line is run, so the permission rule
+  sees the literal text.
+
 ### Test names
 
 - A test name states the behaviour in plain words, for example `rejects an empty subject line`.

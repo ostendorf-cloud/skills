@@ -21,6 +21,7 @@ When a test is written, what earns one, and the environment as part of the contr
 
 ### When a test is written
 
+- New code gets tests.
 - A bug fix starts with the test that reproduces the bug.
 - The test commit comes first and fails on the current code.
 - The fix commit follows. Two commits, never one.

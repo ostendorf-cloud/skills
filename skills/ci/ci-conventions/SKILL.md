@@ -55,6 +55,7 @@ shaped.
 - One concern per file. A workflow that lints stays separate from one that deploys.
 - One job per check: `fmt`, `lint`, `test` and `validate` run as separate jobs, never bundled
   into a single job that calls an umbrella task. A failing job names the check that failed.
+  Everything that can run in CI runs in CI.
 - A matrix runs the same check over several targets, for example several chart or Kubernetes
   versions, instead of a repeated job for each one.
 - Every workflow sets its own `permissions` block, scoped to what its jobs need. None relies on

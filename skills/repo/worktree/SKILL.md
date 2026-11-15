@@ -27,9 +27,10 @@ One checkout, one session, without disturbing a branch another session already h
 4. Run every command for that session from inside `.claude/worktrees/<branch>`, never from the
    original checkout.
 5. Once the branch's pull request merges: `git worktree remove .claude/worktrees/<branch>`, then
-   `git branch -d <branch>`.
+   `git branch -d <branch>`, then `git worktree prune`. A worktree lives as long as its pull
+   request.
 6. List existing worktrees with `git worktree list` and prune one left behind by a merged or
-   abandoned branch.
+   abandoned branch. A session that ends checks for its own stale worktrees first.
 
 ## Investigation worktrees
 
@@ -43,6 +44,11 @@ One checkout, one session, without disturbing a branch another session already h
 ## Guardrails
 
 - One branch, one worktree, one session. Never point two sessions at the same worktree.
+- Before dispatching an agent into an existing worktree, check the agent list or the task list
+  for another running agent on it.
+- No status update proves an agent has stopped, a completion notice for one turn included. The
+  same agent can be resumed and keep working in the same worktree. It holds the worktree until
+  its termination is confirmed.
 - Never remove a worktree whose branch still has unmerged work without checking first.
 - `.claude/worktrees/` stays in `.gitignore`. Never commit a worktree's contents from the parent
   checkout.

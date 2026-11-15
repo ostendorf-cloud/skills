@@ -15,14 +15,23 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 
 ## Rules
 
-- Direct work stays narrow: a read, a lookup, a one line nit. Every change that alters behaviour
-  goes through a subagent, however small it looks.
+- The supervising session does itself: plan, verify a claim, run the verify command, route
+  labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one
+  line nit.
+- Everything else that changes behaviour runs in a subagent: an implementation, a review fix at
+  should or blocker level included, however small it looks.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
 - A subagent cannot fetch, no exception. Fetch in the supervising session first and give it the
   result; a brief that tells it to fetch gets stale refs reported back as current.
-- Model routing by role: plan `opus`, implement `sonnet`, review `opus`. A plan may override one
-  task's model and states why in one line, tokens and time against capability.
+- Model routing by role: plan `opus`, implement `sonnet`. A plan may override one task's model
+  and states why in one line, tokens and time against capability.
+- Review runs on `sonnet` or `opus`, chosen by the supervising session per pull request. `opus`
+  for a change to a security boundary, a release path or a large diff, `sonnet` otherwise.
+- A re-review checks the finding list only, with the same or a cheaper model. Nits are fixed by
+  the supervising session, not sent into another round.
+- Parallel agents, across one or more repositories, get a status table: repository, issue, pull
+  request, status, action. Refresh it on every status change, not only on request.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
 - Every spawned agent reports status back to the session that spawned it, in the report shape
@@ -48,6 +57,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 ### Monitoring
 
 - State an expected duration when spawning an agent.
+- No status update proves an agent has stopped. Terminate it and confirm before reusing its
+  worktree.
 - Not reported by then: check its status and last output instead of waiting longer.
 - Stuck, idle or looping: terminate it, then reassign its scope or finish it directly.
 - Agent team mode: a teammate idle without reporting is asked once, then terminated if still
