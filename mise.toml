@@ -1,7 +1,7 @@
 [tools]
 python = "3.13"
 task = "3"
-ruff = "0.15"
+ruff = "0.17.5"
 actionlint = "1"
 markdownlint-cli2 = "0.24.1"
 yamllint = "1"
