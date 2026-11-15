@@ -40,8 +40,9 @@ Judge one pushed pull request as a different agent than the one that built it.
 5. Run the verify command from config `verify` against the pushed branch.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.
-7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`. Name the
-   commit CI was green on; this becomes part of the verdict text in steps 9 and 10.
+7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
+   are `approve`, named in the verdict for the supervising session to fix. Name the commit CI
+   was green on, part of the verdict text in steps 9 and 10.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
@@ -63,18 +64,17 @@ Judge one pushed pull request as a different agent than the one that built it.
 11. A finding's line falls outside every diff hunk in either path: anchor the inline comment at
     the nearest changed line in the same file and name the real location in its body, or, with
     no changed line in that file at all, put the finding in the top level review or comment body.
-12. Verdict approve, and this review is independent per Independence: move the label to `done`,
-    mark the pull request ready for review with `gh pr ready`.
-13. Verdict approve, not independent: treat it like step 15, `needs human`, naming in the report
-    that the judgment was approve but independence was missing.
+12. Verdict approve, independent per Independence: move the label to `done`, mark the pull
+    request ready with `gh pr ready`.
+13. Verdict approve, not independent: treat it like step 15, `needs human`, naming in the
+    report that the judgment was approve but independence was missing.
 14. Verdict changes requested: move the label to `changes requested`. The pull request stays
     a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
 15. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
     label to `needs human`. The round count is the number of this skill's own verdict comments
     and formal reviews already on the pull request, including the one just posted.
 16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
-    skill's ready condition holds and only a human decision is left. Leave it a draft
-    otherwise.
+    skill's ready condition holds and only a human decision is left, otherwise leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
 18. Changes requested or blocked: point the issue comment at the `implement` skill for the
     rework round.
