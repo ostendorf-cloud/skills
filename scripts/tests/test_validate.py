@@ -458,6 +458,44 @@ class ValidateTestCase(unittest.TestCase):
         _, output = run(self.root)
         self.assertNotIn("is never matched", output)
 
+    def _laptop_profile(self) -> dict:
+        path = Path(__file__).resolve().parents[2] / "settings" / "claude.json"
+        return json.loads(path.read_text())
+
+    def test_profile_allow_read_is_exactly_code_and_the_known_hosts_files(self) -> None:
+        allow_read = self._laptop_profile()["sandbox"]["filesystem"]["allowRead"]
+        self.assertEqual(
+            sorted(allow_read),
+            ["~/.ssh/known_hosts", "~/.ssh/known_hosts2", "~/Code"],
+        )
+
+    def test_profile_keeps_ssh_directory_and_key_files_denied(self) -> None:
+        profile = self._laptop_profile()
+        files = profile["sandbox"]["credentials"]["files"]
+        self.assertIn({"path": "~/.ssh", "mode": "deny"}, files)
+        deny = profile["permissions"]["deny"]
+        for rule in (
+            "Read(~/.ssh/**)",
+            "Read(**/id_rsa)",
+            "Read(**/id_ed25519)",
+            "Read(**/*.pem)",
+            "Read(**/*.key)",
+        ):
+            self.assertIn(rule, deny)
+        deny_read = profile["sandbox"]["filesystem"]["denyRead"]
+        self.assertIn("**/*.pem", deny_read)
+        self.assertIn("**/*.key", deny_read)
+
+    def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
+        env = self._laptop_profile()["env"]
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/tmp/claude")
+
+    def test_profile_allows_writing_only_the_macos_user_temp_dirs(self) -> None:
+        writes = self._laptop_profile()["sandbox"]["filesystem"]["allowWrite"]
+        self.assertIn("/private/var/folders/*/*/T", writes)
+        folders = [entry for entry in writes if "var/folders" in entry]
+        self.assertEqual(folders, ["/private/var/folders/*/*/T"])
+
     def test_detects_missing_license_header(self) -> None:
         write(self.root / "scripts" / "helper.py", "print('hi')\n")
         code, output = run(self.root)
