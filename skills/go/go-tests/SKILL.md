@@ -24,6 +24,9 @@ Procedure and conventions for adding tests to a Go module.
    directory or a global.
 4. Assert errors with `errors.Is` or `errors.As`, never on the message string. A refusal names
    the typed error or the code carried on it, never the message, even to name the mechanism.
+   A reason or code returned as an ordinary value, not formatted into an error, is what to
+   assert on. Where it is the only observable separating two mechanisms, asserting it is
+   required.
 5. Replace a dependency with a hand written fake that satisfies the consumer side interface.
 6. HTTP: `httptest.NewServer` for a client, `httptest.NewRequest` plus `httptest.NewRecorder`
    for a handler. Exercise the real chain, including middleware.

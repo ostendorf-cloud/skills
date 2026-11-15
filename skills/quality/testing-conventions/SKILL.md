@@ -45,6 +45,12 @@ When a test is written, what earns one, and the environment as part of the contr
 - Database: name the SQLSTATE or the constraint name carried on the error, not only that a query
   failed.
 
+### Revert proof per mechanism
+
+- A fix that adds more than one mechanism able to catch the same case gets each one reverted
+  alone, with the test watched failing.
+- A test that passes with its own mechanism removed does not cover that mechanism.
+
 ### An invisible row still needs proof it exists
 
 - A test that an unprivileged caller cannot see a row also asserts, through a privileged path,
