@@ -44,6 +44,11 @@ Produce a short plan in the issue that can be approved or corrected before code 
 11. One screen. No plan content in `docs/`.
 12. Write the plan as a `## Plan` section via `gh issue edit --body-file <file>`, appended to the
     existing body, when the body already follows this repository's template.
+    A read-only planner cannot write into the repository. It writes the body file into the
+    session scratchpad, which sits outside the repository on the write allowlist.
+    A multi-line body goes through `--body-file`, never `--body "..."`.
+    A gh configuration error on a long body means the body is too long, not an authentication
+    problem.
 13. Body does not follow that template: post the plan as a comment with `gh issue comment`
     instead, to avoid breaking a structure this skill does not own.
 14. Stop at the plan. Do not implement here.

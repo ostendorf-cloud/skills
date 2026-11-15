@@ -35,8 +35,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 3. Read the issue body, the `## Plan` section, the pull request diff, and every review thread
    already on the pull request through `gh api graphql` (`reviewThreads`, with `isResolved` and
    each comment's body). A rework round starts from these, not from memory of the first pass.
-4. Read the pull request's own CI result for the current head, `gh pr checks`, before trusting
-   any `## Verification` section. One that names no commit is unverified, not true.
+4. Read CI from `gh pr checks <number>` or the commit's check-runs via `gh api`, never a branch
+   filtered runs list. One `gh` per command. A `## Verification` naming no commit is unverified.
 5. Run the verify command from config `verify` against the pushed branch.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.

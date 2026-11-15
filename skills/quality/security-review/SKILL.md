@@ -32,6 +32,8 @@ Find security problems in a change and report them where the change lives.
    - infrastructure code: public exposure, missing encryption, wide IAM, `prevent_destroy` missing
    - dependencies: new packages, pinned versions, lockfile changes
    - containers: root user, writable root filesystem, latest tags
+   Fixing an injection shaped defect starts by listing every input that reaches the same sink.
+   The pull request says which inputs were found and which were already safe.
 5. Verify every finding by reading the surrounding code. Drop what does not hold.
 6. Group findings by severity: critical, high, medium, low. Each with file, line, the problem in
    one sentence and the fix in one sentence.

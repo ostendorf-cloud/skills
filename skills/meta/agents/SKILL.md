@@ -55,6 +55,15 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 - Never ask an agent to do something that was denied in this session. Never route work through an
   agent to get around a permission decision.
 - Give the agent the plan and the rules it needs, not the full conversation transcript.
+- The dispatching session verifies every precondition a brief asserts before it sends the brief:
+  a file exists where the brief says, a branch is where it says, a tool is installed.
+- A brief that depends on work not merged yet says so plainly and gives the path to read it
+  from. It never describes that work as present.
+- A statement in a brief about how a tool behaves is an assumption until someone runs it. The
+  brief labels it as one.
+- An agent that finds a stated precondition false stops and reports it. It does not reconstruct
+  what is missing.
+- An unattended agent records the false precondition on the issue and stops that task.
 
 ### Monitoring
 

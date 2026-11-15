@@ -57,6 +57,11 @@ code comment and a test name.
 - A command built from variables is printed, and the printed line is run, so the permission rule
   sees the literal text.
 
+### Code comments
+
+- A comment states why a rule exists, never an inventory of what it covers.
+- An inventory belongs in code or in a test that fails when it drifts.
+
 ### Test names
 
 - A test name states the behaviour in plain words, for example `rejects an empty subject line`.
