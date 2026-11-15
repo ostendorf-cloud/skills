@@ -100,6 +100,8 @@ How versions, changelogs and dependency updates get produced.
 
 - Commit types match the intended version bump.
 - The release tool's config and any state file committed, no hand written versions.
+- Changelogs and versions belong to the release tool. Never hand edit them, and never cut a
+  release with the CLI where the release tool is configured.
 - Breaking changes documented with a migration path in the commit body.
 - Actions and images pinned by digest, with Renovate keeping them current.
 - Automerge limited to low risk updates, major updates always reviewed.

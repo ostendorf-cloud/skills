@@ -14,7 +14,7 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - Issue exists but is too thin to implement: use `refine-issue` instead.
 - A security vulnerability in a public repository with no fix merged yet: file the issue, but
   add no exploit detail. Point to a draft security advisory for the write-up instead. See the
-  baseline's Plans and issues rule.
+  baseline's security vulnerability rule.
 
 ## Steps
 
@@ -64,7 +64,7 @@ File or update one GitHub issue with a clear outcome and testable criteria.
   guessed.
 - A label absent on the tracker is named in the report, never created by this skill.
 - An unfixed security vulnerability in a public repository gets no exploit detail in an issue:
-  see the baseline's Plans and issues rule.
+  see the baseline's security vulnerability rule.
 
 ## Config
 

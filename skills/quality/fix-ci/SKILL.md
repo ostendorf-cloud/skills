@@ -48,6 +48,15 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
 - Run verified green afterwards with `gh run rerun --failed` after the push.
 - A recurring failure turned into a durable fix.
 
+## Sandbox limits
+
+- `task check` cannot finish in a sandboxed session when the repository has a Go module
+  (`proxy.golang.org` is blocked) or a frontend (the pnpm store lock is not writable).
+- That reproduces on an unmodified checkout. It is an environment limit, never evidence about a
+  change, and never worth investigating per repository.
+- `mise x` provisions every pinned tool before running anything, so one tool the sandbox cannot
+  fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
+
 ## References
 
 - `lint` and `test` for the checks CI actually runs.

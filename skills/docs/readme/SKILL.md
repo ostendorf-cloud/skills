@@ -48,6 +48,7 @@ a release status or a count that goes stale on its own.
 ## Guardrails
 
 - `## Deviations` checked before writing or reviewing.
+- A change gets documentation where a reader needs it.
 - Fixed section order followed, sections dropped only when they do not apply.
 - No marketing filler, no emoji, no badge wall, no roadmap or changelog section.
 - Only commands that exist in the repository and were run.

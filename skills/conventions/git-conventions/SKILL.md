@@ -21,7 +21,7 @@ How branches, commits, pull requests and history stay consistent and reversible.
 
 ### Branches
 
-- Branch off the default branch. Never commit to it directly.
+- Branch off the default branch. Never commit to it directly. It stays deployable.
 - Name branches `<type>/<short-subject>` with a Conventional Commits type, for example
   `feat/cache-module`, `fix/backup-retention`, `chore/renovate-preset`.
 - One branch solves one thing. A growing scope gets a second branch.
@@ -34,9 +34,10 @@ How branches, commits, pull requests and history stay consistent and reversible.
   `revert`. The type drives the release version, so pick it for what it does, not for its size.
 - Scope is optional and names the affected area, for example `tofu`, `chart`, `cli`, `ci`.
 - Subject in imperative mood, lowercase, no trailing period, at most 72 characters.
-- Body explains why. The diff already shows what.
+- Body only when the why is not obvious: a few short lines, no paragraphs. The diff shows what.
 - Breaking changes carry `!` in the header and a `BREAKING CHANGE:` footer with the migration.
 - Commits are atomic. Formatting, refactoring and behaviour go into separate commits.
+- Commit small and often, one change per commit. Never a batch at the end of a session.
 - Reference an issue in the footer with `Refs #123` or `Closes #123`.
 
 ### Pull requests

@@ -28,7 +28,7 @@ The baseline every repository follows, independent of language.
   it until every agent reads `AGENTS.md` on its own.
 - `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
 - `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
-- `mise.toml` pinning every tool the repository needs.
+- `mise.toml` pinning every tool. `.agent-skills.json` is optional, absent means defaults.
 - `Taskfile.yaml` over a Makefile. One task target per check, `lint:<tool>`, `test:<suite>`,
   `validate`, plus `fmt` and `build` where they apply. A `check` target may aggregate the small
   targets and holds no command of its own. CI calls the small targets, never `check`. An
@@ -54,12 +54,10 @@ The baseline every repository follows, independent of language.
 
 ### Deviations
 
-- A repository that does something differently from this baseline says so in `AGENTS.md` under
-  `## Deviations`. One line per entry: the convention it drops or changes, then the reason.
-- Every skill that creates, reviews or reports on the repository layout reads that heading first.
-  An entry that drops a convention skips the step, and the skill says so.
-- No `## Deviations` heading, or no entry for the convention at hand, means the baseline applies
-  in full.
+- One line per `## Deviations` entry in `AGENTS.md`: the convention it drops or changes, then the
+  reason.
+- Read that heading before creating files the baseline describes. An entry that drops a
+  convention skips the step, and the skill says so. No entry means the baseline applies in full.
 
 ### Tooling (development environment)
 
@@ -86,9 +84,13 @@ The baseline every repository follows, independent of language.
 - A script needed only by this repository, for example one reading this repository's own output,
   stays in its `scripts/` and is documented in the README. Never copy a script between
   repositories, move it and point the caller at the moved one.
+- Scripts only where they earn it: run repeatedly, complex logic, or needed by CI.
+- A throwaway script deleted in the same task lives in the session's scratch directory, outside
+  every repository and worktree. Never in `scripts/` or the shared scripts repository.
+- No inline interpreter one liner that will run again, and never one that spans lines.
 - A check that only asserts a convention is not a script. See `conformance-checks`.
-- A check script longer than roughly one screen is a sign the wrong tool is in use, or that the
-  right tool was never looked for. Search for an existing tool before writing one.
+- A check script past one screen means the wrong tool, or none was searched for. Search for an
+  existing tool before building anything that checks, validates or lints.
 
 ### Settings and labels
 

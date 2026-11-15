@@ -47,6 +47,9 @@ Take one issue from label to a pushed, reviewable pull request.
 ## Guardrails
 
 - Claim (`working`) before any implementation work starts.
+- Label flow: `ready`, `working`, `review requested`, `done`. Exits: `changes requested`,
+  `needs human`, `blocked`. List the labels after a move to confirm the result.
+- Non trivial work has a plan in the issue first, via `plan`. Never in `docs/`.
 - Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
   remains after the move.
 - Never review this skill's own output, never set `done`.
