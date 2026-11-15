@@ -19,12 +19,14 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   goes through a subagent, however small it looks.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
+- A subagent cannot fetch, no exception. Fetch in the supervising session first and give it the
+  result; a brief that tells it to fetch gets stale refs reported back as current.
 - Model routing by role: plan `opus`, implement `sonnet`, review `opus`. A plan may override one
   task's model and states why in one line, tokens and time against capability.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
-- Every spawned agent reports status back to the session that spawned it. The report ends with
-  baseline feedback: a rule that blocked or misled, a rule that was missing, or "none".
+- Every spawned agent reports status back to the session that spawned it, in the report shape
+  below.
 - The session collects that feedback and raises what is worth a change through `propose-rule`,
   one issue per rule, never silently.
 - Agent output is a claim, not a fact: verify files, run tests, read the diff before relying on
@@ -51,6 +53,16 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 - Agent team mode: a teammate idle without reporting is asked once, then terminated if still
   silent.
 - Never leave an agent or teammate running at the end of the session.
+
+### Report shape
+
+- What changed, per target: a table or a short list, not a walkthrough.
+- Which claims were verified by running something, and what ran.
+- Which claims are unverified, and why.
+- What it stopped on, if anything.
+- Baseline feedback: a rule that blocked or misled, a rule that was missing, or "none".
+- No narration of work already done. The supervising session reads the shape above, not the
+  story of how the agent got there.
 
 ## Steps
 
