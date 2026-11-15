@@ -1,8 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "effortLevel": "high",
+  "model": "opusplan",
+  "effortLevel": "medium",
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+  },
   "fileCheckpointingEnabled": true,
-  "language": "english",
   "attribution": {
     "commit": "",
     "pr": "",
