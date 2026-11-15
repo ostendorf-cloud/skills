@@ -110,6 +110,7 @@ branch strategy. Schema: `agent-skills.schema.json`. Absent means defaults.
 task --list
 task check          # every check, one after another
 task lint:ruff      # one target per check
+task lint:renovate  # Renovate config, extends resolved, no credentials
 task test:hooks
 task validate
 ```
