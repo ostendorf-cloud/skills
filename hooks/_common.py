@@ -884,6 +884,154 @@ def default_branch(cwd: Optional[str]) -> str:
     return "main"
 
 
+TMPDIR_REFERENCE = re.compile(r"\$\{TMPDIR\}|\$TMPDIR\b")
+CD_WORDS = frozenset({"cd", "pushd", "popd", "chdir"})
+CD_SKIPPED_FLAGS = frozenset({"--", "-P", "-L", "-e", "-@"})
+DIRECTORY_REDIRECT_FLAGS = ("--git-dir", "--work-tree", "--chdir")
+DIRECTORY_REDIRECT_ENV = re.compile(r"^(GIT_DIR|GIT_WORK_TREE)=")
+
+
+def scratch_roots() -> list[str]:
+    """The directories that count as the session scratch scope: $TMPDIR, resolved.
+
+    The sandbox points $TMPDIR at the session scratch directory, and a throwaway
+    fixture lives below it. An unset or relative $TMPDIR gives no scope, and so do the
+    filesystem root and the home directory, which would swallow a real repository.
+    """
+    value = os.environ.get("TMPDIR", "")
+    if not value or not os.path.isabs(value):
+        return []
+    root = os.path.realpath(value)
+    if root in (os.sep, os.path.realpath(os.path.expanduser("~"))):
+        return []
+    return [root]
+
+
+def resolve_dir(path: str, base: Optional[str]) -> Optional[str]:
+    """The absolute, symlink free path that path names, a relative one read against
+    base. A leading `$TMPDIR` or `${TMPDIR}` is expanded. None when the path holds
+    anything else a shell expands (a variable, a command substitution, `~`, a glob) or
+    is relative while base is unknown, because then the real location is not known.
+    """
+    text = path.strip().strip("'\"")
+    if not text:
+        return None
+    tmpdir = os.environ.get("TMPDIR", "")
+    if tmpdir:
+        text = TMPDIR_REFERENCE.sub(tmpdir, text)
+    if any(char in text for char in "$`~*?[{"):
+        return None
+    if not os.path.isabs(text):
+        if base is None:
+            return None
+        text = os.path.join(base, text)
+    return os.path.realpath(text)
+
+
+def in_scratch(path: Optional[str]) -> bool:
+    """Whether path, already resolved, lies inside the session scratch scope."""
+    if not path:
+        return False
+    real = os.path.realpath(path)
+    return any(os.path.commonpath([root, real]) == root for root in scratch_roots())
+
+
+def part_dirs(command: str, cwd: Optional[str]) -> list[tuple[str, Optional[str]]]:
+    """Each command part of command with the directory it runs in, None when that is
+    not known.
+
+    The directory starts at cwd and follows a leading `cd <literal path>` through the
+    parts in order, so `cd $TMPDIR/fixture && git commit` runs the commit in the
+    fixture. It becomes unknown, and stays unknown, after a `cd` the walk cannot
+    resolve (a variable, `cd -`, no operand), a `pushd`, `popd` or `chdir`, a `cd`
+    that is not the first word of its part such as a subshell or a group, and a
+    `GIT_DIR` or `GIT_WORK_TREE` assignment, which points git elsewhere. Unknown never
+    counts as scratch, so every such command is policed as it was.
+
+    The scope fails closed. A `cd` target that does not exist when the hook runs leaves
+    the directory unknown, because the command may create it or a link first. A command
+    that fails scope_tainted has no known directory in any of its parts.
+    """
+    current: Optional[str] = os.path.realpath(cwd) if cwd else None
+    result: list[tuple[str, Optional[str]]] = []
+    tainted = scope_tainted(command)
+    for raw in command_parts(command):
+        if tainted:
+            result.append((raw, None))
+            continue
+        words = shell_words(raw)
+        names = [unquote_word(word).strip("(){}!") for word in words]
+        leading = unquote_word(words[0]) if words else ""
+        if any(DIRECTORY_REDIRECT_ENV.match(name) for name in names):
+            current = None
+        elif leading == "cd":
+            operands = [word for word in words[1:] if unquote_word(word) not in CD_SKIPPED_FLAGS]
+            if len(operands) == 1 and unquote_word(operands[0]) != "-":
+                current = existing_dir(resolve_dir(unquote_word(operands[0]), current))
+            else:
+                current = None
+        elif any(name in CD_WORDS for name in names):
+            current = None
+        result.append((raw, current))
+    return result
+
+
+def git_part_dir(raw_part: str, directory: Optional[str], git_path: Optional[str]) -> Optional[str]:
+    """The directory a git command part acts on: its `-C` path read against directory,
+    else directory. None when the part points git somewhere this cannot follow: a
+    second `-C`, `--git-dir`, `--work-tree`, `--chdir`, `sudo -D`, `-c core.worktree` or a
+    `GIT_DIR` or `GIT_WORK_TREE` assignment.
+    """
+    if directory is None:
+        return None
+    tokens = [unquote_word(token) for token in shell_words(raw_part)]
+    for token in tokens:
+        if (
+            token in ("-D", *DIRECTORY_REDIRECT_FLAGS)
+            or token.startswith(tuple(flag + "=" for flag in DIRECTORY_REDIRECT_FLAGS))
+            or DIRECTORY_REDIRECT_ENV.match(token)
+            or token.lower().startswith("core.worktree")
+        ):
+            return None
+    if sum(1 for token in tokens if token == "-C" or token.startswith("-C")) > 1:
+        return None
+    if git_path is not None:
+        return existing_dir(resolve_dir(git_path, directory))
+    return directory
+
+
+def existing_dir(path: Optional[str]) -> Optional[str]:
+    """path when it names a directory that exists now, else None, so a target the
+    command itself may create or link later never counts as a known location."""
+    return path if path is not None and os.path.isdir(path) else None
+
+
+SYMLINK_COMMANDS = frozenset({"ln", "link"})
+TMPDIR_WRITE = re.compile(r"(?<![${\w])TMPDIR\b|\$\{TMPDIR[^}]")
+
+
+def scope_tainted(command: str) -> bool:
+    """Whether command can change what the session scratch scope means while it runs,
+    so no part of it may rely on that scope.
+
+    True for a part that does not parse as shell words, one that creates a symbolic
+    link (`ln`, `link`, anything naming a symlink), and one that names `TMPDIR` other
+    than as a plain `$TMPDIR` or `${TMPDIR}` read, such as `TMPDIR=x`, `export TMPDIR`
+    or `${TMPDIR:=x}`. Callers then apply the repository rules as before.
+    """
+    for raw in command_parts(command):
+        try:
+            shlex.split(raw)
+        except ValueError:
+            return True
+        if TMPDIR_WRITE.search(raw) or "symlink" in raw.lower():
+            return True
+        for word in shell_words(raw):
+            if os.path.basename(unquote_word(word).strip("(){}!")) in SYMLINK_COMMANDS:
+                return True
+    return False
+
+
 def run_main(main_func: Any) -> int:
     """Runs main_func. Prints {} and returns 0 on any unexpected exception, so a hook
     never blocks by accident on malformed input or a bug."""

@@ -130,6 +130,49 @@ class SecretGuardTest(unittest.TestCase):
                 decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
             )
 
+    def test_denies_gh_auth_git_credential(self):
+        for command in [
+            "gh auth git-credential get",
+            "echo host=github.com | gh auth git-credential get",
+            "gh auth --hostname github.com git-credential get",
+            "gh --hostname github.com auth git-credential get",
+            "sudo gh auth git-credential get",
+            "/opt/homebrew/bin/gh auth git-credential get",
+        ]:
+            output = run_hook("secret_guard.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+
+    def test_gh_auth_git_credential_deny_names_what_to_do_instead(self):
+        output = run_hook("secret_guard.py", bash_payload("gh auth git-credential get"))
+        self.assertIn("credential helper itself", reason(output))
+
+    def test_denies_gh_auth_status_that_shows_the_token(self):
+        for command in [
+            "gh auth status --show-token",
+            "gh auth status -t",
+            "gh auth status -at",
+            "gh auth status --show-token=true",
+            "gh auth status --show-token=1",
+            "gh auth status -t=true",
+            "gh auth status --hostname github.com -t=true",
+            "gh auth status -ta",
+            "gh auth status --hostname github.com --show-token",
+        ]:
+            self.assertEqual(
+                decision(run_hook("secret_guard.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_gh_auth_status_without_the_token(self):
+        for command in [
+            "gh auth status",
+            "gh auth status --hostname github.com",
+            "gh auth status -h github.com",
+            "gh auth status --active",
+            "gh auth login",
+            "gh auth setup-git",
+        ]:
+            self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))), command)
+
     def test_allows_gh_auth_status_with_flag_before_the_noun(self):
         command = "gh --hostname example.com auth status"
         self.assertIsNone(decision(run_hook("secret_guard.py", bash_payload(command))))

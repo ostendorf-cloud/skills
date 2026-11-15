@@ -13,6 +13,14 @@ from typing import Any, Optional
 HOOKS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+NO_SCRATCH = "/nonexistent-scratch"
+
+
+def scratch_env(scratch: str, base: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """The environment for a hook run whose session scratch directory is scratch."""
+    return dict(base if base is not None else os.environ, TMPDIR=scratch)
+
+
 def run_hook(
     name: str,
     payload: dict[str, Any],
@@ -23,7 +31,15 @@ def run_hook(
 
     env, when given, replaces the subprocess environment entirely, to test behaviour
     with a tool missing from PATH.
+
+    The hooks treat $TMPDIR as the session scratch scope, and the fixture repositories
+    of these tests live under the test process's own temporary directory. Without an
+    explicit env the hook therefore runs with $TMPDIR pointed at a directory that holds
+    no fixture, so a fixture reads as the real repository it stands for. A test of the
+    scratch scope passes scratch_env.
     """
+    if env is None:
+        env = scratch_env(NO_SCRATCH)
     result = subprocess.run(
         [sys.executable, os.path.join(HOOKS_DIR, name)],
         input=json.dumps(payload),

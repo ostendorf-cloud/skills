@@ -209,8 +209,110 @@ class IacFirstTest(unittest.TestCase):
     def test_denies_gh_api_writes_to_pull_request_paths(self):
         for command in [
             "gh api -X PUT repos/ostendorf-cloud/skills/pulls/42/merge",
-            "gh api --method POST repos/ostendorf-cloud/skills/pulls/42/reviews",
             "gh api -X PATCH repos/ostendorf-cloud/skills/pulls/42",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/merge",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/comments",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/requested_reviewers",
+            "gh api -X PUT repos/ostendorf-cloud/skills/pulls/42/reviews",
+            "gh api -X DELETE repos/ostendorf-cloud/skills/pulls/42/reviews",
+            "gh api -X PUT repos/ostendorf-cloud/skills/pulls/42/reviews/7/dismissals",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/reviews/7/events",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/reviews/7",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/reviews/",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/reviews?x=1",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/x/reviews",
+            "gh api -X POST repos/ostendorf-cloud/skills/pulls/42/reviews/../merge",
+            "sudo gh api -X POST repos/ostendorf-cloud/skills/pulls/42/merge",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_allows_posting_a_review_through_the_api(self):
+        for command in [
+            "gh api --method POST repos/ostendorf-cloud/skills/pulls/42/reviews",
+            "gh api -X POST /repos/ostendorf-cloud/skills/pulls/42/reviews",
+            "gh api repos/o/r/pulls/7/reviews --method POST -f event=COMMENT -f body=ok",
+            "gh api -X POST repos/o/r/pulls/7/reviews --input review.json",
+            "mise exec -- gh api -X POST repos/o/r/pulls/7/reviews -f event=APPROVE",
+        ]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
+
+    def test_allows_resolving_a_review_thread(self):
+        for command in [
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "PRRT_x"}) { thread { isResolved } } }\'',
+            "gh api graphql -f query='mutation($id: ID!) { resolveReviewThread(input: "
+            "{threadId: $id}) { thread { isResolved } } }' -f id=PRRT_x",
+            "gh api graphql -F query='mutation Resolve { r: resolveReviewThread(input: "
+            '{threadId: "PRRT_x"}) { thread { id } } }\'',
+        ]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
+
+    def test_allows_resolving_a_review_thread_with_braces_in_strings_and_comments(self):
+        for command in [
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "PRRT_x", clientMutationId: "a{b"}) { thread { id } } }\'',
+            "gh api graphql -f query='mutation {\n# a { comment\nresolveReviewThread(input: "
+            '{threadId: """x { y"""}) { thread { id } } }\'',
+        ]:
+            self.assertIsNone(decision(run_hook("iac_first.py", bash_payload(command))), command)
+
+    def test_denies_a_second_mutation_hidden_by_braces_in_strings_or_comments(self):
+        for command in [
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "{"}) { thread { id } } mergePullRequest(input: '
+            '{pullRequestId: "}"}) { clientMutationId } }\'',
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "x"}) { thread { id } } mergePullRequest(input: '
+            '{pullRequestId: "{"}) { clientMutationId } x: __typename }\'',
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "x", clientMutationId: "{"}) { thread { id } } '
+            "mergePullRequest(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: "
+            '{threadId: "}"}) { thread { id } } } mutation { mergePullRequest(input: {}) '
+            "{ clientMutationId } }'",
+            "gh api graphql -f query='mutation { a: resolveReviewThread(input: "
+            '{threadId: """{"""}) { thread { id } } '
+            "mergePullRequest(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {}) { thread { id } } "
+            "# }\nmergePullRequest(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"x}) "
+            "{ thread { id } } mergePullRequest(input: {}) { clientMutationId } }'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_resolving_a_review_thread_with_an_input_file(self):
+        for command in [
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {}) "
+            "{ thread { id } } }' --input body.json",
+            "gh api graphql --input=body.json -f query='mutation { resolveReviewThread(input: {}) "
+            "{ thread { id } } }'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
+            )
+
+    def test_denies_every_other_graphql_mutation(self):
+        for command in [
+            "gh api graphql -f query='mutation { unresolveReviewThread(input: {}) { "
+            "clientMutationId } }'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {}) { "
+            "clientMutationId } mergePullRequest(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { mergePullRequest(input: {}) { "
+            "clientMutationId } }'",
+            "gh api graphql -f query='mutation { merge: resolveReviewThread(input: {}) { "
+            "clientMutationId } } mutation Other { mergePullRequest(input: {}) { "
+            "clientMutationId } }'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {}) { "
+            "clientMutationId } }' -f note='mutation'",
+            "gh api graphql -f query='mutation { resolveReviewThread(input: {}) { thread { "
+            "id } } }' -f query='mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+            "gh api graphql -f query='mutation { ...Merge } fragment Merge on Mutation { "
+            "mergePullRequest(input: {}) { clientMutationId } }'",
         ]:
             self.assertEqual(
                 decision(run_hook("iac_first.py", bash_payload(command))), "deny", command

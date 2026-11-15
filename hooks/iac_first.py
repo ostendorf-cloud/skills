@@ -8,6 +8,9 @@ mutation through `gh api graphql`, `gh release` where the repository's release t
 set-default`, `gh alias` or `gh extension`, which run arbitrary code or point the CLI
 somewhere else entirely.
 
+Two review calls stay open: a POST to `pulls/<n>/reviews` and a GraphQL mutation whose
+only field is `resolveReviewThread`. Every other pull request write and mutation is denied.
+
 Every `gh` check finds the subcommand behind the flags in front of it, so neither a
 flag placed in front of the noun nor one placed between the noun and the subcommand
 hides the command. Every part is normalised before the checks run, so a wrapper prefix
@@ -64,6 +67,11 @@ API_WRITE_PATH = re.compile(
     r"/actions/secrets|/actions/variables|$)|orgs/[^/]+|user/repos)"
 )
 PULLS_WRITE_PATH = re.compile(r"^(/)?repos/[^/]+/[^/]+/pulls(/.*)?$")
+# The one pull request write that stays open: posting a review, the verdict path of the
+# work-review skill. Exactly this path, no query string, no further segment.
+REVIEW_POST_PATH = re.compile(r"^/?repos/[^/]+/[^/]+/pulls/[0-9]+/reviews$")
+# The one GraphQL mutation that stays open: resolving a review thread.
+ALLOWED_MUTATION = "resolveReviewThread"
 
 IAC_REASON = (
     "Repository and organisation settings, labels, rulesets and secrets are "
@@ -142,6 +150,8 @@ def gh_api_violation(part: str) -> Optional[str]:
         return None
 
     path = gh_api_path(dispatch[1:])
+    if method == "POST" and REVIEW_POST_PATH.match(path):
+        return None
     if PULLS_WRITE_PATH.match(path):
         return f"gh api {method} {path} changes a pull request. {PULLS_REASON}"
     if API_WRITE_PATH.match(path):
@@ -186,8 +196,132 @@ def graphql_violation(part: str) -> Optional[str]:
     if gh_api_path(dispatch[1:]) != "graphql":
         return None
     if GRAPHQL_MUTATION.search(part):
+        if only_resolves_review_thread(part):
+            return None
         return GRAPHQL_REASON
     return None
+
+
+def mutation_fields(query: str) -> Optional[list[str]]:
+    """The top level fields of the one operation in a GraphQL document, or None when
+    the document is not a single operation this reads with certainty.
+
+    The document is tokenized first: string literals, block strings and comments are
+    skipped, so a brace inside one never counts. Aliases, arguments, selections below
+    the first level and directives are skipped. A document with a second definition, a
+    fragment spread, an unbalanced bracket, an unterminated string or any character
+    this does not know gives None.
+    """
+    tokens = graphql_tokens(query)
+    if tokens is None:
+        return None
+    fields: list[str] = []
+    depth = 0
+    nested = 0
+    definitions = 0
+    for index, token in enumerate(tokens):
+        if token in ("(", "["):
+            nested += 1
+        elif token in (")", "]"):
+            nested -= 1
+        elif token == "{":
+            depth += 1
+        elif token == "}":
+            depth -= 1
+            if depth == 0:
+                definitions += 1
+        elif token == "...":
+            return None
+        elif depth == 1 and nested == 0 and GRAPHQL_NAME.match(token):
+            following = tokens[index + 1] if index + 1 < len(tokens) else ""
+            preceding = tokens[index - 1] if index else ""
+            if following != ":" and preceding not in ("@", "$"):
+                fields.append(token)
+        if depth < 0 or nested < 0:
+            return None
+    if depth != 0 or nested != 0 or definitions != 1:
+        return None
+    return fields
+
+
+GRAPHQL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+GRAPHQL_TOKEN = re.compile(
+    r"[ \t\r\n,﻿]+|(?P<comment>#[^\n]*)|(?P<spread>\.\.\.)|(?P<punct>[{}()\[\]:@$!=|&])"
+    r"|(?P<name>[A-Za-z_][A-Za-z0-9_]*)|(?P<number>-?[0-9][0-9.eE+-]*)"
+)
+
+
+def graphql_tokens(query: str) -> Optional[list[str]]:
+    """The punctuators and names of a GraphQL document, strings, numbers, whitespace,
+    commas and comments left out. None when the document does not tokenize cleanly:
+    an unterminated string, a line break inside a plain string, or a character outside
+    the GraphQL lexical grammar."""
+    tokens: list[str] = []
+    position = 0
+    length = len(query)
+    while position < length:
+        if query.startswith('"""', position):
+            position = _block_string_end(query, position + 3)
+        elif query[position] == '"':
+            position = _string_end(query, position + 1)
+        else:
+            match = GRAPHQL_TOKEN.match(query, position)
+            if not match:
+                return None
+            position = match.end()
+            if match.lastgroup in ("spread", "punct", "name"):
+                tokens.append(match.group(0))
+        if position < 0:
+            return None
+    return tokens
+
+
+def _string_end(query: str, start: int) -> int:
+    """The index after the closing quote of a plain string whose body starts at start,
+    or -1 when it is unterminated or holds a line break."""
+    position = start
+    while position < len(query):
+        char = query[position]
+        if char == "\\":
+            position += 2
+            continue
+        if char == '"':
+            return position + 1
+        if char in "\r\n":
+            return -1
+        position += 1
+    return -1
+
+
+def _block_string_end(query: str, start: int) -> int:
+    """The index after the closing triple quote of a block string whose body starts at
+    start, or -1 when it is unterminated. A backslash before a triple quote escapes it."""
+    position = start
+    while position < len(query):
+        if query.startswith('\\"""', position):
+            position += 4
+            continue
+        if query.startswith('"""', position):
+            return position + 3
+        position += 1
+    return -1
+
+
+def only_resolves_review_thread(part: str) -> bool:
+    """Whether the only GraphQL mutation in a `gh api graphql` part is resolving a review
+    thread: one `query=` value holding one operation whose single top level field is
+    resolveReviewThread, and no other word of the part naming a mutation."""
+    tokens = _common.shell_tokens(part)
+    queries = [token.split("=", 1)[1] for token in tokens if token.startswith("query=")]
+    if len(queries) != 1 or not GRAPHQL_MUTATION.search(queries[0]):
+        return False
+    if any(token == "--input" or token.startswith("--input=") for token in tokens):
+        return False
+    if len(GRAPHQL_MUTATION.findall(queries[0])) != 1:
+        return False
+    if any(GRAPHQL_MUTATION.search(token) for token in tokens if not token.startswith("query=")):
+        return False
+    return mutation_fields(queries[0]) == [ALLOWED_MUTATION]
 
 
 def release_violation(part: str, root: Optional[str]) -> Optional[str]:
