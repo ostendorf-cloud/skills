@@ -36,6 +36,9 @@ OWN_HOOKS_DIRNAME = ".agent-skills-hooks"
 OWN_HOOK_MARKERS = ("/ai-setup/hooks/", "/skills/hooks/", f"/{OWN_HOOKS_DIRNAME}/")
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 LEGACY_SKILL_MARKER = "/ai-setup/skills/"
+# Top level settings earlier profiles wrote before the state file recorded them. An
+# install with no recorded footprint removes one only while it still holds this value.
+LEGACY_PROFILE_SETTINGS = {"language": "english"}
 
 
 @dataclass
@@ -720,27 +723,70 @@ def merge_hooks(
     return result
 
 
+def settings_footprint(composed: dict[str, Any]) -> dict[str, list[str]]:
+    """The top level keys and env keys an install writes, recorded in the state file.
+
+    Hooks are tracked separately by their own markers.
+    """
+    env = composed.get("env")
+    return {
+        "keys": sorted(key for key in composed if key not in ("hooks", "env")),
+        "env": sorted(env) if isinstance(env, dict) else [],
+    }
+
+
 def merge_into_existing(
     existing: dict[str, Any],
     composed: dict[str, Any],
     old_source: Path | None = None,
     script_names: frozenset[str] = frozenset(),
+    previous: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
+    """Merges composed into existing. previous is the footprint the last install recorded.
+
+    A key or env key the previous install wrote and composed no longer sets is removed.
+    A key only the user added is never in previous and stays. The explicit legacy
+    values cover installs from before the footprint was recorded.
+    """
+    previous = previous or {}
     merged = dict(existing)
+    for key in previous.get("keys", []):
+        if key not in composed:
+            merged.pop(key, None)
+    for key, legacy_value in LEGACY_PROFILE_SETTINGS.items():
+        if key not in composed and merged.get(key) == legacy_value:
+            del merged[key]
     for key, value in composed.items():
         if key == "hooks":
             merged["hooks"] = merge_hooks(
                 existing.get("hooks", {}), value, old_source, script_names
             )
+        elif key == "env":
+            continue
         else:
             merged[key] = value
+
+    old_env = existing.get("env")
+    env = dict(old_env) if isinstance(old_env, dict) else {}
+    new_env = composed.get("env")
+    new_env = new_env if isinstance(new_env, dict) else {}
+    for key in previous.get("env", []):
+        if key not in new_env:
+            env.pop(key, None)
+    env.update(new_env)
+    if env:
+        merged["env"] = env
+    elif previous.get("env"):
+        merged.pop("env", None)
     return merged
 
 
 def install_settings(
     source: Path, claude_dir: Path, home: Path, target: str, profile: str, dry_run: bool
-) -> tuple[str, str | None, int, int]:
-    """Merge the profile settings and the hook manifest into claude_dir/settings.json."""
+) -> tuple[str, str | None, int, int, dict[str, list[str]]]:
+    """Merge the profile settings and the hook manifest into claude_dir/settings.json.
+
+    The last element is the footprint this install writes, for the state file."""
     profile_settings = load_profile_settings(source, profile)
     if profile == "laptop":
         overlay = load_local_overlay(home, target)
@@ -753,6 +799,7 @@ def install_settings(
     hooks = load_hook_manifest(source)
     hook_blocks = build_hook_blocks(hooks, claude_dir / OWN_HOOKS_DIRNAME)
     composed = compose_settings(profile_settings, hook_blocks)
+    footprint = settings_footprint(composed)
 
     # The source a previous install recorded, read before write_state overwrites it
     # with this run's. Lets block_is_own recognise a hook command that previous
@@ -769,18 +816,19 @@ def install_settings(
         if not dry_run:
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text(new_content)
-        return "created", None, len(composed), len(hooks)
+        return "created", None, len(composed), len(hooks), footprint
 
     existing_raw = dest.read_text()
     try:
         existing = json.loads(existing_raw)
     except json.JSONDecodeError:
         existing = {}
-    merged = merge_into_existing(existing, composed, old_source, script_names)
+    previous = old_state.get("settings") if old_state else None
+    merged = merge_into_existing(existing, composed, old_source, script_names, previous)
     new_content = json.dumps(merged, indent=2) + "\n"
 
     if new_content == existing_raw:
-        return "unchanged", None, len(composed), len(hooks)
+        return "unchanged", None, len(composed), len(hooks), footprint
 
     existing_has_own_hooks = any(
         block_is_own(block, old_source, script_names)
@@ -795,7 +843,7 @@ def install_settings(
             backup.write_text(existing_raw)
     if not dry_run:
         dest.write_text(new_content)
-    return "overwritten", backed_up, len(composed), len(hooks)
+    return "overwritten", backed_up, len(composed), len(hooks), footprint
 
 
 def write_state(
@@ -808,6 +856,7 @@ def write_state(
     skill_names: set[str],
     backups: dict[str, str],
     dry_run: bool,
+    settings_footprint_record: dict[str, list[str]] | None = None,
 ) -> None:
     if dry_run:
         return
@@ -822,6 +871,8 @@ def write_state(
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "backups": backups,
     }
+    if settings_footprint_record is not None:
+        data["settings"] = settings_footprint_record
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) + "\n")
 
@@ -887,7 +938,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
         lines.append("settings skipped, hooks conflict")
         lines.append("state   skipped, hooks conflict")
     else:
-        settings_action, settings_backup, keys, hook_count = install_settings(
+        settings_action, settings_backup, keys, hook_count, footprint = install_settings(
             args.source, args.claude_dir, args.home, args.target, args.profile, args.dry_run
         )
         lines.append(f"settings {settings_action} keys={keys} hooks={hook_count}")
@@ -904,6 +955,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
             installed_names,
             collect_backups(args.claude_dir),
             args.dry_run,
+            footprint,
         )
         lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
 
@@ -946,7 +998,7 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
         lines.append(f"rules   drift ({rules_action})")
         drift = True
 
-    settings_action, _, keys, hook_count = install_settings(
+    settings_action, _, keys, hook_count, _ = install_settings(
         args.source, args.claude_dir, args.home, args.target, args.profile, dry_run=True
     )
     if settings_action == "unchanged":

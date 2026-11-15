@@ -263,6 +263,97 @@ class InstallTestCase(unittest.TestCase):
         self.assertIn(str(hooks_dir / "test_hook.py"), command)
         self.assertNotIn(str(self.source), command)
 
+    def _set_profile(self, profile: dict) -> None:
+        write(self.source / "settings" / "claude.json", json.dumps(profile))
+
+    def _installed_settings(self) -> dict:
+        return json.loads((self.home / ".claude" / "settings.json").read_text())
+
+    def test_reinstall_removes_a_key_the_profile_no_longer_sets(self) -> None:
+        self._set_profile({"effortLevel": "high", "fileCheckpointingEnabled": True})
+        self._install()
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        settings = self._installed_settings()
+        self.assertEqual(settings["effortLevel"], "medium")
+        self.assertNotIn("fileCheckpointingEnabled", settings)
+
+    def test_reinstall_keeps_a_key_the_user_added(self) -> None:
+        self._set_profile({"effortLevel": "high"})
+        self._install()
+        settings_path = self.home / ".claude" / "settings.json"
+        settings = self._installed_settings()
+        settings["theme"] = "dark"
+        settings_path.write_text(json.dumps(settings))
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        self.assertEqual(self._installed_settings()["theme"], "dark")
+
+    def test_first_install_removes_no_key_it_did_not_write(self) -> None:
+        write(
+            self.home / ".claude" / "settings.json",
+            json.dumps({"theme": "dark", "fileCheckpointingEnabled": True}),
+        )
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        settings = self._installed_settings()
+        self.assertEqual(settings["theme"], "dark")
+        self.assertTrue(settings["fileCheckpointingEnabled"])
+
+    def test_install_without_recorded_state_removes_the_legacy_language_key(self) -> None:
+        write(
+            self.home / ".claude" / "settings.json",
+            json.dumps({"language": "english", "effortLevel": "high"}),
+        )
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        self.assertNotIn("language", self._installed_settings())
+
+    def test_install_without_recorded_state_keeps_a_user_chosen_language(self) -> None:
+        write(self.home / ".claude" / "settings.json", json.dumps({"language": "german"}))
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        self.assertEqual(self._installed_settings()["language"], "german")
+
+    def test_install_merges_env_into_the_existing_env(self) -> None:
+        write(
+            self.home / ".claude" / "settings.json",
+            json.dumps({"env": {"HTTPS_PROXY": "http://proxy.example.net:3128"}}),
+        )
+        self._set_profile({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}})
+        self._install()
+        self.assertEqual(
+            self._installed_settings()["env"],
+            {
+                "HTTPS_PROXY": "http://proxy.example.net:3128",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+            },
+        )
+
+    def test_reinstall_removes_an_env_key_the_profile_no_longer_sets(self) -> None:
+        self._set_profile({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet", "FOO": "bar"}})
+        self._install()
+        settings_path = self.home / ".claude" / "settings.json"
+        settings = self._installed_settings()
+        settings["env"]["HTTPS_PROXY"] = "http://proxy.example.net:3128"
+        settings_path.write_text(json.dumps(settings))
+        self._set_profile({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}})
+        self._install()
+        self.assertEqual(
+            self._installed_settings()["env"],
+            {
+                "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+                "HTTPS_PROXY": "http://proxy.example.net:3128",
+            },
+        )
+
+    def test_reinstall_drops_an_env_object_the_profile_no_longer_sets(self) -> None:
+        self._set_profile({"env": {"FOO": "bar"}})
+        self._install()
+        self._set_profile({"effortLevel": "medium"})
+        self._install()
+        self.assertNotIn("env", self._installed_settings())
+
     def test_install_keeps_foreign_hook_blocks(self) -> None:
         settings_path = self.home / ".claude" / "settings.json"
         write(
