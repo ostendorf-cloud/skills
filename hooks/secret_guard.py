@@ -266,8 +266,27 @@ def gh_auth_token_violation(part: str) -> Optional[str]:
     dispatch = _common.subcommand_tokens(tokens[1:], space_form_takes_value=True)
     if not dispatch or dispatch[0] != "auth":
         return None
-    if _common.subcommand_after(dispatch[1:], space_form_takes_value=True) == "token":
+    sub = _common.subcommand_tokens(dispatch[1:], space_form_takes_value=True)
+    if not sub:
+        return None
+    if sub[0] == "token":
         return f"'gh auth token' prints a secret value to the transcript. {NEVER_PRINT}"
+    if sub[0] == "git-credential":
+        return (
+            "'gh auth git-credential' prints the stored token to the transcript. "
+            "Git calls its credential helper itself, a session never runs it. "
+            f"{NEVER_PRINT}"
+        )
+    if sub[0] == "status" and any(
+        token == "--show-token"
+        or token.startswith("--show-token=")
+        or (token.startswith("-") and not token.startswith("--") and "t" in token[1:])
+        for token in sub[1:]
+    ):
+        return (
+            "'gh auth status' with --show-token prints the token to the transcript. "
+            "Run 'gh auth status' without it to check the login."
+        )
     return None
 
 
