@@ -16,6 +16,25 @@ HOOKS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NO_SCRATCH = "/nonexistent-scratch"
 
 
+def git_env(base: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """base with the user's git configuration cut off.
+
+    Global and system config point at the null device, so a signing setup, aliases,
+    hooks or init.defaultBranch of the machine never reach a fixture repository. A
+    commit in a test must not wait on a locked signing agent.
+    """
+    env = dict(base if base is not None else os.environ)
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+# Every test module imports this helper, so every git subprocess a test starts, and
+# every hook it runs, inherits the isolated environment.
+os.environ.update(git_env())
+
+
 def scratch_env(scratch: str, base: Optional[dict[str, str]] = None) -> dict[str, str]:
     """The environment for a hook run whose session scratch directory is scratch."""
     return dict(base if base is not None else os.environ, TMPDIR=scratch)

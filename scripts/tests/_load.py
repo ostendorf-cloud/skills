@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import _gitenv  # noqa: F401  (side effect: isolates git config for every test)
+
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 
 
