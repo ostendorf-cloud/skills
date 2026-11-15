@@ -27,7 +27,7 @@ Take one issue from label to a pushed, reviewable pull request.
 5. Implement through a subagent, except a change of about five lines or fewer with no logic
    (text, configuration, a single value): the supervising session makes it directly and it still
    goes through review. Code with logic or a change that needs a new or changed test always uses
-   a subagent: Agent tool, model from the plan's per-step override or config
+   a subagent. It runs through the Agent tool, model from the plan's per-step override or config
    `models.implement` (default `sonnet`), scoped to the files the plan named, carrying the house
    style rules. A rework round scopes the subagent to the finding list instead: every blocker
    and should finding goes to it. A nit is fixed by the supervising session directly, not sent
