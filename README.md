@@ -55,6 +55,14 @@ Skills alone, for any agent that supports skills.sh:
 npx skills add ostendorf-cloud/skills -g
 ```
 
+## Model defaults
+
+- The laptop profile sets `model` to `opusplan`: Opus in plan mode, Sonnet otherwise.
+- `effortLevel` is `medium`.
+- `CLAUDE_CODE_SUBAGENT_MODEL` is `sonnet`. A model passed to a single subagent still wins.
+- Raise the model for one session with `/model`, the effort with `/effort`.
+- The CI profile sets no model or effort and keeps the workflow's own choice.
+
 ## Use
 
 - Work as usual. The skill reminder names the skill that fits the request.
