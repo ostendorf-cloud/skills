@@ -28,7 +28,7 @@ jobs:
   # checkout whose mise.toml has drifted. "task lint:license" stays for local
   # use and runs the same tool with the same flags over the same files.
   license:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@f64e9f521dd9d66f0233cd8e8035c778b9567f0c # v0.1.1
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-license.yaml@a798b963d20b239bec48c101af965e08fac36146 # v0.3.0
     with:
       copyright-holder: Simon Ostendorf
       year: "2026"
@@ -37,7 +37,7 @@ jobs:
         find . \( -name "*.py" -o -name "*.sh" \) -not -path "./.worktrees/*" -not -path "./.claude/*"
 
   renovate-config:
-    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@v0.2.1
+    uses: ostendorf-cloud/workflows/.github/workflows/reusable-renovate-config.yaml@a798b963d20b239bec48c101af965e08fac36146 # v0.3.0
 
   markdownlint:
     runs-on: ubuntu-latest
