@@ -22,13 +22,17 @@ One checkout, one session, without disturbing a branch another session already h
 
 1. Check `.gitignore` for a `.claude/worktrees/` entry. Add it when missing.
 2. Branch off the base from config `pr.base`, else the repository default branch:
-   `git worktree add .claude/worktrees/<branch> -b <branch> <base>`.
+   `git worktree add --no-track .claude/worktrees/<branch> -b <branch> <base>`. Without
+   `--no-track` the upstream write to `.git/config` can fail in a sandbox, after the branch exists
+   and before the worktree does. Clear that state with `git worktree prune`, then
+   `git branch -D <branch>`, then add again.
 3. Install dependencies inside the new worktree when a lock file exists there.
 4. Run every command for that session from inside `.claude/worktrees/<branch>`, never from the
    original checkout.
 5. Once the branch's pull request merges: `git worktree remove .claude/worktrees/<branch>`, then
    `git branch -d <branch>`, then `git worktree prune`. A worktree lives as long as its pull
-   request.
+   request. A `could not lock config file .git/config` message on the remove is harmless once
+   `git worktree list` no longer shows the path. Prune afterwards.
 6. List existing worktrees with `git worktree list` and prune one left behind by a merged or
    abandoned branch. A session that ends checks for its own stale worktrees first.
 
