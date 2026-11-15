@@ -70,9 +70,9 @@ Judge one pushed pull request as a different agent than the one that built it.
     report that the judgment was approve but independence was missing.
 14. Verdict changes requested: move the label to `changes requested`. The pull request stays
     a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
-15. Verdict needs human, or the round count reaches config `work.reviewRounds`: move the
-    label to `needs human`. The round count is the number of this skill's own verdict comments
-    and formal reviews already on the pull request, including the one just posted.
+15. Verdict needs human, or config `work.reviewRounds` is set and the round count reaches it:
+    move the label to `needs human`. The round count is this skill's own verdict comments and
+    formal reviews on the pull request, the one just posted included. Unset means no limit.
 16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
     skill's ready condition holds and only a human decision is left, otherwise leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
@@ -102,8 +102,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 - A `## Verification` section is a claim, not evidence. The pull request's own CI result for
   the current head decides whether it still holds.
 - Every verdict names the commit CI was green on, formal review and comment path alike.
-- The round cap is a floor for a human decision, never a ceiling that waves through unfinished
-  work.
+- A round cap, when set, is a floor for a human decision, never a way to wave through work.
+- A re-review checks the finding list only.
 - A formal review or a `gh pr comment`, never both, for the same round's verdict. Resolving a
   thread never substitutes for stating whether its finding passed in the new verdict.
 - A finding of the shape "does this write happen" is verified by counting the write at its
@@ -116,7 +116,7 @@ Judge one pushed pull request as a different agent than the one that built it.
 
 Reads `.agent-skills.json` through the snippet in `skills/README.md`.
 
-- `work.reviewRounds`: review rounds before escalating to `needs human`. Default `2`.
+- `work.reviewRounds`: review rounds before escalating to `needs human`. Default unset, no limit.
 - `models.review`: default `sonnet`. `models.reviewBoundary`: default `opus`.
 - `labels.reviewing`, `labels.done`, `labels.changesRequested`, `labels.needsHuman`,
   `labels.blocked`: defaults in `skills/README.md`.
