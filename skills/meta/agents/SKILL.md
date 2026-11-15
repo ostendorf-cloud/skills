@@ -17,9 +17,11 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 
 - The supervising session does itself: plan, verify a claim, run the verify command, route
   labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one
-  line nit.
+  line nit, and a change of about five lines or fewer with no logic: text, configuration, a
+  single value. Such a change still goes through review like any other.
 - Everything else that changes behaviour runs in a subagent: an implementation, a review fix at
-  should or blocker level included, however small it looks.
+  should or blocker level included. Code with logic and any change that needs a new or changed
+  test always run in a subagent.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
 - A subagent cannot fetch, no exception. Fetch in the supervising session first and give it the

@@ -53,6 +53,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Sandbox traps answer wrongly instead of failing. Known traps, with the form that works:
   - `git -C <repo> fetch` in a `for` loop updates no ref. Use `cd <repo> && git fetch`.
   - `gh` in a `for` loop returns empty. Call `gh` once per Bash invocation.
+  - `gh ... --body "<multi-line>"` fails with `operation not permitted` on the config file. Use `--body-file`.
   - `diff <(...) <(...)` fails on blocked `/dev/fd` and reports a false difference. Compare `git rev-parse <rev>:<path>` hashes.
   - `grep -rc` summed gives zero. Use `grep -rho` and count lines.
   - `task check` and `mise x` limits in a sandbox: see `fix-ci`.
