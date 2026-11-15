@@ -64,6 +64,8 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Confirm first: merge a pull request, cut a release, `apply` infrastructure, delete anything that existed before the session.
 - Never: push to the default branch, force push without `--force-with-lease`, force push to the default branch, `destroy` infrastructure, print a secret, write a secret into a file, log, commit, issue, pull request or message.
 - One exception to the first: the push that creates the default branch on a remote carrying no branch at all.
+- A destructive operation over several targets (delete, overwrite, reset, force push, prune) runs on one target first. Check the actual outcome, not the exit code, before the rest follow.
+- A destructive step that cannot complete is reported with what is left behind and who can finish it.
 - A command the harness denies is a decision. Do not route around it with another tool, agent or spelling.
 - Repository and organisation settings, labels, rulesets and secrets are infrastructure as code. Never change them with a CLI or the web UI. Propose the change in the infrastructure repository.
 - A security vulnerability in a public repository gets no write-up of how it is exploitable before a fix is merged. This covers an issue, a pull request, a comment and a commit message. Use a draft security advisory, or a branch and pull request with a plain message.
