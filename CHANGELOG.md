@@ -1,5 +1,46 @@
 # Changelog
 
+## [v0.3.0](https://github.com/ostendorf-cloud/skills/compare/v0.2.0...v0.3.0) (2026-11-15)
+
+### Features
+
+- **skills:** validate the Renovate configuration locally ([#199](https://github.com/ostendorf-cloud/skills/pull/199))
+- **skills:** add agent guidance rules from five issues ([#198](https://github.com/ostendorf-cloud/skills/pull/198))
+- **skills:** let the supervising session make trivial changes itself ([#196](https://github.com/ostendorf-cloud/skills/pull/196))
+- **settings:** default to opusplan, medium effort and sonnet subagents ([#190](https://github.com/ostendorf-cloud/skills/pull/190))
+- **skills:** name the sandbox traps and cap what a report returns ([#185](https://github.com/ostendorf-cloud/skills/pull/185))
+- **skills:** a verification claim names the commit behind it ([#152](https://github.com/ostendorf-cloud/skills/pull/152))
+- **skills:** let a reviewer probe what it cannot read ([#151](https://github.com/ostendorf-cloud/skills/pull/151))
+- **skills:** a refusal test names what refused ([#150](https://github.com/ostendorf-cloud/skills/pull/150))
+- **skills:** require every image to build for amd64 and arm64 ([#154](https://github.com/ostendorf-cloud/skills/pull/154))
+- **hooks:** warn when the installed skills lag their checkout ([#140](https://github.com/ostendorf-cloud/skills/pull/140))
+- **skills:** three verification rules, each paid for by a real failure ([#144](https://github.com/ostendorf-cloud/skills/pull/144))
+- **ci:** wire renovate into CI ([#138](https://github.com/ostendorf-cloud/skills/pull/138))
+- **skills:** require both Ingress and Gateway API in a chart ([#132](https://github.com/ostendorf-cloud/skills/pull/132))
+- **baseline:** status table, decisions via tool only, terser prose ([#124](https://github.com/ostendorf-cloud/skills/pull/124))
+- **secrets-handling:** add the env-vars-only _FILE twin rule ([#123](https://github.com/ostendorf-cloud/skills/pull/123))
+- **baseline:** no public write-up for an unfixed vulnerability ([#119](https://github.com/ostendorf-cloud/skills/pull/119))
+
+### Bug Fixes
+
+- **tests:** run git in tests without the global git config ([#205](https://github.com/ostendorf-cloud/skills/pull/205))
+- **skills:** create worktrees with --no-track and clear a half one ([#204](https://github.com/ostendorf-cloud/skills/pull/204))
+- **hooks:** credential deny, review calls and scratch scope ([#203](https://github.com/ostendorf-cloud/skills/pull/203))
+- **settings:** open the sandbox for pnpm, known_hosts and chromium ([#201](https://github.com/ostendorf-cloud/skills/pull/201))
+- **skills:** install the shared reference file and check references ([#200](https://github.com/ostendorf-cloud/skills/pull/200))
+- **hooks:** name skills only for clear task phrases ([#191](https://github.com/ostendorf-cloud/skills/pull/191))
+- **install:** make an installation self contained ([#158](https://github.com/ostendorf-cloud/skills/pull/158))
+- **install:** recognise another worktree of the same repository ([#153](https://github.com/ostendorf-cloud/skills/pull/153))
+- **skills:** assert a selector override replaces the default map ([#157](https://github.com/ostendorf-cloud/skills/pull/157))
+- **hooks:** allow the first push to a missing default branch ([#139](https://github.com/ostendorf-cloud/skills/pull/139))
+- **settings:** narrow the permission deny and let the hook carry the net ([#148](https://github.com/ostendorf-cloud/skills/pull/148))
+- **settings:** narrow the sandbox env deny instead of widening an allow ([#147](https://github.com/ostendorf-cloud/skills/pull/147))
+- **settings:** enumerate the env template depths under the code root ([#146](https://github.com/ostendorf-cloud/skills/pull/146))
+- **settings:** let a session work with committed env templates ([#142](https://github.com/ostendorf-cloud/skills/pull/142))
+- **settings:** let the sandbox delete a checked out .env.example ([#131](https://github.com/ostendorf-cloud/skills/pull/131))
+- **settings:** let the sandbox read .env.example in a repository ([#130](https://github.com/ostendorf-cloud/skills/pull/130))
+- **renovate:** pinDigests is a config key, not a preset ([#122](https://github.com/ostendorf-cloud/skills/pull/122))
+
 ## [v0.2.0](https://github.com/ostendorf-cloud/skills/compare/v0.1.0...v0.2.0) (2026-11-12)
 
 ### Features
