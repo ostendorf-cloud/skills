@@ -140,6 +140,72 @@ class InstallTestCase(unittest.TestCase):
         self.assertTrue((target / "SKILL.md").is_file())
         self.assertTrue((target / install.MARKER_NAME).is_file())
 
+    def test_install_puts_the_skills_readme_next_to_the_skills(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        for extra in ((), ("--link",)):
+            with self.subTest(extra=extra):
+                code, _ = self._install(*extra)
+                self.assertEqual(code, 0)
+                reference = self.home / ".claude" / "skills" / "README.md"
+                self.assertEqual(reference.read_text(), "# Skills\n")
+
+    def test_status_reports_drift_when_the_installed_readme_differs(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        self._install()
+        write(self.home / ".claude" / "skills" / "README.md", "stale\n")
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 1)
+        self.assertIn("README.md updated", output)
+
+    def test_uninstall_removes_the_installed_readme(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        self._install()
+        code, _ = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertFalse((self.home / ".claude" / "skills" / "README.md").exists())
+
+    def test_uninstall_removes_the_installed_readme_after_the_source_changed(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        self._install()
+        write(self.source / "skills" / "README.md", "# Changed\n")
+        code, _ = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertFalse((self.home / ".claude" / "skills" / "README.md").exists())
+
+    def test_uninstall_removes_the_installed_readme_after_the_source_file_is_gone(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        self._install()
+        (self.source / "skills" / "README.md").unlink()
+        code, _ = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertFalse((self.home / ".claude" / "skills" / "README.md").exists())
+
+    def test_install_refuses_a_foreign_readme_instead_of_overwriting_it(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        foreign = self.home / ".claude" / "skills" / "README.md"
+        write(foreign, "my own notes\n")
+        code, output = self._install()
+        self.assertEqual(code, 1)
+        self.assertIn("README.md conflict", output)
+        self.assertEqual(foreign.read_text(), "my own notes\n")
+
+    def test_uninstall_keeps_a_foreign_readme(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        foreign = self.home / ".claude" / "skills" / "README.md"
+        write(foreign, "my own notes\n")
+        self._install()
+        code, _ = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertEqual(foreign.read_text(), "my own notes\n")
+
+    def test_install_adopts_a_readme_identical_to_the_source(self) -> None:
+        write(self.source / "skills" / "README.md", "# Skills\n")
+        write(self.home / ".claude" / "skills" / "README.md", "# Skills\n")
+        code, _ = self._install()
+        self.assertEqual(code, 0)
+        code, _ = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertFalse((self.home / ".claude" / "skills" / "README.md").exists())
+
     def test_link_mode_links_skill_into_home_skills_dir(self) -> None:
         code, _ = self._install("--link")
         self.assertEqual(code, 0)

@@ -79,7 +79,7 @@ Produce a short plan in the issue that can be approved or corrected before code 
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `verify`: command that proves a change is good. Default `task check` when a Taskfile exists.
 - `models.plan`: default `opus`. `models.implement`: default `sonnet`.

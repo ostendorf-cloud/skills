@@ -57,8 +57,8 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 ## Guardrails
 
 - Duplicate search happens before every create.
-- Setting `ai: ready` uses the snippet in `skills/README.md`: exactly one `ai:` state
-  label remains afterwards, on a reopened issue too.
+- Setting `ai: ready` uses the snippet in `~/.claude/skills/README.md`: exactly one
+  `ai:` state label remains afterwards, on a reopened issue too.
 - Exactly one type label per issue.
 - `ai: ready` and `needs triage` are set only on explicit instruction from the user, never
   guessed.
@@ -68,7 +68,7 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `types`: issue type labels. Default `bug`, `feature`, `improvement`, `documentation`,
   `security`.

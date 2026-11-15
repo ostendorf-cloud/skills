@@ -87,6 +87,69 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("does not match directory name", output)
 
+    def _write_skill_with_body(self, body: str) -> None:
+        write(
+            self.root / "skills" / "cat" / "myskill" / "SKILL.md",
+            f"---\nname: myskill\ndescription: {LONG_DESCRIPTION}\n---\n{body}\n",
+        )
+
+    def test_detects_repository_path_to_a_file_the_install_does_not_provide(self) -> None:
+        self._write_skill_with_body("Use the snippet in `skills/README.md`.")
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("does not exist after install", output)
+
+    def _reference_findings(self, reference: str) -> list:
+        self._write_skill_with_body(f"See `{reference}`.")
+        return validate.check_skill_references(self.root)
+
+    def test_detects_installed_path_the_installer_does_not_provide(self) -> None:
+        findings = self._reference_findings("~/.claude/skills/NOTES.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("is not installed", findings[0])
+
+    def test_detects_home_variable_spelling_of_an_unprovided_path(self) -> None:
+        findings = self._reference_findings("$HOME/.claude/skills/NOTES.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("is not installed", findings[0])
+
+    def test_detects_braced_home_variable_spelling_of_an_unprovided_path(self) -> None:
+        findings = self._reference_findings("${HOME}/.claude/skills/NOTES.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("is not installed", findings[0])
+
+    def test_detects_parent_directory_spelling_of_the_repository_path(self) -> None:
+        findings = self._reference_findings("../skills/README.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("repository path", findings[0])
+
+    def test_detects_dot_dot_segment_that_hides_an_unprovided_path(self) -> None:
+        findings = self._reference_findings("~/.claude/skills/x/../NOTES.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("is not installed", findings[0])
+
+    def test_detects_subdirectory_that_is_not_a_skill(self) -> None:
+        findings = self._reference_findings("~/.claude/skills/sub/x.md")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("is not installed", findings[0])
+
+    def test_accepts_the_installed_readme_in_every_home_spelling(self) -> None:
+        for spelling in (
+            "~/.claude/skills/README.md",
+            "$HOME/.claude/skills/README.md",
+            "${HOME}/.claude/skills/README.md",
+            "~/.claude/skills/x/../README.md",
+        ):
+            with self.subTest(spelling=spelling):
+                self.assertEqual(self._reference_findings(spelling), [])
+
+    def test_accepts_a_file_inside_an_installed_skill_directory(self) -> None:
+        self.assertEqual(self._reference_findings("~/.claude/skills/myskill/SKILL.md"), [])
+
+    def test_accepts_a_repository_layout_path_with_subdirectories(self) -> None:
+        self.assertEqual(self._reference_findings("skills/<category>/<name>/SKILL.md"), [])
+        self.assertEqual(self._reference_findings("skills/cat/myskill/SKILL.md"), [])
+
     def test_detects_short_description(self) -> None:
         write(
             self.root / "skills" / "cat" / "myskill" / "SKILL.md",

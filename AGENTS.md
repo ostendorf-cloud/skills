@@ -71,8 +71,10 @@ task doctor
   git remote and the config supply names at run time.
 - No product name where more than one tool fits. Describe the shape: "the secret manager", "the
   object store", "the tracker". A tool specific rule belongs in a tool skill named after the tool.
-- A skill reads `.agent-skills.json` with `jq` through the snippet in `skills/README.md`. Absent
-  config means defaults. A key may be `false` and that is not absent.
+- A skill reads `.agent-skills.json` with `jq` through the snippet in the README of the skills
+  directory. `skills/README.md` is its repository path, `task install` copies it to
+  `~/.claude/skills/README.md`, and a skill cites the installed path. Absent config means
+  defaults. A key may be `false` and that is not absent.
 - Skills that run unattended set `disallowed-tools: AskUserQuestion` and record questions on the
   issue instead.
 - Every label the skill touches comes from the config with the documented default. A missing

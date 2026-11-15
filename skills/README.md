@@ -2,6 +2,9 @@
 
 One directory per skill under its category. The category is navigation, the skill name is global.
 
+`task install` copies this file to `~/.claude/skills/README.md`. Skills cite it by that path,
+and `validate` rejects a skill that cites a path the installer does not provide.
+
 ## Reading the config
 
 Every skill that reads `.agent-skills.json` uses this snippet. `jq` is required and listed as an

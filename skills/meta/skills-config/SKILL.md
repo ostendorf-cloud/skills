@@ -49,4 +49,4 @@ at the root of the skills repository.
 ## References
 
 - Schema: `agent-skills.schema.json`.
-- Label defaults: `skills/README.md`.
+- Label defaults: `~/.claude/skills/README.md`.

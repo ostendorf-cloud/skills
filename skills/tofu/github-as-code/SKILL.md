@@ -64,7 +64,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 
 - The label catalog is a local map of named groups, each group a map of label name to color and
   description: `base`, `ai`, `priority`, `release`, `dependencies`, `community`, `stack`. Names
-  for `ai`, `dependencies` and `priority` come from `skills/README.md` and the schema.
+  for `ai`, `dependencies` and `priority` come from `~/.claude/skills/README.md` and the schema.
 - `base` holds config `types`, `needs triage` (config `labels.needsTriage`), `duplicate`,
   `question`, and the context labels `breaking-change`, `deprecated`, `research`, `upstream`.
 - `release` holds release-me's pending/tagged/alpha/beta/rc and release-please's pending/tagged.
@@ -119,7 +119,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 - `types` (default `bug`, `feature`, `improvement`, `documentation`, `security`): `base` types.
 - `labels.needsTriage` (default `needs triage`): `base`. `labels.dependencies` (default
   `dependencies`): `dependencies`. `labels.ready` through `labels.blocked` (defaults in
-  `skills/README.md`): `ai`.
+  `~/.claude/skills/README.md`): `ai`.
 - `priority` (default urgent, high, medium, low with the `priority:` prefix): `priority` group.
 - `stacks` (default none): the `stack` group's names.
 

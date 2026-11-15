@@ -63,7 +63,7 @@ Pick one mode per request.
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `stories.roles`: allowed roles. Default `user`, `operator`, `maintainer`.
 - `labels.story`: label marking an issue as a story. Default `story`.

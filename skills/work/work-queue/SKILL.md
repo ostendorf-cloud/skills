@@ -51,13 +51,13 @@ Drain the ready and changes-requested issues unattended, one at a time, under a 
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `work`: `false` disables the work loop entirely.
 - `work.cap`: maximum issues one run works. Default `5`.
 - `priority`: ordering for the queue.
 - `labels.needsTriage`, `labels.ready`, `labels.changesRequested`: defaults in
-  `skills/README.md`.
+  `~/.claude/skills/README.md`.
 
 ## References
 

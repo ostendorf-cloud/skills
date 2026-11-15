@@ -91,8 +91,8 @@ Judge one pushed pull request as a different agent than the one that built it.
   staged, never pushed, and the worktree is left exactly as it was found.
 - A claim settled only by reading, and not by running something, is named unverified in the
   verdict, with what it rests on instead, whether or not running it was ever attempted.
-- Move the label with the snippet in `skills/README.md`: exactly one `ai:` state label
-  remains after the move.
+- Move the label with the snippet in `~/.claude/skills/README.md`: exactly one
+  `ai:` state label remains after the move.
 - The supervising session picks the model before it spawns this review: `models.reviewBoundary`
   for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
   `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
@@ -114,12 +114,12 @@ Judge one pushed pull request as a different agent than the one that built it.
 
 ## Config
 
-Reads `.agent-skills.json` through the snippet in `skills/README.md`.
+Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `work.reviewRounds`: review rounds before escalating to `needs human`. Default unset, no limit.
 - `models.review`: default `sonnet`. `models.reviewBoundary`: default `opus`.
 - `labels.reviewing`, `labels.done`, `labels.changesRequested`, `labels.needsHuman`,
-  `labels.blocked`: defaults in `skills/README.md`.
+  `labels.blocked`: defaults in `~/.claude/skills/README.md`.
 - `review.token`: environment variable holding a token of the review app, see the Apps section
   of `github-as-code`. Default: unset, the verdict stands as a comment.
 - `verify`: command that proves a change is good.
