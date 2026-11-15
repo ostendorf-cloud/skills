@@ -43,8 +43,10 @@ task doctor
   `task lint:license` stays and runs the same tool, flags and files locally.
 - The `renovate-config` job in `checks.yaml` calls `ostendorf-cloud/workflows`'
   `reusable-renovate-config.yaml` instead of a local Task target. The shared workflow pins
-  Renovate itself, independent of this repository's `mise.toml`. No local equivalent exists
-  to run outside CI.
+  Renovate itself, independent of this repository's `mise.toml`. `task lint:renovate` is the
+  local equivalent and runs the same two commands: `renovate-config-validator` and
+  `renovate --platform=local --config-validation-error`. The `mise.toml` pin and the shared
+  workflow's pin move by hand. Keep them on the same major version.
 
 ## Changing the baseline
 

@@ -45,6 +45,19 @@ tasks:
     cmds:
       - gitleaks git --no-banner --redact
 
+  lint:renovate:
+    desc: Renovate config schema check and preset resolution, no credentials
+    cmds:
+      - |
+        out="$(renovate-config-validator 2>&1)"; code=$?
+        printf '%s\n' "$out"
+        if printf '%s\n' "$out" | grep -qF "No files to perform configuration validation against"; then
+          echo "no Renovate configuration file was found" >&2
+          exit 1
+        fi
+        [ "$code" -eq 0 ] || exit "$code"
+      - renovate --platform=local --config-validation-error
+
   test:hooks:
     desc: Hook tests
     cmds:
@@ -70,6 +83,7 @@ tasks:
       - task: lint:yaml
       - task: lint:actions
       - task: lint:secrets
+      - task: lint:renovate
       - task: test:hooks
       - task: test:scripts
       - task: validate

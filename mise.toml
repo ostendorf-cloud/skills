@@ -8,3 +8,10 @@ yamllint = "1"
 gitleaks = "8"
 jq = "1"
 "aqua:google/addlicense" = "1.2.0"
+# Renovate 44 needs Node ^24.11 or ^26.13.
+node = "24.11.0"
+
+[tools."npm:renovate"]
+version = "44.198.3"
+# One transitive dependency lacks a provenance attestation at this version.
+trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"]
