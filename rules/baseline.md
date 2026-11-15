@@ -86,4 +86,4 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 - Load the matching skill before the first action of its kind, not after.
 - Committing, pull requests, reviews, releases, ADRs, concept docs, issues, OpenTofu and Kubernetes always have a skill.
-- The skill reminder names candidates on every request. It reminds, it does not decide. Name the skill that shaped the work, and say when none matched.
+- The skill reminder names up to two skills when a prompt clearly asks for their task. It is a hint, not an order. Load one only when the task needs it. Name the skill that shaped the work, and say when none matched.
