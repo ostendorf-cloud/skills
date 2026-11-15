@@ -3,7 +3,8 @@
   "model": "opusplan",
   "effortLevel": "medium",
   "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "XDG_RUNTIME_DIR": "/tmp/claude"
   },
   "fileCheckpointingEnabled": true,
   "attribution": {
@@ -218,9 +219,12 @@
     ],
     "filesystem": {
       "allowRead": [
-        "~/Code"
+        "~/Code",
+        "~/.ssh/known_hosts",
+        "~/.ssh/known_hosts2"
       ],
       "allowWrite": [
+        "/private/var/folders/*/*/T",
         "~/Library/Caches/go-build",
         "~/Library/Caches/golangci-lint",
         "~/Library/Caches/mise",
