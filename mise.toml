@@ -12,6 +12,6 @@ jq = "1"
 node = "24.11.0"
 
 [tools."npm:renovate"]
-version = "44.198.3"
+version = "44.244.2"
 # One transitive dependency lacks a provenance attestation at this version.
 trust_policy_excludes = ["@yarnpkg/libzip@3.2.2"]
