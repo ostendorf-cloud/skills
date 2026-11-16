@@ -9,7 +9,7 @@ gitleaks = "8"
 jq = "1"
 "aqua:google/addlicense" = "1.2.0"
 # Renovate 44 needs Node ^24.11 or ^26.13.
-node = "24.11.0"
+node = "24.22.3"
 
 [tools."npm:renovate"]
 version = "44.198.3"
