@@ -1375,6 +1375,96 @@ class CommandShapeTest(unittest.TestCase):
             ]
         )
 
+    def test_reads_the_branch_of_the_last_switch_before_a_push(self):
+        self.assert_allowed(
+            [
+                "git checkout main && git checkout feat/thing && git push origin HEAD",
+                "git checkout main && git checkout feat/thing && git push",
+                "git switch main && git pull --ff-only && git switch feat/thing && "
+                "git push -u origin HEAD",
+                "git checkout main; git checkout feat/thing && git push origin HEAD",
+                "git checkout main\ngit checkout feat/thing && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git push -u origin HEAD",
+                "git switch main && git switch -c feat/new && git push -u origin HEAD",
+                "git checkout main && git checkout feat/thing && git checkout -b feat/new && "
+                "git push",
+                "git checkout main && git checkout feat/thing && git add README.md && "
+                "git commit -m 'docs: fix typo' && git push origin HEAD",
+                "{ git checkout main && git checkout feat/thing && git push origin HEAD; }",
+                "git checkout main && git symbolic-ref HEAD refs/heads/feat/thing && git push",
+                "git checkout main && git branch -m feat/renamed && git push -u origin HEAD",
+            ]
+        )
+
+    def test_reads_the_default_branch_when_the_last_switch_names_it(self):
+        self.assert_denied(
+            [
+                "git checkout feat/thing && git checkout main && git push origin HEAD",
+                "git checkout feat/thing && git checkout main && git push",
+                "git switch -c feat/new && git switch main && git push -u origin HEAD",
+                "git checkout -b feat/new && git checkout main && git push -u origin HEAD",
+                "git checkout main && git checkout feat/thing && git checkout - && "
+                "git push origin HEAD",
+                "git checkout main && git checkout feat/thing && git checkout main && git push",
+                "git checkout feat/thing; git checkout main\ngit push origin HEAD",
+            ]
+        )
+
+    def test_keeps_the_default_branch_when_a_later_switch_may_not_hold(self):
+        self.assert_denied(
+            [
+                # A failed switch leaves the branch as it was, and the push still runs.
+                "git checkout main && git checkout feat/thing; git push origin HEAD",
+                "git checkout main\ngit checkout feat/thing\ngit push origin HEAD",
+                "git checkout main && git checkout feat/thing || true && git push origin HEAD",
+                "git checkout main && true || git checkout feat/thing && git push origin HEAD",
+                "git checkout main && git checkout feat/thing | cat && git push origin HEAD",
+                "git checkout main && git checkout feat/thing & git push origin HEAD",
+                "git checkout main && git checkout feat/thing & sleep 1 && git push origin HEAD",
+                # A switch in a subshell, a group or a conditional does not lift it.
+                "git checkout main && (git checkout feat/thing) && git push origin HEAD",
+                "git checkout main && ( git checkout feat/thing && git push origin HEAD )",
+                "git checkout main && { git checkout feat/thing; } && git push origin HEAD",
+                "(git checkout main; git checkout feat/thing) && git push origin HEAD",
+                "git checkout main && if git checkout feat/thing; then git push origin HEAD; fi",
+                "git checkout main && sh -c 'git checkout feat/thing' && git push origin HEAD",
+                "git checkout main && echo $(git checkout feat/thing) && git push origin HEAD",
+                # Something between the switch and the push may move the branch or the
+                # repository.
+                "git checkout main && git checkout feat/thing && cd ../other && "
+                "git push origin HEAD",
+                "git checkout main && git checkout feat/thing && git rebase origin/main main && "
+                "git push origin HEAD",
+                "git checkout main && git -C ../other checkout feat/thing && git push origin HEAD",
+                "git checkout feat/thing && git push origin HEAD $(git checkout main)",
+                'git checkout feat/thing && git commit -m "$(git checkout main)" && '
+                "git push origin HEAD",
+                # A part the hook reads as two git calls has no single place in the order.
+                "git checkout main && git switch feat/thing && git log git checkout main && "
+                "git push origin HEAD",
+                "git checkout main && git branch -m other feat/thing && git push origin HEAD",
+                "git checkout -t origin/main && git push origin HEAD",
+            ]
+        )
+
+    def test_reads_a_new_branch_switched_to_from_the_default_branch(self):
+        subprocess.run(
+            ["git", "checkout", "-q", "main"], cwd=self.repo, check=True, capture_output=True
+        )
+        self.assert_allowed(
+            [
+                "git checkout -b feat/new && git push -u origin HEAD",
+                "git switch -c feat/new && git push -u origin HEAD",
+                "git checkout feat/thing && git push origin HEAD",
+            ]
+        )
+        self.assert_denied(
+            [
+                "git checkout feat/thing; git push origin HEAD",
+                "git checkout -b feat/new || git push origin HEAD",
+            ]
+        )
+
     def test_answers_odd_input_without_failing(self):
         for command in [
             "$(",

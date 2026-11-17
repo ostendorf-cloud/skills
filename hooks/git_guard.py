@@ -25,6 +25,11 @@ from a config file, `--git-dir` pointing at another repository, config pulled in
 `sh -c "$(printf ...)"`, or a command name the shell builds, such as `$'g\\x69t'` or
 `${x}git`. Branch protection on the remote is the backstop. This hook stops mistakes
 early.
+
+A branch switch in the command decides the branch of a later push only when the order
+is certain: the switch and the push are plain git calls joined by `&&`. Otherwise a
+switch to the default branch, or to one the hook cannot name, anywhere in the command
+makes every push read as made from the default branch. That fails safe.
 """
 
 import os
@@ -935,12 +940,15 @@ class GitCall(NamedTuple):
     raw: the command part the call was found in.
     directory: the directory that part runs in, None when not known.
     behind_xargs: whether xargs runs it, so stdin may add arguments.
+    part: the index of its part in the command itself, -1 when it runs in a text nested
+    inside the command, such as a substitution or a string handed to a shell.
     """
 
     words: list[str]
     raw: str
     directory: Optional[str]
     behind_xargs: bool
+    part: int = -1
 
 
 def mentions_git(text: str) -> bool:
@@ -997,7 +1005,8 @@ def _calls_in(
     calls: list[GitCall] = []
     nested: list[str] = []
     fed_shell = False
-    for (raw, piped), directory in zip(parts, directories):
+    for part_index, ((raw, piped), directory) in enumerate(zip(parts, directories)):
+        part = part_index if depth == 0 else -1
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
@@ -1010,7 +1019,7 @@ def _calls_in(
                 budget.spend("calls", MAX_GIT_CALLS)
                 in_backtick = "`" in words[index].partition("git")[0]
                 call_words, alias_command = git_call_words(words, resolved, index + 1, in_backtick)
-                calls.append(GitCall(call_words, raw, directory, behind_xargs))
+                calls.append(GitCall(call_words, raw, directory, behind_xargs, part))
                 if alias_command:
                     nested.append(alias_command)
         inner, fed = inner_commands(raw, resolved, names, piped)
@@ -1051,9 +1060,32 @@ def command_name_of(resolved: str) -> str:
 def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
     """The parts _common.command_parts splits command into, each with whether a single
     `|` feeds it. Follows the same quote tracking and separators, so the parts match."""
-    parts: list[tuple[str, bool]] = []
+    pieces = separated_pieces(command)
+    parts = [
+        (text, index > 0 and pieces[index - 1][1] == "|") for index, (text, _) in enumerate(pieces)
+    ]
+    return [(part.strip(), feeds) for part, feeds in parts if part.strip()]
+
+
+def command_chain(command: str) -> list[tuple[str, str, str]]:
+    """The parts command_parts_with_pipes splits command into, each with the operator
+    before and after it: `&&`, `||`, `;`, `|`, a newline, or "" at either end. An empty
+    piece keeps the operator in front of it, so `a &&` and a newline still join with
+    `&&`, as in the shell."""
+    chain: list[tuple[str, str, str]] = []
+    before = ""
+    for text, after in separated_pieces(command):
+        if text.strip():
+            chain.append((text.strip(), before, after))
+            before = after
+    return chain
+
+
+def separated_pieces(command: str) -> list[tuple[str, str]]:
+    """command split on `&&`, `||`, `;`, `|` and newlines outside quotes, each piece with
+    the separator after it, "" for the last one. Empty pieces are kept."""
+    parts: list[tuple[str, str]] = []
     current: list[str] = []
-    piped = False
     quote = ""
     index = 0
     length = len(command)
@@ -1078,15 +1110,14 @@ def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
         elif char in (";", "|"):
             separator = char
         if separator:
-            parts.append(("".join(current), piped))
+            parts.append(("".join(current), separator))
             current = []
-            piped = separator == "|"
             index += len(separator)
             continue
         current.append(char)
         index += 1
-    parts.append(("".join(current), piped))
-    return [(part.strip(), feeds) for part, feeds in parts if part.strip()]
+    parts.append(("".join(current), ""))
+    return parts
 
 
 def git_call_words(
@@ -1647,6 +1678,10 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
             return ""
         if argument in BRANCH_CREATE_FLAGS:
             return named_branch(arguments[index] if index < len(arguments) else "")
+        # `--track` without a name creates the branch the remote ref names, such as
+        # main for origin/main, which this hook does not derive.
+        if argument in ("-t", "--track") or argument.startswith("--track="):
+            return ""
         if argument.startswith("-"):
             continue
         rest = arguments[index:]
@@ -1654,6 +1689,79 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
             return None
         return named_branch(argument)
     return None
+
+
+# Subcommands that never change the checked out branch, so a push after one of them
+# still runs on the branch of the switch before it.
+BRANCH_KEEPING_SUBCOMMANDS = frozenset({"add", "commit", "diff", "fetch", "log", "show", "status"})
+# Characters that group, nest or background a command part, outside quotes.
+GROUPING_CHARS = re.compile(r"[(){}`&]")
+
+
+def switched_branch(
+    calls: list[GitCall], index: int, chain: list[tuple[str, str, str]]
+) -> Optional[str]:
+    """The branch the call at index runs on, read from the switch right before it, or
+    None when no such switch decides it.
+
+    The switch decides only when the shell runs the call if and only if the switch ran
+    and succeeded: both are plain parts of the command, `&&` joins every part from the
+    switch to the call, no `||` or `|` stands right before the switch, every git call in
+    between is one of BRANCH_KEEPING_SUBCOMMANDS, and both act on the same directory.
+    A plain part is one git call, git its first word, with no grouping, substitution or
+    background outside quotes. Anything else leaves the order unknown."""
+    by_part: dict[int, list[GitCall]] = {}
+    for call in calls:
+        if call.part >= 0:
+            by_part.setdefault(call.part, []).append(call)
+
+    def plain(part: int) -> bool:
+        text = chain[part][0]
+        words = shell_words_of(text)
+        masked = KEPT_REDIRECTION.sub("", _common.mask_quoted(text))
+        return (
+            len(by_part.get(part, [])) == 1
+            and bool(words)
+            and words[0] == "git"
+            and not GROUPING_CHARS.search(masked)
+        )
+
+    call = calls[index]
+    part = call.part
+    if part < 0 or part >= len(chain) or not plain(part):
+        return None
+    directory = call_directory(call)
+    while directory is not None and part > 0 and chain[part][1] == "&&":
+        part -= 1
+        if not plain(part):
+            return None
+        earlier = by_part[part][0]
+        target = branch_switch_target(earlier)
+        if target is None:
+            sub_index = git_subcommand_index(earlier.words, 0)
+            if sub_index is None or earlier.words[sub_index] not in BRANCH_KEEPING_SUBCOMMANDS:
+                return None
+            continue
+        if not target or chain[part][1] in ("||", "|") or renames_another_branch(earlier):
+            return None
+        return target if call_directory(earlier) == directory else None
+    return None
+
+
+def call_directory(call: GitCall) -> Optional[str]:
+    """The directory call acts on, None when it is not known."""
+    sub_index = git_subcommand_index(call.words, 0)
+    options = call.words[1:sub_index] if sub_index is not None else call.words[1:]
+    return _common.git_part_dir(call.raw, call.directory, global_directory(options))
+
+
+def renames_another_branch(call: GitCall) -> bool:
+    """Whether call is a `git branch -m <old> <new>`, which leaves the checked out branch
+    as it is unless that is old."""
+    sub_index = git_subcommand_index(call.words, 0)
+    if sub_index is None or call.words[sub_index] != "branch":
+        return False
+    return len([word for word in call.words[sub_index + 1 :] if not word.startswith("-")]) > 1
 
 
 def named_branch(name: str) -> str:
@@ -1692,9 +1800,15 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     """command_violation with the queries of this run in place."""
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
+    shape_text, _ = split_heredocs(command, Budget())
     # A command that switches to the default branch, or to a branch this hook cannot
     # name, may push from it later in the same command. Its pushes are read as made from
-    # the default branch, wherever the switch stands in the command.
+    # the default branch, wherever the switch stands in the command, unless the switch
+    # right before a push decides its branch, see switched_branch. A switch nested in
+    # a substitution or a string handed to a shell has no known place in that order,
+    # so then no switch decides.
+    assumed: Optional[str] = None
+    ordered = True
     for call in calls:
         target = branch_switch_target(call)
         if target is None:
@@ -1703,19 +1817,23 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
         options = call.words[1:sub_index] if sub_index is not None else []
         default = QUERIES.default_branch(global_directory(options) or cwd)
         if target in ("", default):
-            QUERIES.assumed_branch = default
-            break
-    shape_text, _ = split_heredocs(command, Budget())
+            assumed = assumed or default
+            ordered = ordered and call.part >= 0
+    chain = command_chain(shape_text.replace("\\\n", "")) if ordered else []
+    QUERIES.assumed_branch = assumed
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
         reason = env_config_violation(sorted(parts))
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
-    for call in calls:
+    for index, call in enumerate(calls):
+        switched = switched_branch(calls, index, chain) if chain else None
+        QUERIES.assumed_branch = assumed if switched is None else switched
         reason = call_violation(call, cwd, rewrites_remote, remote_cache)
         if reason:
             return reason
+    QUERIES.assumed_branch = assumed
 
     command_alone = command_stands_alone(shape_text)
     for raw_part, directory in _common.part_dirs(shape_text, cwd):
