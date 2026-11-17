@@ -21,9 +21,10 @@ prefixes of long options, config keys without case and git's boolean values.
 Limits: the hook reads the shell text of the command. It does not follow another
 interpreter, a sourced file, a git binary named through a variable or a glob, an alias
 from a config file, `--git-dir` pointing at another repository, config pulled in through
-`include.path` or `GIT_CONFIG_GLOBAL`, or a command the shell builds at run time, such
-as `sh -c "$(printf ...)"`. Branch protection on the remote is the backstop. This hook
-stops mistakes early.
+`include.path` or `GIT_CONFIG_GLOBAL`, a command the shell builds at run time, such as
+`sh -c "$(printf ...)"`, or a command name the shell builds, such as `$'g\\x69t'` or
+`${x}git`. Branch protection on the remote is the backstop. This hook stops mistakes
+early.
 """
 
 import os
@@ -183,6 +184,9 @@ class GitQueries:
         self.answers: dict[tuple[tuple[str, ...], Optional[str]], Optional[str]] = {}
         self.count = 0
         self.deadline = time.monotonic() + GIT_QUERY_SECONDS if bounded else None
+        # The branch to assume as checked out, set when the command itself switches to
+        # the default branch or to one this hook cannot name, see branch_switch_target.
+        self.assumed_branch: Optional[str] = None
 
     def spend(self) -> None:
         """Counts one subprocess. Raises ReadLimitError past a bound."""
@@ -221,7 +225,10 @@ QUERIES = GitQueries()
 
 
 def current_branch(cwd: Optional[str]) -> str:
-    """The checked out branch in cwd, or "" when it cannot be determined."""
+    """The checked out branch in cwd, or "" when it cannot be determined. When the
+    command switches branches itself, the branch it may switch to."""
+    if QUERIES.assumed_branch is not None:
+        return QUERIES.assumed_branch
     return QUERIES.run(["rev-parse", "--abbrev-ref", "HEAD"], cwd) or ""
 
 
@@ -1016,11 +1023,13 @@ def _calls_in(
     if fed_shell:
         nested.extend(body for body, _ in bodies)
         for raw, _ in parts:
-            nested.extend(
-                word
-                for word in shell_words_of(raw)
-                if any(hint in word for hint in NESTED_WORD_HINTS)
-            )
+            for word in shell_words_of(raw):
+                if any(hint in word for hint in NESTED_WORD_HINTS):
+                    nested.append(word)
+                    # printf and echo -e turn these into a line break and a tab before
+                    # the shell reads them.
+                    if "\\n" in word or "\\t" in word:
+                        nested.append(word.replace("\\n", "\n").replace("\\t", "\t"))
 
     for inner_text in nested:
         calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget))
@@ -1190,51 +1199,94 @@ def inner_commands(
 
     resolved holds the words of raw with their quoting resolved, names the command name
     each of them reads as. Inner commands are the command substitutions, the words after
-    a shell's `-c` and the arguments of `eval`, joined. A shell is fed when it is the
+    a shell's `-c` and the arguments of `eval`, joined. The output of a substitution
+    that `eval` or a shell's `-c` runs is a command too, so the heredoc bodies and words
+    inside such a substitution are read as commands. A shell is fed when it is the
     command of raw, wrappers aside, reads stdin, and piped says a `|` feeds raw or raw
-    holds a here-string or heredoc. A shell name elsewhere, such as in `which sh`, is an
-    argument."""
+    holds a here-string or heredoc. `source` and `.` with stdin as their file are fed
+    the same way. A shell name elsewhere, such as in `which sh`, is an argument."""
     inner = substitutions(raw)
     first_eval = next((i for i, name in enumerate(names) if name == "eval"), None)
     if first_eval is not None:
         inner.append(" ".join(resolved[first_eval + 1 :]))
+        inner.extend(substituted_commands(resolved[first_eval + 1 :]))
     first_env = next((i for i, name in enumerate(names) if name == "env"), None)
     if first_env is not None:
         inner.extend(env_split_strings(resolved[first_env + 1 :]))
     first_shell = next((i for i, name in enumerate(names) if name in SHELLS), None)
-    if first_shell is None:
-        return inner, False
-    later = resolved[first_shell + 1 :]
-    if any(SHELL_COMMAND_FLAG.match(word) for word in later):
-        inner.extend(later)
+    if first_shell is not None:
+        later = resolved[first_shell + 1 :]
+        if any(SHELL_COMMAND_FLAG.match(word) for word in later):
+            inner.extend(later)
+            inner.extend(substituted_commands(later))
+            return inner, False
+    if first_shell is None and not any(name in SOURCE_WORDS for name in names):
         return inner, False
     return inner, feeds_shell(raw, piped)
 
 
+SOURCE_WORDS = frozenset({"source", "."})
+STDIN_FILES = frozenset({"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"})
+
+
+def substituted_commands(arguments: list[str]) -> list[str]:
+    """The heredoc bodies and the words of every substitution in arguments, each read
+    as a command, because `eval` or a shell's `-c` runs what the substitution prints."""
+    found: list[str] = []
+    for text in substitutions(" ".join(arguments)):
+        rest, bodies = split_heredocs(text)
+        found.extend(body for body, _ in bodies)
+        found.extend(
+            word for word in shell_words_of(rest) if any(hint in word for hint in NESTED_WORD_HINTS)
+        )
+    return found
+
+
 def env_split_strings(arguments: list[str]) -> list[str]:
     """The commands `env -S` or `env --split-string` runs, from the arguments after env:
-    the string, split as a command line by env itself, with the words after it."""
+    the string, split as a command line by env itself, with the words after it.
+
+    `-S` counts inside a cluster of short flags too, as in `-vS` or `-iS`, and takes the
+    rest of the cluster or the next word. A cluster stops at `-u`, `-C` or `-P`, whose
+    value follows in the same way."""
     found: list[str] = []
     for index, argument in enumerate(arguments):
         rest = arguments[index + 1 :]
-        if argument in ("-S", "--split-string") and rest:
+        if argument == "--split-string" and rest:
             found.append(" ".join(rest))
         elif argument.startswith("--split-string="):
             found.append(" ".join([argument.partition("=")[2], *rest]))
-        elif argument.startswith("-S") and len(argument) > 2:
-            found.append(" ".join([argument[2:], *rest]))
+        elif argument.startswith("-") and not argument.startswith("--"):
+            for position, letter in enumerate(argument[1:], start=1):
+                tail = argument[position + 1 :]
+                if letter == "S":
+                    if tail or rest:
+                        found.append(" ".join([tail, *rest] if tail else rest))
+                    break
+                if letter in ENV_VALUE_LETTERS:
+                    break
     return found
+
+
+ENV_VALUE_LETTERS = "uCP"
 
 
 def feeds_shell(raw: str, piped: bool) -> bool:
     """Whether raw runs a shell as its command, wrappers aside, that reads stdin, while
-    a pipe, a here-string or a heredoc gives it that stdin."""
+    a pipe, a here-string or a heredoc gives it that stdin. `source` or `.` with stdin
+    as its file counts as such a shell."""
     if not piped and "<<" not in _common.mask_quoted(raw):
         return False
     words = _common.shell_words(_common.normalize_command_part(raw))
-    if not words or command_word_name(words[0]) not in SHELLS:
+    if not words:
         return False
-    return shell_reads_stdin([_common.unquote_word(word) for word in words[1:]])
+    name = command_word_name(words[0])
+    arguments = [_common.unquote_word(word) for word in words[1:]]
+    if name in SOURCE_WORDS:
+        return bool(arguments) and arguments[0] in STDIN_FILES
+    if name not in SHELLS:
+        return False
+    return shell_reads_stdin(arguments)
 
 
 def shell_reads_stdin(arguments: list[str]) -> bool:
@@ -1555,6 +1607,63 @@ def subtree_push_violation(arguments: list[str], cwd: Optional[str], default: st
     return None
 
 
+BRANCH_CREATE_FLAGS = frozenset({"-b", "-B", "--orphan", "-c", "-C", "--create", "--force-create"})
+
+
+def branch_switch_target(call: GitCall) -> Optional[str]:
+    """The branch a git call switches to or renames the current branch to: `checkout`,
+    `switch`, `symbolic-ref HEAD <ref>` and `branch -m`. "" when it switches to a branch
+    this hook cannot name, such as `-`, `@{-1}` or a variable. None when the call does
+    not change the checked out branch."""
+    sub_index = git_subcommand_index(call.words, 0)
+    if sub_index is None:
+        return None
+    subcommand = call.words[sub_index]
+    arguments = call.words[sub_index + 1 :]
+    positional = [argument for argument in arguments if not argument.startswith("-")]
+    if subcommand in ("checkout", "switch"):
+        return checkout_target(subcommand, arguments)
+    if subcommand == "symbolic-ref":
+        if len(positional) >= 2 and positional[0] == "HEAD":
+            return named_branch(positional[1].removeprefix("refs/heads/"))
+        return None
+    if subcommand == "branch" and positional:
+        short = [a for a in arguments if a.startswith("-") and not a.startswith("--")]
+        if "--move" in arguments or any("m" in a or "M" in a for a in short):
+            return named_branch(positional[-1])
+    return None
+
+
+def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
+    """The branch `git checkout` or `git switch` with these arguments switches to, read as
+    branch_switch_target does. A checkout of paths switches nothing."""
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if argument == "--":
+            return None
+        if argument == "-":
+            return ""
+        if argument in BRANCH_CREATE_FLAGS:
+            return named_branch(arguments[index] if index < len(arguments) else "")
+        if argument.startswith("-"):
+            continue
+        rest = arguments[index:]
+        if subcommand == "checkout" and rest:
+            return None
+        return named_branch(argument)
+    return None
+
+
+def named_branch(name: str) -> str:
+    """name, or "" when it is not a branch name the hook can read: empty, `-`, a
+    `@{-n}` reference to an earlier branch, or built by the shell."""
+    if not name or name == "-" or name.startswith("@{-") or shell_builds(name):
+        return ""
+    return name
+
+
 def global_directory(options: list[str]) -> Optional[str]:
     """The directory the `-C` options among git's global options point at, each one
     read against the one before, None when there is none."""
@@ -1583,6 +1692,19 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     """command_violation with the queries of this run in place."""
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
+    # A command that switches to the default branch, or to a branch this hook cannot
+    # name, may push from it later in the same command. Its pushes are read as made from
+    # the default branch, wherever the switch stands in the command.
+    for call in calls:
+        target = branch_switch_target(call)
+        if target is None:
+            continue
+        sub_index = git_subcommand_index(call.words, 0)
+        options = call.words[1:sub_index] if sub_index is not None else []
+        default = QUERIES.default_branch(global_directory(options) or cwd)
+        if target in ("", default):
+            QUERIES.assumed_branch = default
+            break
     shape_text, _ = split_heredocs(command, Budget())
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
@@ -1620,8 +1742,6 @@ def main() -> int:
     if not isinstance(command, str) or not command:
         return _common.emit_empty()
     cwd = payload.get("cwd")
-    if not isinstance(cwd, str) or not cwd:
-        cwd = os.getcwd()
 
     # Only the reading of a command fails closed. A command that mentions git and
     # cannot be read in full is denied rather than let through unread. A NUL byte is
@@ -1631,6 +1751,10 @@ def main() -> int:
         reason = UNREADABLE if mentions_git(command) else None
     else:
         try:
+            # A process whose working directory is gone cannot name it, and that fails
+            # closed like any other read error.
+            if not isinstance(cwd, str) or not cwd:
+                cwd = os.getcwd()
             reason = command_violation(command, cwd)
         except Exception:
             reason = UNREADABLE if mentions_git(command) else None

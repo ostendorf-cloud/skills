@@ -1295,6 +1295,86 @@ class CommandShapeTest(unittest.TestCase):
             ]
         )
 
+    def test_denies_a_push_fed_to_a_sourced_stdin(self):
+        self.assert_denied(
+            [
+                "source /dev/stdin <<'EOF'\ngit push origin main\nEOF",
+                ". /dev/stdin <<'EOF'\ngit push origin main\nEOF",
+                "printf 'git push origin main\\n' | source /dev/stdin",
+                ". /dev/stdin <<< 'git push origin main'",
+                "source - <<'EOF'\ngit push --force origin feat/thing\nEOF",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "source ./env.sh",
+                ". ~/.profile && git status",
+                "source /dev/stdin <<'EOF'\ngit status\nEOF",
+                "printf 'git push origin main' | source ./env.sh",
+            ]
+        )
+
+    def test_denies_a_heredoc_body_that_eval_or_a_shell_runs(self):
+        self.assert_denied(
+            [
+                "eval \"$(cat <<'EOF'\ngit push --force origin feat/thing\nEOF\n)\"",
+                "bash -c \"$(cat <<'EOF'\ngit push origin main\nEOF\n)\"",
+                "sh -c \"$(cat <<'EOF'\ngit push origin main\nEOF\n)\"",
+                "eval \"$(printf '%s' 'git push --force origin feat/thing')\"",
+                'eval "$(echo git push --force origin feat/thing)"',
+            ]
+        )
+        self.assert_allowed(
+            [
+                "eval \"$(cat <<'EOF'\ngit status\nEOF\n)\"",
+                "git commit -m \"$(cat <<'EOF'\nfix: git push --force\nEOF\n)\"",
+                'eval "$(mise activate bash)"',
+            ]
+        )
+
+    def test_denies_a_split_string_inside_a_cluster_of_env_flags(self):
+        self.assert_denied(
+            [
+                "env -vS 'git push origin main'",
+                "env -iS 'git push origin main'",
+                "env -vS'git push origin main'",
+                "env -u X -S 'git push origin main'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "env -vS 'git push origin feat/thing'",
+                "env -u S git status",
+                "env -uS echo 'git push origin main'",
+            ]
+        )
+
+    def test_reads_the_branch_as_unknown_after_a_switch_in_the_same_command(self):
+        self.assert_denied(
+            [
+                "git checkout main && git push",
+                "git switch main && git push origin HEAD",
+                "git checkout -q main; git push -u origin HEAD",
+                "git symbolic-ref HEAD refs/heads/main && git push",
+                "git checkout - && git push origin HEAD",
+                "git switch @{-1} && git push origin HEAD",
+                'git checkout "$BRANCH" && git push origin HEAD',
+                "git branch -m main && git push origin HEAD",
+                "git checkout -B main && git push origin HEAD",
+                "git checkout -B main feat/thing && git push origin HEAD",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git checkout -- main && git push origin HEAD",
+                "git switch -c feat/new && git push -u origin feat/new",
+                "git checkout -b feat/new && git push -u origin HEAD",
+                "git checkout main -- README.md && git push origin HEAD",
+                "git checkout main && git push origin feat/thing",
+                "git switch main && git pull --ff-only",
+            ]
+        )
+
     def test_answers_odd_input_without_failing(self):
         for command in [
             "$(",
@@ -1460,6 +1540,30 @@ class ReadLimitTest(unittest.TestCase):
             verdict, seconds = self.timed("; ".join(f"git -C ../repo-{i} push" for i in range(30)))
         self.assertEqual(verdict, "deny")
         self.assertLess(seconds, 1.0 + TIME_BOUND_SECONDS)
+
+    def test_denies_a_command_that_mentions_git_when_the_working_directory_is_gone(self):
+        gone = tempfile.mkdtemp(prefix="git-guard-gone-")
+        hook = os.path.join(HOOKS_DIR, "git_guard.py")
+        script = (
+            "import json, os, subprocess, sys\n"
+            "os.chdir(sys.argv[1])\n"
+            "os.rmdir(sys.argv[1])\n"
+            "for command in sys.argv[3:]:\n"
+            "    payload = json.dumps({'tool_input': {'command': command}})\n"
+            "    result = subprocess.run([sys.executable, sys.argv[2]], input=payload,\n"
+            "                            capture_output=True, text=True)\n"
+            "    print(result.returncode, result.stdout.strip() or '{}')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script, gone, hook, "git push --force origin feat/thing", "ls"],
+            capture_output=True,
+            text=True,
+            env=scratch_env(NO_SCRATCH),
+        )
+        first, second = result.stdout.splitlines()
+        self.assertTrue(first.startswith("0 "), result.stdout)
+        self.assertEqual(decision(json.loads(first[2:])), "deny")
+        self.assertEqual(second, "0 {}")
 
     def test_blocks_the_command_when_the_hook_itself_fails(self):
         with open(os.path.join(HOOKS_DIR, "hooks.json"), encoding="utf-8") as handle:
