@@ -20,8 +20,10 @@ prefixes of long options, config keys without case and git's boolean values.
 
 Limits: the hook reads the shell text of the command. It does not follow another
 interpreter, a sourced file, a git binary named through a variable or a glob, an alias
-from a config file, or `--git-dir` pointing at another repository. Branch protection
-on the remote is the backstop. This hook stops mistakes early.
+from a config file, `--git-dir` pointing at another repository, config pulled in through
+`include.path` or `GIT_CONFIG_GLOBAL`, or a command the shell builds at run time, such
+as `sh -c "$(printf ...)"`. Branch protection on the remote is the backstop. This hook
+stops mistakes early.
 """
 
 import os
@@ -55,6 +57,8 @@ CONFIG_PUSH = (
 )
 # Characters that leave a ref to the shell: an expansion, a substitution or a brace list.
 SHELL_BUILT = "$`{"
+# A git reflog or upstream suffix such as `@{u}` or `@{1}`, which the shell leaves alone.
+REF_SUFFIX = re.compile(r"@\{[^{}$`]*\}")
 SHELL_BUILT_REF = (
     "This push names a ref the shell builds when it runs, so this hook cannot check it. "
     "Write the branch name out."
@@ -69,6 +73,12 @@ CURRENT_BRANCH_SUBSTITUTIONS = frozenset(
         "`git rev-parse --abbrev-ref HEAD`",
     }
 )
+
+
+def shell_builds(ref: str) -> bool:
+    """Whether the shell builds ref when it runs: an expansion, a substitution or a
+    brace list. A git `@{...}` suffix does not count."""
+    return any(char in REF_SUFFIX.sub("", ref) for char in SHELL_BUILT)
 
 
 def _long_options(negatable: str, plain: str) -> tuple[str, ...]:
@@ -158,10 +168,61 @@ LS_REMOTE_TIMEOUT = 5
 # between tests that call these functions directly.
 RemoteCache = dict[tuple[str, Optional[str]], Optional[bool]]
 
+# Bounds on the git subprocesses one hook run starts, so a command with many guarded
+# calls answers well inside the hook timeout. Past either bound the command is denied,
+# see UNREADABLE.
+MAX_GIT_QUERIES = 60
+GIT_QUERY_SECONDS = 5.0
+
+
+class GitQueries:
+    """The git subprocesses of one hook run: each distinct query runs once, and the
+    number of queries and the time they may take are bounded when bounded is set."""
+
+    def __init__(self, bounded: bool = False) -> None:
+        self.answers: dict[tuple[tuple[str, ...], Optional[str]], Optional[str]] = {}
+        self.count = 0
+        self.deadline = time.monotonic() + GIT_QUERY_SECONDS if bounded else None
+
+    def spend(self) -> None:
+        """Counts one subprocess. Raises ReadLimitError past a bound."""
+        self.count += 1
+        if self.deadline is None:
+            return
+        if self.count > MAX_GIT_QUERIES or time.monotonic() > self.deadline:
+            raise ReadLimitError("git queries")
+
+    def remaining(self, limit: float) -> float:
+        """limit, or the time left before the deadline when that is shorter."""
+        if self.deadline is None:
+            return limit
+        return max(0.1, min(limit, self.deadline - time.monotonic()))
+
+    def run(self, args: list[str], cwd: Optional[str]) -> Optional[str]:
+        """_common.run_git, answered once per run for the same args and cwd."""
+        key = (tuple(args), cwd)
+        if key not in self.answers:
+            self.spend()
+            self.answers[key] = _common.run_git(args, cwd)
+        return self.answers[key]
+
+    def default_branch(self, cwd: Optional[str]) -> str:
+        """_common.default_branch, answered once per run for the same cwd."""
+        key = (("default-branch",), cwd)
+        if key not in self.answers:
+            self.spend()
+            self.answers[key] = _common.default_branch(cwd)
+        return self.answers[key] or "main"
+
+
+# The queries of the hook run in progress. command_violation starts a bounded one for
+# every command, a direct call of a function here uses an unbounded one.
+QUERIES = GitQueries()
+
 
 def current_branch(cwd: Optional[str]) -> str:
     """The checked out branch in cwd, or "" when it cannot be determined."""
-    return _common.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) or ""
+    return QUERIES.run(["rev-parse", "--abbrev-ref", "HEAD"], cwd) or ""
 
 
 def refspec_target(token: str, cwd: Optional[str]) -> tuple[str, bool]:
@@ -215,13 +276,14 @@ def remote_is_empty(remote: str, cwd: Optional[str], cache: RemoteCache) -> Opti
         return cache[key]
 
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="")
+    QUERIES.spend()
     try:
         result = subprocess.run(
             ["git", "ls-remote", "--heads", remote],
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=LS_REMOTE_TIMEOUT,
+            timeout=QUERIES.remaining(LS_REMOTE_TIMEOUT),
             env=env,
         )
         empty = None if result.returncode != 0 else not result.stdout.strip()
@@ -245,16 +307,16 @@ def push_remote(tokens: list[str], cwd: Optional[str]) -> str:
 
     branch = current_branch(cwd)
     if branch:
-        push_remote_cfg = _common.run_git(["config", f"branch.{branch}.pushRemote"], cwd)
+        push_remote_cfg = QUERIES.run(["config", f"branch.{branch}.pushRemote"], cwd)
         if push_remote_cfg:
             return push_remote_cfg
 
-    push_default = _common.run_git(["config", "remote.pushDefault"], cwd)
+    push_default = QUERIES.run(["config", "remote.pushDefault"], cwd)
     if push_default:
         return push_default
 
     if branch:
-        configured = _common.run_git(["config", f"branch.{branch}.remote"], cwd)
+        configured = QUERIES.run(["config", f"branch.{branch}.remote"], cwd)
         if configured:
             return configured
 
@@ -289,12 +351,12 @@ def remote_is_scratch_local(remote: str, directory: str) -> bool:
     root, and the path is resolved, so a symlink or `..` out of the scratch scope does
     not qualify either.
     """
-    url = _common.run_git(["remote", "get-url", "--push", remote], directory) or remote
+    url = QUERIES.run(["remote", "get-url", "--push", remote], directory) or remote
     if url.startswith("file://"):
         url = url[len("file://") :]
     elif "://" in url or SCP_LIKE_URL.match(url):
         return False
-    base = _common.run_git(["rev-parse", "--show-toplevel"], directory) or directory
+    base = QUERIES.run(["rev-parse", "--show-toplevel"], directory) or directory
     return _common.in_scratch(_common.resolve_dir(url, base))
 
 
@@ -362,7 +424,7 @@ def push_tokens_violation(
         return f"This deletes {default} on the remote. The default branch is never deleted."
 
     for refspec in non_flag[1:]:
-        if any(char in refspec for char in SHELL_BUILT):
+        if shell_builds(refspec):
             return SHELL_BUILT_REF
         if "*" in refspec or refspec in (":", "+:"):
             return (
@@ -517,19 +579,39 @@ def config_violation(key: str, value: Optional[str]) -> Optional[str]:
     """The deny reason when setting config key to value skips hooks or signing or widens
     a push. value None means it cannot be read. Keys compare without case, as in git."""
     key = key.lower()
-    if key == "core.hookspath":
+    # A hooks directory inside the repository, such as .githooks or .husky, is how a
+    # repository ships its own hooks, and setting it up is a normal step. Any other
+    # value, an absolute path, a home path, an empty value or a path out of the
+    # repository, swaps the owner's hooks for others or for none.
+    if key == "core.hookspath" and (value is None or not inside_repository(value)):
         return CONFIG_BYPASS
     if key in ("commit.gpgsign", "tag.gpgsign") and (value is None or not git_bool(value)):
         return CONFIG_BYPASS
-    if key == "push.default" or (
-        key.startswith("remote.") and key.rsplit(".", 1)[-1] in ("push", "mirror")
-    ):
+    # Measured with git 2.56: matching pushes every branch with a remote counterpart,
+    # upstream and its old name tracking push to the branch the current one tracks,
+    # which can be the default branch. current, simple and nothing never reach it.
+    if key == "push.default" and (value is None or value.lower() in WIDENING_PUSH_DEFAULTS):
+        return CONFIG_PUSH
+    if key.startswith("remote.") and key.rsplit(".", 1)[-1] in ("push", "mirror"):
         return CONFIG_PUSH
     return None
 
 
+WIDENING_PUSH_DEFAULTS = ("matching", "upstream", "tracking")
+
+
+def inside_repository(path: str) -> bool:
+    """Whether path is a relative path that stays inside the repository: not empty, not
+    absolute, not from the home directory or a variable, and without a `..` step."""
+    if not path or path.startswith(("/", "~", "$")) or "`" in path:
+        return False
+    return ".." not in path.replace("\\", "/").split("/")
+
+
 ENV_CONFIG = re.compile(r"^GIT_CONFIG_(KEY|VALUE)_(\d+)=(.*)$", re.DOTALL)
-CONFIG_PARAMETER = re.compile(r"'([^']*)'(?:='([^']*)')?")
+# One item of GIT_CONFIG_PARAMETERS: `'key'='value'`, a bare `'key'` meaning true, or
+# `'key=value'` as one quoted item, which git splits at its first `=`.
+CONFIG_PARAMETER = re.compile(r"'([^']*)'(=?)(?:'([^']*)')?")
 
 
 def env_config_violation(parts: list[str]) -> Optional[str]:
@@ -544,8 +626,10 @@ def env_config_violation(parts: list[str]) -> Optional[str]:
             if match:
                 (keys if match.group(1) == "KEY" else values)[match.group(2)] = match.group(3)
             elif word.startswith("GIT_CONFIG_PARAMETERS="):
-                for key, value in CONFIG_PARAMETER.findall(word.partition("=")[2]):
-                    reason = config_violation(key, value or "true")
+                for key, separator, value in CONFIG_PARAMETER.findall(word.partition("=")[2]):
+                    if not separator:
+                        key, separator, value = key.partition("=")
+                    reason = config_violation(key, value if separator else "true")
                     if reason:
                         return reason
     for number, key in keys.items():
@@ -573,9 +657,25 @@ CONFIG_READ_FLAGS = frozenset(
 CONFIG_OTHER_MODES = frozenset({"get", "list", "edit", "rename-section", "remove-section"})
 
 
+CONFIG_WIDE_SCOPES = frozenset({"--global", "--system", "-f", "--file"})
+
+
+def config_write_scope_is_wide(arguments: list[str]) -> bool:
+    """Whether a `git config` call writes outside the repository: `--global`,
+    `--system` or a file of its own."""
+    return any(
+        argument in CONFIG_WIDE_SCOPES or argument.startswith("--file=") for argument in arguments
+    )
+
+
 def config_write_violation(arguments: list[str]) -> Optional[str]:
     """The deny reason when a `git config` call with these arguments writes config that
-    config_violation denies, or unsets commit.gpgsign or tag.gpgsign. A read is fine."""
+    config_violation denies. A read is fine.
+
+    Unsetting commit.gpgsign or tag.gpgsign in the repository is fine: it leaves the
+    owner's global setting in force, where a false value would override it. Unsetting
+    it in a wider scope removes the owner's setting for every repository and is denied.
+    """
     positional: list[str] = []
     unset = read = False
     index = 0
@@ -599,7 +699,8 @@ def config_write_violation(arguments: list[str]) -> Optional[str]:
         return None
     key = positional[0]
     if unset:
-        return config_violation(key, "false") if key.lower().endswith(".gpgsign") else None
+        wide = config_write_scope_is_wide(arguments)
+        return config_violation(key, "false") if wide and key.lower().endswith(".gpgsign") else None
     if len(positional) < 2:
         return None
     return config_violation(key, positional[1])
@@ -618,7 +719,10 @@ def branch_force_delete(arguments: list[str]) -> bool:
 
 def send_pack_violation(arguments: list[str], cwd: Optional[str], default: str) -> Optional[str]:
     """The deny reason for `git send-pack` with these arguments: every ref, matching
-    refs when it names none, refs from stdin, a forced update, or the default branch."""
+    refs when it names none, refs from stdin, a forced update, or the default branch.
+    `--help` and `-h` only print help."""
+    if "--help" in arguments or "-h" in arguments:
+        return None
     non_flag = [argument for argument in arguments if not argument.startswith("-")]
     refs = non_flag[1:]
     if not refs or any(flag in arguments for flag in ("--all", "--mirror", "--stdin")):
@@ -626,7 +730,7 @@ def send_pack_violation(arguments: list[str], cwd: Optional[str], default: str) 
     if "--force" in arguments or any(ref.startswith("+") for ref in refs):
         return f"This force pushes without --force-with-lease. {USE_FORCE_WITH_LEASE}"
     for ref in refs:
-        if any(char in ref for char in SHELL_BUILT):
+        if shell_builds(ref):
             return SHELL_BUILT_REF
         if "*" in ref or refspec_target(ref, cwd)[0] == default:
             return f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH}"
@@ -751,7 +855,7 @@ def shell_words_of(part: str) -> list[str]:
     return [_common.unquote_word(word) for word in _common.shell_words(part)]
 
 
-GUARDED_SUBCOMMANDS = ("push", "branch", "send-pack", "update-ref")
+GUARDED_SUBCOMMANDS = ("push", "branch", "send-pack", "update-ref", "subtree")
 SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish", "su"})
 SHELL_VALUE_FLAGS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 SHELL_COMMAND_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
@@ -787,8 +891,8 @@ XARGS_PUSH = (
     "refs written out in the command."
 )
 XARGS_ARGUMENTS = (
-    "A git commit or a git branch -D behind xargs takes arguments this hook cannot check. "
-    "Run it with its arguments written out in the command."
+    "A git commit, git branch -D or git update-ref behind xargs takes arguments this hook "
+    "cannot check. Run it with its arguments written out in the command."
 )
 UNREADABLE = (
     "This command mentions git in a form this hook cannot read in full. Split it into "
@@ -890,7 +994,7 @@ def _calls_in(
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
-        names = [_common.token_name(word.lstrip(COMMAND_PREFIX_CHARS)) for word in resolved]
+        names = [command_name_of(word) for word in resolved]
         behind_xargs = False
         for index, name in enumerate(names):
             if name == "xargs":
@@ -926,7 +1030,13 @@ def _calls_in(
 def command_word_name(word: str) -> str:
     """The command name word names, its quoting resolved and any grouping or
     substitution characters in front of it removed, so `(git` and `$(git` read as git."""
-    return _common.token_name(_common.unquote_word(word).lstrip(COMMAND_PREFIX_CHARS))
+    return command_name_of(_common.unquote_word(word))
+
+
+def command_name_of(resolved: str) -> str:
+    """The command name of a word whose quoting is already resolved, lowercased: the
+    default macOS file system finds `GIT` and `Git` as git, so they are read as git."""
+    return _common.token_name(resolved.lstrip(COMMAND_PREFIX_CHARS)).lower()
 
 
 def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
@@ -1088,6 +1198,9 @@ def inner_commands(
     first_eval = next((i for i, name in enumerate(names) if name == "eval"), None)
     if first_eval is not None:
         inner.append(" ".join(resolved[first_eval + 1 :]))
+    first_env = next((i for i, name in enumerate(names) if name == "env"), None)
+    if first_env is not None:
+        inner.extend(env_split_strings(resolved[first_env + 1 :]))
     first_shell = next((i for i, name in enumerate(names) if name in SHELLS), None)
     if first_shell is None:
         return inner, False
@@ -1096,6 +1209,21 @@ def inner_commands(
         inner.extend(later)
         return inner, False
     return inner, feeds_shell(raw, piped)
+
+
+def env_split_strings(arguments: list[str]) -> list[str]:
+    """The commands `env -S` or `env --split-string` runs, from the arguments after env:
+    the string, split as a command line by env itself, with the words after it."""
+    found: list[str] = []
+    for index, argument in enumerate(arguments):
+        rest = arguments[index + 1 :]
+        if argument in ("-S", "--split-string") and rest:
+            found.append(" ".join(rest))
+        elif argument.startswith("--split-string="):
+            found.append(" ".join([argument.partition("=")[2], *rest]))
+        elif argument.startswith("-S") and len(argument) > 2:
+            found.append(" ".join([argument[2:], *rest]))
+    return found
 
 
 def feeds_shell(raw: str, piped: bool) -> bool:
@@ -1339,13 +1467,22 @@ def _read_bodies(
 def call_violation(
     call: GitCall, cwd: str, rewrites_remote: bool, remote_cache: RemoteCache
 ) -> Optional[str]:
-    """The deny reason for one git call, or None when it is fine."""
+    """The deny reason for one git call, or None when it is fine.
+
+    In a fixture under the session scratch scope, config given with `-c` or written
+    with `git config` into the fixture is the agent's own: it reaches no repository of
+    the owner. A write with `--global`, `--system` or a file of its own is checked
+    there too."""
     sub_index = git_subcommand_index(call.words, 0)
     options = call.words[1:sub_index] if sub_index is not None else call.words[1:]
-    for key, value in config_entries(options):
-        reason = config_violation(key, value)
-        if reason:
-            return reason
+    git_path = global_directory(options)
+    scope_dir = _common.git_part_dir(call.raw, call.directory, git_path)
+    in_scratch = _common.in_scratch(scope_dir)
+    if not in_scratch:
+        for key, value in config_entries(options):
+            reason = config_violation(key, value)
+            if reason:
+                return reason
     if sub_index is None:
         return None
 
@@ -1358,22 +1495,24 @@ def call_violation(
     if reason:
         return reason
     if subcommand == "config":
+        if in_scratch and not config_write_scope_is_wide(arguments):
+            return None
         return config_write_violation(arguments)
     if call.behind_xargs:
         if subcommand == "push":
             return XARGS_PUSH
-        if subcommand == "commit" or (subcommand == "branch" and branch_force_delete(arguments)):
+        if subcommand in ("commit", "update-ref") or (
+            subcommand == "branch" and branch_force_delete(arguments)
+        ):
             return XARGS_ARGUMENTS
     if subcommand not in GUARDED_SUBCOMMANDS:
         return None
 
-    git_path = global_directory(options)
     part_cwd = git_path or cwd
-    scope_dir = _common.git_part_dir(call.raw, call.directory, git_path)
-    scratch_dir = scope_dir if _common.in_scratch(scope_dir) and not rewrites_remote else None
+    scratch_dir = scope_dir if in_scratch and not rewrites_remote else None
     if scratch_dir:
         part_cwd = scratch_dir
-    default = _common.default_branch(part_cwd)
+    default = QUERIES.default_branch(part_cwd)
     if subcommand == "push":
         tokens = [
             "HEAD" if " ".join(argument.split()) in CURRENT_BRANCH_SUBSTITUTIONS else argument
@@ -1384,7 +1523,36 @@ def call_violation(
         return send_pack_violation(arguments, part_cwd, default)
     if subcommand == "update-ref":
         return update_ref_violation(arguments, default)
+    if subcommand == "subtree":
+        return subtree_push_violation(arguments, part_cwd, default)
     return branch_delete_violation(" ".join(["git", "branch", *arguments]), default)
+
+
+SUBTREE_VALUE_OPTIONS = frozenset(
+    {"-P", "--prefix", "-m", "--message", "--onto", "--annotate", "-b", "--branch"}
+)
+
+
+def subtree_push_violation(arguments: list[str], cwd: Optional[str], default: str) -> Optional[str]:
+    """The deny reason for `git subtree push <remote> <ref>` onto the default branch,
+    which moves it when the remote holds the split history, measured with git 2.56."""
+    if arguments[:1] != ["push"]:
+        return None
+    positional: list[str] = []
+    index = 1
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if argument in SUBTREE_VALUE_OPTIONS:
+            index += 1
+        elif not argument.startswith("-"):
+            positional.append(argument)
+    if len(positional) < 2:
+        return None
+    ref = positional[1]
+    if shell_builds(ref) or "*" in ref or refspec_target(ref, cwd)[0] == default:
+        return f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH}"
+    return None
 
 
 def global_directory(options: list[str]) -> Optional[str]:
@@ -1403,6 +1571,16 @@ def global_directory(options: list[str]) -> Optional[str]:
 def command_violation(command: str, cwd: str) -> Optional[str]:
     """The deny reason for command, or None when it is fine. Raises ReadLimitError, or any
     other error, when the command cannot be read in full."""
+    global QUERIES
+    QUERIES = GitQueries(bounded=True)
+    try:
+        return _command_violation(command, cwd)
+    finally:
+        QUERIES = GitQueries()
+
+
+def _command_violation(command: str, cwd: str) -> Optional[str]:
+    """command_violation with the queries of this run in place."""
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
     shape_text, _ = split_heredocs(command, Budget())

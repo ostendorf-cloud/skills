@@ -1100,7 +1100,7 @@ class CommandShapeTest(unittest.TestCase):
                 "git config --global commit.gpgsign false",
                 "git config set core.hooksPath /dev/null",
                 "git config --bool tag.gpgsign off",
-                "git config --unset commit.gpgsign",
+                "git config --global --unset commit.gpgsign",
                 "git config remote.origin.push HEAD:refs/heads/main",
                 "git config --add remote.origin.push HEAD:refs/heads/main",
                 "git config remote.origin.mirror true",
@@ -1186,6 +1186,112 @@ class CommandShapeTest(unittest.TestCase):
                 "git branch --merged | grep -v main | xargs git branch -d",
                 "git branch --merged main | grep -v '^\\*' | xargs -r git branch -d",
                 "echo main | xargs -I{} git log --oneline {}",
+            ]
+        )
+
+    def test_denies_git_named_in_another_case(self):
+        self.assert_denied(
+            [
+                "GIT push --force origin feat/thing",
+                "Git push origin main",
+                "/usr/bin/GIT push origin main",
+                "GIT commit --no-verify -m 'fix: thing'",
+                "GIT branch -D main",
+            ]
+        )
+        self.assert_allowed(["GIT status", "Git push origin feat/thing"])
+
+    def test_denies_a_command_in_an_env_split_string(self):
+        self.assert_denied(
+            [
+                "env -S 'git push origin main'",
+                "env -S 'git push --force origin feat/thing'",
+                "env -S'git push origin main'",
+                "env --split-string='git push origin main'",
+                "env --split-string 'git push origin main'",
+            ]
+        )
+        self.assert_allowed(["env -S 'git push origin feat/thing'"])
+
+    def test_denies_config_parameters_written_as_one_quoted_item(self):
+        self.assert_denied(
+            [
+                "GIT_CONFIG_PARAMETERS=\"'core.hookspath=/dev/null'\" git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'commit.gpgsign=false'\" git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'commit.gpgsign'=''\" git commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            ["GIT_CONFIG_PARAMETERS=\"'commit.gpgsign=true'\" git commit -m 'fix: thing'"]
+        )
+
+    def test_denies_update_ref_whose_arguments_come_from_xargs(self):
+        self.assert_denied(["echo refs/heads/main | xargs git update-ref -d"])
+
+    def test_denies_a_subtree_push_to_the_default_branch(self):
+        self.assert_denied(
+            [
+                "git subtree push --prefix=lib origin main",
+                "git subtree push -P lib origin main",
+                "git subtree push --prefix lib origin HEAD:main",
+            ]
+        )
+        self.assert_allowed(["git subtree push --prefix=lib origin feat/thing"])
+
+    def test_denies_only_the_push_default_values_that_widen_a_push(self):
+        self.assert_denied(
+            [
+                "git -c push.default=matching push origin",
+                "git -c push.default=upstream push",
+                "git -c push.default=tracking push",
+                "git config push.default matching",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git -c push.default=current push",
+                "git -c push.default=simple push",
+                "git config push.default current",
+            ]
+        )
+
+    def test_allows_help_of_send_pack_and_a_reflog_suffix_in_a_refspec(self):
+        self.assert_allowed(
+            [
+                "git send-pack --help",
+                "git send-pack -h",
+                "git push origin feat/thing@{u}",
+                "git push origin HEAD@{1}:feat/thing",
+            ]
+        )
+        self.assert_denied(["git push origin {main,}", "git push origin feat/thing@{u}:main"])
+
+    def test_allows_hooks_from_a_directory_inside_the_repository(self):
+        self.assert_allowed(
+            [
+                "git config core.hooksPath .githooks",
+                "git config core.hooksPath .husky/_",
+                "git -c core.hooksPath=.githooks commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_denied(
+            [
+                "git config core.hooksPath /dev/null",
+                "git config core.hooksPath ''",
+                "git config core.hooksPath ~/hooks",
+                "git config core.hooksPath ../elsewhere",
+                "git config core.hooksPath .githooks/../../elsewhere",
+                "git -c core.hooksPath=/tmp/hooks commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_allows_unsetting_signing_in_the_repository_but_not_in_a_wider_scope(self):
+        self.assert_allowed(["git config --unset commit.gpgsign", "git config unset tag.gpgsign"])
+        self.assert_denied(
+            [
+                "git config --global --unset commit.gpgsign",
+                "git config --system --unset tag.gpgsign",
+                "git config commit.gpgsign false",
             ]
         )
 
@@ -1303,6 +1409,63 @@ class ReadLimitTest(unittest.TestCase):
                 verdict, seconds = self.timed(command, platform)
                 self.assertEqual(verdict, expected, (platform, command[:80]))
                 self.assertLess(seconds, TIME_BOUND_SECONDS, (platform, command[:80]))
+
+    def slow_git(self, delay: float):
+        """A stand in for subprocess.run that answers git's queries after delay seconds,
+        as a slow machine would, and records every call."""
+        calls: list[list[str]] = []
+
+        def fake(args, **kwargs):
+            argv = list(args)
+            calls.append(argv)
+            time.sleep(delay)
+            answers = {
+                ("rev-parse", "--abbrev-ref", "HEAD"): "feat/thing\n",
+                ("rev-parse", "--show-toplevel"): self.repo + "\n",
+                ("symbolic-ref", "refs/remotes/origin/HEAD"): "refs/remotes/origin/main\n",
+                ("branch", "--list"): "  main\n* feat/thing\n",
+            }
+            answer = answers.get(tuple(argv[1:]))
+            if argv[1:2] == ["ls-remote"]:
+                answer = "abc\trefs/heads/main\n"
+            return subprocess.CompletedProcess(argv, 0 if answer else 1, answer or "", "")
+
+        return fake, calls
+
+    def test_answers_many_guarded_calls_quickly_when_git_is_slow(self):
+        fake, calls = self.slow_git(0.05)
+        with mock.patch.object(subprocess, "run", fake):
+            for command in [
+                "; ".join(["git push"] * 199),
+                "; ".join(f"git branch -d feat/old-{i}" for i in range(199)),
+                "; ".join(f"git push origin feat/thing-{i}" for i in range(199)),
+            ]:
+                del calls[:]
+                verdict, seconds = self.timed(command)
+                self.assertIsNone(verdict, command[:60])
+                self.assertLess(seconds, 1.0, command[:60])
+                self.assertLess(len(calls), 20, command[:60])
+
+    def test_denies_a_command_whose_git_queries_go_past_their_bound(self):
+        fake, _ = self.slow_git(0.02)
+        command = "; ".join(f"git -C ../repo-{i} push origin feat/thing" for i in range(199))
+        with mock.patch.object(subprocess, "run", fake):
+            verdict, seconds = self.timed(command)
+        self.assertEqual(verdict, "deny")
+        self.assertLess(seconds, TIME_BOUND_SECONDS)
+        fake, _ = self.slow_git(0.3)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(subprocess, "run", fake))
+            stack.enter_context(mock.patch.object(git_guard, "GIT_QUERY_SECONDS", 1.0))
+            verdict, seconds = self.timed("; ".join(f"git -C ../repo-{i} push" for i in range(30)))
+        self.assertEqual(verdict, "deny")
+        self.assertLess(seconds, 1.0 + TIME_BOUND_SECONDS)
+
+    def test_blocks_the_command_when_the_hook_itself_fails(self):
+        with open(os.path.join(HOOKS_DIR, "hooks.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        entry = next(hook for hook in manifest["hooks"] if hook["id"] == "git-guard")
+        self.assertEqual(entry.get("onFailure"), "block")
 
     def test_denies_a_command_that_holds_a_nul_byte_and_mentions_git(self):
         for command in [

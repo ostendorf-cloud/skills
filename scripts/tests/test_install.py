@@ -798,6 +798,23 @@ class InstallTestCase(unittest.TestCase):
         code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
         self.assertEqual(code, 0, output)
 
+    def test_build_hook_blocks_passes_on_failure_through(self) -> None:
+        hooks = [
+            {"id": "a", "script": "a.py", "event": "PreToolUse", "matcher": "Bash", "timeout": 10},
+            {
+                "id": "b",
+                "script": "b.py",
+                "event": "PreToolUse",
+                "matcher": "Bash",
+                "timeout": 10,
+                "onFailure": "block",
+            },
+        ]
+        blocks = install.build_hook_blocks(hooks, Path("/x/hooks"))
+        handlers = blocks["PreToolUse"][0]["hooks"]
+        self.assertNotIn("onFailure", handlers[0])
+        self.assertEqual(handlers[1]["onFailure"], "block")
+
     def test_merge_hooks_preserves_manifest_order_over_alphabetical(self) -> None:
         existing = {
             "SessionStart": [{"hooks": [{"type": "command", "command": "a"}]}],

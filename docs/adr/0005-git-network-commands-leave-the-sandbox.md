@@ -35,4 +35,5 @@ Date: 2026-10-21
 - Linux is unaffected either way; the exclusion only matters where the proxy cannot carry SSH.
 - The hook is an early stop against mistakes, not the last line. Branch protection on the
   remote is the backstop, because the hook reads shell text only and does not follow other
-  interpreters, sourced files or git aliases from config.
+  interpreters, sourced files, git aliases or included config files, or commands the shell
+  builds at run time.

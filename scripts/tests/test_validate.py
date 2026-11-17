@@ -287,6 +287,31 @@ class ValidateTestCase(unittest.TestCase):
         self.assertIn("unknown event 'OnFullMoon'", output)
         self.assertIn("unknown decision 'veto'", output)
 
+    def test_detects_an_unknown_on_failure_value(self) -> None:
+        write(self.root / "hooks" / "odd_hook.py", "# a hook\n")
+        write(self.root / "hooks" / "tests" / "test_odd_hook.py", "# a test\n")
+        write(
+            self.root / "hooks" / "hooks.json",
+            json.dumps(
+                {
+                    "version": 1,
+                    "hooks": [
+                        {
+                            "id": "odd-hook",
+                            "script": "odd_hook.py",
+                            "event": "PreToolUse",
+                            "matcher": "Bash",
+                            "decision": "deny",
+                            "onFailure": "deny",
+                        }
+                    ],
+                }
+            ),
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("unknown onFailure 'deny'", output)
+
     def test_detects_ask_as_an_unknown_decision(self) -> None:
         write(self.root / "hooks" / "ask_hook.py", "# a hook\n")
         write(self.root / "hooks" / "tests" / "test_ask_hook.py", "# a test\n")

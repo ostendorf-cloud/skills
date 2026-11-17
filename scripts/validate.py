@@ -36,6 +36,8 @@ KNOWN_EVENTS = {
     "Notification",
 }
 KNOWN_DECISIONS = {"deny", "context"}
+# The values Claude Code takes for a command hook's onFailure, from v2.1.295 on.
+KNOWN_ON_FAILURE = {"continue", "block"}
 # Only Edit(path) and Read(path) rules are consulted for file access. A path rule on one of
 # these tools is accepted by the harness and never used.
 UNMATCHED_PATH_RULE_PREFIXES = ("Write(", "NotebookEdit(", "MultiEdit(", "Glob(")
@@ -297,6 +299,10 @@ def check_hooks_manifest(root: Path) -> list[str]:
         decision = entry.get("decision")
         if decision not in KNOWN_DECISIONS:
             findings.append(f"hooks/hooks.json: {hook_id}: unknown decision '{decision}'")
+
+        on_failure = entry.get("onFailure")
+        if on_failure is not None and on_failure not in KNOWN_ON_FAILURE:
+            findings.append(f"hooks/hooks.json: {hook_id}: unknown onFailure '{on_failure}'")
 
     for hook_id, count in sorted(ids.items()):
         if count > 1:
