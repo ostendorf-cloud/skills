@@ -19,6 +19,9 @@ Date: 2026-10-21
   already excluded with `gh *`.
 - The `git-guard` hook stays the gate on pushes: it runs before the command and independently of
   the sandbox, and keeps denying a push to the default branch and a force push without lease.
+- The hook sets `"onFailure": "block"` in `hooks/hooks.json`. It fails closed: a hook that cannot
+  start, exits with an unexpected code, times out or prints invalid JSON blocks the call instead
+  of letting it through.
 
 ## Consequences
 
@@ -33,6 +36,9 @@ Date: 2026-10-21
 - On macOS the `git-guard` hook denies the sandboxed shapes. It does nothing on Linux and in
   CI, where nothing is lost by them.
 - Linux is unaffected either way; the exclusion only matters where the proxy cannot carry SSH.
+- While the install is broken, for example with no `python3`, `onFailure: block` blocks every Bash
+  call, not only git. The setting needs Claude Code 2.1.295 or later.
+- The way out is to fix the install, then run `task install`.
 - The hook is an early stop against mistakes, not the last line. Branch protection on the
   remote is the backstop, because the hook reads shell text only and does not follow other
   interpreters, sourced files, git aliases or included config files, or commands the shell
