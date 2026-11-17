@@ -6,10 +6,13 @@ import contextlib
 import io
 import json
 import os
+import random
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from typing import Any, Optional
 from unittest import mock
@@ -941,11 +944,60 @@ class CommandShapeTest(unittest.TestCase):
                 'Never git push --force or git branch -D main.\nEOF\n)"',
                 "cat <<'EOF' > notes.txt\ngit push origin main\ngit branch -D main\nEOF",
                 "cat <<-EOF > notes.txt\n\tgit push origin main\n\tEOF",
+                "cat <<'EOF' > notes.md\nThe hook reads $(git push origin main) as a call.\nEOF",
+                "cat <<'A' <<'B' > notes.txt\ngit push origin main\nA\n"
+                "git push --force origin feat/thing\nB",
+                "echo $((1 << shift))\ngit status",
             ]
         )
 
     def test_denies_a_substitution_inside_an_unquoted_heredoc(self):
-        self.assert_denied(["cat <<EOF > notes.txt\n$(git push origin main)\nEOF"])
+        self.assert_denied(
+            [
+                "cat <<EOF > notes.txt\n$(git push origin main)\nEOF",
+                "cat <<'A' <<B > notes.txt\nplain\nA\n$(git push origin main)\nB",
+                "echo $((1 << shift))\ngit push origin main",
+            ]
+        )
+
+    def test_allows_a_shell_name_that_is_not_fed_commands(self):
+        self.assert_allowed(
+            [
+                "echo 'git push --force origin feat/thing' > notes.txt; which sh",
+                "echo 'git push origin main' > notes.txt && command -v bash",
+                "shfmt -ln bash -d scripts && echo 'git push --force origin feat/thing'",
+                "chsh -s /bin/zsh; echo 'git branch -D main' > notes.txt",
+                "pgrep bash; echo 'git push origin main'",
+                "bash; echo 'git push --force origin feat/thing' > notes.txt",
+                "echo 'git push origin main' | cat > sh",
+                "command -v bash && cat <<'EOF' > notes.md\n"
+                "git push --force origin feat/thing\nEOF",
+            ]
+        )
+
+    def test_allows_a_bypass_flag_inside_a_message_or_search_argument(self):
+        self.assert_allowed(
+            [
+                "git commit -m 'feat: deny --no-verify behind a subshell'",
+                "git log -S'--no-verify' --oneline",
+                "git commit -m 'chore: drop -c commit.gpgsign=false from docs'",
+                "git log --grep='--no-gpg-sign' --oneline",
+                "git commit -s -m \"$(cat <<'EOF'\nfix(hooks): read options\n\n"
+                'Never use git push --force or --no-verify.\nEOF\n)"',
+                "git push -n origin feat/thing",
+            ]
+        )
+
+    def test_denies_a_bypass_flag_that_stands_as_its_own_word(self):
+        self.assert_denied(
+            [
+                "git commit -n -m 'fix: thing'",
+                "git -c COMMIT.GPGSIGN=false commit -m 'fix: thing'",
+                "git push --no-verify origin feat/thing",
+                "git rebase --no-verify main",
+                "git commit -m 'fix: thing' --no-gpg-sign",
+            ]
+        )
 
     def test_answers_odd_input_without_failing(self):
         for command in [
@@ -965,6 +1017,106 @@ class CommandShapeTest(unittest.TestCase):
         ]:
             output = run_main_in_process(command, self.repo, "linux")
             self.assertIsInstance(output, dict, command)
+
+
+def nested_shell(command: str, levels: int) -> str:
+    """command wrapped in levels of `sh -c`."""
+    for _ in range(levels):
+        command = "sh -c " + shlex.quote(command)
+    return command
+
+
+# The longest a single pathological command may take in these tests. The hook itself
+# aims at well under a second, the bound leaves room for a slow runner.
+TIME_BOUND_SECONDS = 3.0
+FORCE_PUSH = "git push --force origin feat/thing"
+
+
+class ReadLimitTest(unittest.TestCase):
+    """The guard reads every command within a bounded time, and denies a command that
+    mentions git when it cannot read it in full."""
+
+    def setUp(self):
+        self.repo = git_repo()
+        checkout_feature(self.repo)
+
+    def timed(self, command: str, platform: str = "linux") -> tuple[Optional[str], float]:
+        start = time.monotonic()
+        output = run_main_in_process(command, self.repo, platform)
+        return decision(output), time.monotonic() - start
+
+    def test_denies_a_force_push_next_to_a_deep_substitution(self):
+        for command in [
+            FORCE_PUSH + " # " + "$(" * 1200,
+            FORCE_PUSH + '; echo "' + "$(" * 1200 + '"',
+            FORCE_PUSH + "; : " + "<(" * 1200,
+            FORCE_PUSH + "; echo " + "$(" * 2000 + "x" + ")" * 2000,
+            FORCE_PUSH + "; echo " + "`" * 3001,
+            FORCE_PUSH + "; " + "(" * 3000,
+        ]:
+            verdict, seconds = self.timed(command)
+            self.assertEqual(verdict, "deny", command[:80])
+            self.assertLess(seconds, TIME_BOUND_SECONDS, command[:80])
+
+    def test_denies_a_force_push_next_to_random_deep_nesting(self):
+        rng = random.Random(210)
+        pieces = ["$(", "(", ")", "`", '"', "'", "{ ", "; ", "<(", "\\", "<<A\n", " ", "git "]
+        for _ in range(20):
+            noise = "".join(rng.choice(pieces) for _ in range(3000))
+            verdict, seconds = self.timed(FORCE_PUSH + "; " + noise)
+            self.assertEqual(verdict, "deny", noise[:80])
+            self.assertLess(seconds, TIME_BOUND_SECONDS, noise[:80])
+
+    def test_reads_any_depth_of_substitution_without_an_error(self):
+        for text in ["$(" * 5000, "echo " + "$(" * 3000 + "x" + ")" * 3000]:
+            self.assertEqual(len(git_guard.substitutions(text)), 1)
+
+    def test_denies_a_command_that_mentions_git_past_the_reading_deadline(self):
+        with mock.patch.object(git_guard, "READ_SECONDS", -1.0):
+            self.assertEqual(self.timed("git status")[0], "deny")
+            self.assertIsNone(self.timed("ls -la")[0])
+
+    def test_denies_a_command_that_mentions_git_when_reading_it_fails(self):
+        with mock.patch.object(git_guard, "git_calls", side_effect=RuntimeError("unreadable")):
+            self.assertEqual(self.timed("git status")[0], "deny")
+            self.assertIsNone(self.timed("ls -la")[0])
+
+    def test_answers_a_command_field_that_is_not_text_with_an_empty_response(self):
+        payload = bash_payload("git status", self.repo)
+        payload["tool_input"]["command"] = ["git", "push", "--force"]
+        self.assertEqual(run_hook("git_guard.py", payload), {})
+
+    def test_denies_a_push_inside_more_shell_levels_than_the_hook_reads(self):
+        for levels in (9, 10):
+            command = nested_shell("git push origin main", levels)
+            self.assertEqual(self.timed(command)[0], "deny", levels)
+
+    def test_reads_pathological_commands_within_the_time_bound(self):
+        quoted_words = " ".join(["'git status'"] * 2000)
+        substitution_lines = "line $(echo a) `b`\n" * 2000
+        cases = [
+            (FORCE_PUSH + "; echo " + "git " * 2000, "deny"),
+            (FORCE_PUSH + "; echo " + "$(git status) " * 1000, "deny"),
+            ("xargs " * 3000 + "git push origin main", "deny"),
+            ("cat " + "<<A " * 2000 + "\n" + FORCE_PUSH, "deny"),
+            ("cat notes | bash; echo " + quoted_words + "; " + FORCE_PUSH, "deny"),
+            ("; ".join(["git status"] * 2000) + "; " + FORCE_PUSH, "deny"),
+            ("cat <<EOF > notes.txt\n" + substitution_lines + "EOF\n" + FORCE_PUSH, "deny"),
+            ("echo " + "a" * 200000 + "; " + FORCE_PUSH, "deny"),
+            ("echo " + "a" * 200000 + "; git status", "deny"),
+            ("git add " + "notes.txt " * 2500, "deny"),
+            ("bash " * 3000 + "-c 'git status'", None),
+            ("cat <<'EOF' > notes.txt\n" + "git push origin main\n" * 20000 + "EOF", None),
+        ]
+        for command, expected in cases:
+            for platform in ("linux", "darwin"):
+                verdict, seconds = self.timed(command, platform)
+                self.assertEqual(verdict, expected, (platform, command[:80]))
+                self.assertLess(seconds, TIME_BOUND_SECONDS, (platform, command[:80]))
+
+    def test_reads_a_word_as_cut_at_a_nul_byte(self):
+        self.assertEqual(self.timed("git push\x00 --force origin feat/thing")[0], "deny")
+        self.assertIsNone(self.timed("echo a\x00b")[0])
 
 
 class NetworkShapeTest(unittest.TestCase):
@@ -1034,6 +1186,15 @@ class NetworkShapeTest(unittest.TestCase):
             f"git --work-tree={repo} push origin feat/thing",
         ]:
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_allows_a_quoted_heredoc_body_that_names_a_network_command(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "cat <<'EOF' > notes.txt\ngit push origin main\ngit fetch origin\nEOF",
+            "tee body.md <<'EOF'\ngit push --force\nEOF",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
 
     def test_denies_a_global_option_with_a_separate_value_before_the_network_subcommand(self):
         repo = git_repo()

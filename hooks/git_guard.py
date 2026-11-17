@@ -10,6 +10,10 @@ only a lone command leaves the sandbox (ADR 0005).
 
 These rules apply to every git call in the command: behind global options, wrappers or
 grouping, inside a command substitution, and in a string handed to a shell or `eval`.
+
+The command is read within fixed bounds on its size, its nesting and the time spent.
+When a command that mentions git goes past a bound, or reading it fails, the hook
+denies it. Hook input that is not a payload at all still gets the empty answer.
 """
 
 import os
@@ -17,6 +21,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from typing import NamedTuple, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,7 +31,11 @@ EVENT = "PreToolUse"
 
 GIT_PUSH = re.compile(r"^git\s+push\b")
 GIT_BRANCH = re.compile(r"^git\s+branch\s+")
-BYPASS_FLAGS = re.compile(r"--no-verify\b|--no-gpg-sign\b|-c\s+commit\.gpgsign=false")
+BYPASS_WORDS = ("--no-verify", "--no-gpg-sign")
+BYPASS = (
+    "This bypasses git hooks or commit signing. Run the command without --no-verify, -n, "
+    "--no-gpg-sign or -c commit.gpgsign=false."
+)
 
 USE_FEATURE_BRANCH = "Push a feature branch and open a pull request instead."
 USE_FORCE_WITH_LEASE = (
@@ -183,15 +192,15 @@ def remote_is_scratch_local(remote: str, directory: str) -> bool:
 REMOTE_CONFIG_PREFIXES = ("remote.", "url.", "-cremote.", "-curl.", "git_config", "--config-env")
 
 
-def changes_remote_config(command: str) -> bool:
+def changes_remote_config(command: str, calls: list["GitCall"]) -> bool:
     """Whether command, anywhere in it, can change where a push goes: a `git remote` or
-    `git config` call, a `-c remote.*` or `-c url.*` option, `--config-env`, a
-    `GIT_CONFIG*` variable or a mention of `.git/config`.
+    `git config` call among calls, a `-c remote.*` or `-c url.*` option, `--config-env`,
+    a `GIT_CONFIG*` variable or a mention of `.git/config`.
 
     The scratch exemption reads the remote before the command runs, so a command that
     rewrites it first would be judged on the old value. Such a command gets the
     repository rule instead. A part that does not parse counts as changing it."""
-    for call in git_calls(command, None):
+    for call in calls:
         sub_index = git_subcommand_index(call.words, 0)
         if sub_index is not None and call.words[sub_index] in ("remote", "config"):
             return True
@@ -280,14 +289,39 @@ def branch_delete_violation(part: str, default: str) -> Optional[str]:
     return None
 
 
-def bypass_violation(part: str) -> Optional[str]:
-    """The deny reason when part skips hooks or commit signing."""
-    if BYPASS_FLAGS.search(part):
-        return (
-            "This bypasses git hooks or commit signing. Run the command without "
-            "--no-verify, --no-gpg-sign or -c commit.gpgsign=false."
-        )
+def bypass_violation(words: list[str]) -> Optional[str]:
+    """The deny reason when the git call in words skips hooks or commit signing.
+
+    Whole words are compared, so a message or a search argument that only mentions a
+    flag is not read as the flag: `--no-verify` or `--no-gpg-sign` as an argument of any
+    subcommand, `-n` as an argument of `git commit`, and `-c commit.gpgsign=false` in
+    front of the subcommand, the key compared without case as git does."""
+    sub_index = git_subcommand_index(words, 0)
+    options = words[1:sub_index] if sub_index is not None else words[1:]
+    for key, value in config_options(options):
+        if key == "commit.gpgsign" and value.lower() == "false":
+            return BYPASS
+    if sub_index is None:
+        return None
+    arguments = words[sub_index + 1 :]
+    if any(word in BYPASS_WORDS for word in arguments):
+        return BYPASS
+    if words[sub_index] == "commit" and "-n" in arguments:
+        return BYPASS
     return None
+
+
+def config_options(options: list[str]) -> list[tuple[str, str]]:
+    """The key and value of every `-c <key>=<value>` among git's global options, the key
+    lowercased."""
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index < len(options):
+        if options[index] == "-c" and index + 1 < len(options):
+            key, _, value = options[index + 1].partition("=")
+            found.append((key.lower(), value))
+        index += 2 if options[index] in GLOBAL_OPTIONS_WITH_VALUE else 1
+    return found
 
 
 NETWORK_SUBCOMMANDS = ("fetch", "pull", "push")
@@ -305,7 +339,7 @@ RUN_NETWORK_ALONE = (
 
 
 def network_shape_violation(
-    command: str,
+    command_alone: bool,
     raw_part: str,
     normalized: str,
     git_path: Optional[str],
@@ -323,11 +357,13 @@ def network_shape_violation(
     the subcommand, and no redirection or `&` outside quotes except a trailing `2>&1`
     or `>&2`. A `time` prefix is fine.
 
+    command_alone says whether the whole command, heredoc bodies removed, is one part
+    without a pipe, chain or redirection, see command_stands_alone.
+
     A command in the session scratch scope whose remote is itself scratch local is
     exempt: such a push is a local file copy and works in the sandbox.
 
-    Accepted false positives: an unquoted heredoc body line starting with `git push`
-    reads as a command part, and an escaped `\\&` in an argument reads as an operator.
+    Accepted false positive: an escaped `\\&` in an argument reads as an operator.
     """
     if sys.platform != "darwin":
         return None
@@ -350,15 +386,15 @@ def network_shape_violation(
         for word in words[:git_index]
     )
     subcommand_next = sub_index == git_index + 1
-    masked = KEPT_REDIRECTION.sub("", _common.mask_quoted(command))
-    alone = (
-        len(_common.command_parts(command)) == 1
-        and git_path is None
-        and prefix_ok
-        and subcommand_next
-        and not SHELL_OPERATOR.search(masked)
-    )
+    alone = command_alone and git_path is None and prefix_ok and subcommand_next
     return None if alone else RUN_NETWORK_ALONE
+
+
+def command_stands_alone(command: str) -> bool:
+    """Whether command is one part, without a redirection or `&` outside quotes other
+    than a trailing `2>&1` or `>&2`. Read once per command, not once per part."""
+    masked = KEPT_REDIRECTION.sub("", _common.mask_quoted(command))
+    return len(_common.command_parts(command)) == 1 and not SHELL_OPERATOR.search(masked)
 
 
 # The global options git reads its value for from the next word, measured against
@@ -403,13 +439,52 @@ COMMAND_PREFIX_CHARS = "({!$<>`"
 WORD_END = re.compile(r"[<>&)`]")
 OPERATOR_ONLY = re.compile(r"\d*[<>&]+")
 REDIRECTION = re.compile(r"^\d*(?:[<>]|&>)")
-HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)")
-HEREDOC_WORD = re.compile(r"(-?)[ \t]*([^\s;&|<>()]+)")
+HEREDOC_WORD = re.compile(r"(-?)[ \t]*([A-Za-z_'\"\\][^\s;&|<>()]*)")
+# A program receives each argument cut at its first NUL byte.
+NUL_TAIL = re.compile(r"\x00\S*")
+# A word holding one of these is read as a command of its own when a shell is fed.
+NESTED_WORD_HINTS = ("git", "'", '"', "\\", "$", "`")
+
+# The bounds within which a command is read. A command that mentions git and goes
+# past one of them is denied, see UNREADABLE.
+MAX_TEXTS = 500
+MAX_CHARS = 100000
+MAX_PARTS = 2000
+MAX_WORDS = 50000
+MAX_GIT_CALLS = 200
+MAX_CALL_WORDS = 2000
+MAX_HEREDOCS = 100
+READ_SECONDS = 2.0
 
 XARGS_PUSH = (
     "A git push behind xargs takes refs this hook cannot check. Run git push with its "
     "refs written out in the command."
 )
+UNREADABLE = (
+    "This command mentions git in a form this hook cannot read in full. Run each git "
+    "command on its own, with its arguments written out."
+)
+
+
+class ReadLimitError(Exception):
+    """A command goes past one of the bounds it is read within."""
+
+
+class Budget:
+    """What reading one command may still spend: counts per kind and a deadline."""
+
+    def __init__(self) -> None:
+        self.counts: dict[str, int] = {}
+        self.deadline = time.monotonic() + READ_SECONDS
+
+    def spend(self, kind: str, limit: int, amount: int = 1) -> None:
+        """Counts amount of kind. Raises ReadLimitError past limit or past the deadline."""
+        total = self.counts.get(kind, 0) + amount
+        self.counts[kind] = total
+        if total > limit:
+            raise ReadLimitError(kind)
+        if time.monotonic() > self.deadline:
+            raise ReadLimitError("time")
 
 
 class GitCall(NamedTuple):
@@ -427,60 +502,91 @@ class GitCall(NamedTuple):
     behind_xargs: bool
 
 
-def git_calls(command: str, cwd: Optional[str]) -> list[GitCall]:
+def cut_at_nul(command: str) -> str:
+    """command with every word cut at its first NUL byte, the way a program receives
+    it as an argument."""
+    return NUL_TAIL.sub("", command)
+
+
+def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None) -> list[GitCall]:
     """Every git call command makes, wherever git stands in it.
 
     A word naming git counts in any position of a command part, so a wrapper, a group,
     a subshell or a control keyword in front of it does not hide the call. Command
     substitutions, a string after a shell's `-c`, the arguments of `eval` and a `-c
-    alias.*` starting with `!` are read as commands of their own. When the command runs
-    a shell that reads its commands from stdin, every word and heredoc body of the
-    command is read as one too. A backslash newline joins two lines, as in the shell.
+    alias.*` starting with `!` are read as commands of their own. When the command feeds
+    a shell its commands through a pipe, a here-string or a heredoc, every word and
+    heredoc body of the command is read as one too. A backslash newline joins two
+    lines, as in the shell.
+
+    Raises ReadLimitError when the command goes past a bound of budget, or holds git inside
+    more than NESTING_LIMIT levels of nesting.
 
     Accepted false positives: a word `git` that is an argument, such as in `echo git push
     --force`, reads as a call.
     """
-    return _calls_in(command.replace("\\\n", ""), cwd, 0, set())
+    text = cut_at_nul(command).replace("\\\n", "")
+    return _calls_in(text, cwd, 0, set(), budget or Budget())
 
 
-def _calls_in(text: str, cwd: Optional[str], depth: int, seen: set[str]) -> list[GitCall]:
+def _calls_in(
+    text: str, cwd: Optional[str], depth: int, seen: set[str], budget: Budget
+) -> list[GitCall]:
     """The git calls in text. cwd is the directory text runs in, None when not known."""
-    if depth > NESTING_LIMIT or text in seen:
+    if text in seen:
+        return []
+    if depth > NESTING_LIMIT:
+        if "git" in text:
+            raise ReadLimitError("nesting")
         return []
     seen.add(text)
-    text, bodies = split_heredocs(text)
+    budget.spend("texts", MAX_TEXTS)
+    text, bodies = split_heredocs(text, budget)
+    budget.spend("chars", MAX_CHARS, len(text))
+    parts = command_parts_with_pipes(text)
+    budget.spend("parts", MAX_PARTS, len(parts))
+    directories: list[Optional[str]] = [None] * len(parts)
     if depth == 0:
         pairs = _common.part_dirs(text, cwd)
-    else:
-        pairs = [(part, None) for part in _common.command_parts(text)]
+        if len(pairs) == len(parts):
+            directories = [directory for _, directory in pairs]
 
     calls: list[GitCall] = []
     nested: list[str] = []
-    reads_stdin = False
-    for raw, directory in pairs:
+    fed_shell = False
+    for (raw, piped), directory in zip(parts, directories):
         words = _common.shell_words(raw)
-        for index, word in enumerate(words):
-            if command_word_name(word) != "git":
-                continue
-            behind_xargs = any(command_word_name(before) == "xargs" for before in words[:index])
-            call_words, alias_command = git_call_words(words[index + 1 :])
-            calls.append(GitCall(call_words, raw, directory, behind_xargs))
-            if alias_command:
-                nested.append(alias_command)
-        inner, stdin = inner_commands(raw, words)
+        budget.spend("words", MAX_WORDS, len(words))
+        resolved = [_common.unquote_word(word) for word in words]
+        names = [_common.token_name(word.lstrip(COMMAND_PREFIX_CHARS)) for word in resolved]
+        behind_xargs = False
+        for index, name in enumerate(names):
+            if name == "xargs":
+                behind_xargs = True
+            elif name == "git":
+                budget.spend("calls", MAX_GIT_CALLS)
+                call_words, alias_command = git_call_words(words, resolved, index + 1)
+                calls.append(GitCall(call_words, raw, directory, behind_xargs))
+                if alias_command:
+                    nested.append(alias_command)
+        inner, fed = inner_commands(raw, resolved, names, piped)
         nested.extend(inner)
-        reads_stdin = reads_stdin or stdin
+        fed_shell = fed_shell or fed
 
     for body, quoted in bodies:
         if not quoted:
             nested.extend(substitutions(body))
-    if reads_stdin:
+    if fed_shell:
         nested.extend(body for body, _ in bodies)
-        for raw, _ in pairs:
-            nested.extend(shell_words_of(raw))
+        for raw, _ in parts:
+            nested.extend(
+                word
+                for word in shell_words_of(raw)
+                if any(hint in word for hint in NESTED_WORD_HINTS)
+            )
 
     for inner_text in nested:
-        calls.extend(_calls_in(inner_text, None, depth + 1, seen))
+        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget))
     return calls
 
 
@@ -490,31 +596,78 @@ def command_word_name(word: str) -> str:
     return _common.token_name(_common.unquote_word(word).lstrip(COMMAND_PREFIX_CHARS))
 
 
-def git_call_words(after: list[str]) -> tuple[list[str], Optional[str]]:
-    """The words of a git call, from the words after the git word, and the command a
-    `-c alias.*` starting with `!` runs instead, None when there is none.
+def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
+    """The parts _common.command_parts splits command into, each with whether a single
+    `|` feeds it. Follows the same quote tracking and separators, so the parts match."""
+    parts: list[tuple[str, bool]] = []
+    current: list[str] = []
+    piped = False
+    quote = ""
+    index = 0
+    length = len(command)
+    while index < length:
+        char = command[index]
+        if quote:
+            current.append(char)
+            if char == quote and (index == 0 or command[index - 1] != "\\"):
+                quote = ""
+            index += 1
+            continue
+        if char in ("'", '"'):
+            quote = char
+            current.append(char)
+            index += 1
+            continue
+        separator = ""
+        if char == "\n":
+            separator = "\n"
+        elif char in "|&" and command[index + 1 : index + 2] == char:
+            separator = char * 2
+        elif char in (";", "|"):
+            separator = char
+        if separator:
+            parts.append(("".join(current), piped))
+            current = []
+            piped = separator == "|"
+            index += len(separator)
+            continue
+        current.append(char)
+        index += 1
+    parts.append(("".join(current), piped))
+    return [(part.strip(), feeds) for part, feeds in parts if part.strip()]
 
-    Quoting is resolved. The call ends at a word holding an unquoted `)` or backtick,
-    which closes the group or substitution it runs in, and at a lone `&`. A redirection
-    and its target are dropped, so `main>/dev/null` reads as `main`.
+
+def git_call_words(
+    words: list[str], resolved: list[str], start: int
+) -> tuple[list[str], Optional[str]]:
+    """The words of a git call whose arguments start at index start of words, and the
+    command a `-c alias.*` starting with `!` runs instead, None when there is none.
+
+    resolved holds words with their quoting resolved. The call ends at a word holding
+    an unquoted `)` or backtick, which closes the group or substitution it runs in, and
+    at a lone `&`. A redirection and its target are dropped, so `main>/dev/null` reads
+    as `main`. Raises ReadLimitError past MAX_CALL_WORDS words.
     """
-    words = ["git"]
+    call = ["git"]
     skip_next = False
-    for word in after:
+    for index in range(start, len(words)):
+        if len(call) > MAX_CALL_WORDS:
+            raise ReadLimitError("call")
         if skip_next:
             skip_next = False
             continue
-        end = WORD_END.search(_common.mask_quoted(word))
-        if end is None:
-            words.append(_common.unquote_word(word))
+        word = words[index]
+        end = WORD_END.search(word) and WORD_END.search(_common.mask_quoted(word))
+        if not end:
+            call.append(resolved[index])
             continue
         prefix, rest = word[: end.start()], word[end.start() :]
         if prefix and not (prefix.isdigit() and rest[0] in "<>"):
-            words.append(_common.unquote_word(prefix))
+            call.append(_common.unquote_word(prefix))
         if rest[0] in ")`" or (rest[0] == "&" and not rest.startswith("&>")):
             break
         skip_next = bool(OPERATOR_ONLY.fullmatch(rest))
-    return expand_alias(words)
+    return expand_alias(call)
 
 
 def expand_alias(words: list[str]) -> tuple[list[str], Optional[str]]:
@@ -540,25 +693,41 @@ def expand_alias(words: list[str]) -> tuple[list[str], Optional[str]]:
     return [*words[:sub_index], *value.split(), *arguments], None
 
 
-def inner_commands(raw: str, words: list[str]) -> tuple[list[str], bool]:
-    """The command strings raw runs inside itself, and whether it runs a shell that
-    reads its commands from stdin.
+def inner_commands(
+    raw: str, resolved: list[str], names: list[str], piped: bool
+) -> tuple[list[str], bool]:
+    """The command strings raw runs inside itself, and whether it feeds a shell its
+    commands.
 
-    Inner commands are the command substitutions, the words after a shell's `-c` and
-    the arguments of `eval`, joined."""
+    resolved holds the words of raw with their quoting resolved, names the command name
+    each of them reads as. Inner commands are the command substitutions, the words after
+    a shell's `-c` and the arguments of `eval`, joined. A shell is fed when it is the
+    command of raw, wrappers aside, reads stdin, and piped says a `|` feeds raw or raw
+    holds a here-string or heredoc. A shell name elsewhere, such as in `which sh`, is an
+    argument."""
     inner = substitutions(raw)
-    reads_stdin = False
-    for index, word in enumerate(words):
-        name = command_word_name(word)
-        later = [_common.unquote_word(other) for other in words[index + 1 :]]
-        if name == "eval":
-            inner.append(" ".join(later))
-        elif name in SHELLS:
-            if any(SHELL_COMMAND_FLAG.match(other) for other in later):
-                inner.extend(later)
-            elif shell_reads_stdin(later):
-                reads_stdin = True
-    return inner, reads_stdin
+    first_eval = next((i for i, name in enumerate(names) if name == "eval"), None)
+    if first_eval is not None:
+        inner.append(" ".join(resolved[first_eval + 1 :]))
+    first_shell = next((i for i, name in enumerate(names) if name in SHELLS), None)
+    if first_shell is None:
+        return inner, False
+    later = resolved[first_shell + 1 :]
+    if any(SHELL_COMMAND_FLAG.match(word) for word in later):
+        inner.extend(later)
+        return inner, False
+    return inner, feeds_shell(raw, piped)
+
+
+def feeds_shell(raw: str, piped: bool) -> bool:
+    """Whether raw runs a shell as its command, wrappers aside, that reads stdin, while
+    a pipe, a here-string or a heredoc gives it that stdin."""
+    if not piped and "<<" not in _common.mask_quoted(raw):
+        return False
+    words = _common.shell_words(_common.normalize_command_part(raw))
+    if not words or command_word_name(words[0]) not in SHELLS:
+        return False
+    return shell_reads_stdin([_common.unquote_word(word) for word in words[1:]])
 
 
 def shell_reads_stdin(arguments: list[str]) -> bool:
@@ -617,14 +786,19 @@ def substitutions(text: str) -> list[str]:
 
 def _substitution_end(text: str, start: int) -> int:
     """The index of the `)` that closes a substitution whose command starts at start,
-    quotes and nested substitutions respected. len(text) when it stays open."""
-    depth = 1
+    quotes and nested substitutions respected. len(text) when it stays open.
+
+    Each nested `$(` gets a frame of its own with its parenthesis depth and quote
+    state, on a list rather than the call stack, so any depth of nesting is read in one
+    pass."""
+    frames = [[1, False, False]]
     index = start
-    single = double = False
-    while index < len(text):
+    length = len(text)
+    while index < length:
         char = text[index]
-        if single:
-            single = char != "'"
+        frame = frames[-1]
+        if frame[1]:
+            frame[1] = char != "'"
         elif char == "\\":
             index += 2
             continue
@@ -632,22 +806,25 @@ def _substitution_end(text: str, start: int) -> int:
             index = _backtick_end(text, index + 1) + 1
             continue
         elif char == "$" and text[index + 1 : index + 2] == "(":
-            index = _substitution_end(text, index + 2) + 1
+            frames.append([1, False, False])
+            index += 2
             continue
-        elif double:
-            double = char != '"'
+        elif frame[2]:
+            frame[2] = char != '"'
         elif char == "'":
-            single = True
+            frame[1] = True
         elif char == '"':
-            double = True
+            frame[2] = True
         elif char == "(":
-            depth += 1
+            frame[0] += 1
         elif char == ")":
-            depth -= 1
-            if depth == 0:
-                return index
+            frame[0] -= 1
+            if frame[0] == 0:
+                frames.pop()
+                if not frames:
+                    return index
         index += 1
-    return len(text)
+    return length
 
 
 def _backtick_end(text: str, start: int) -> int:
@@ -664,46 +841,83 @@ def _backtick_end(text: str, start: int) -> int:
     return len(text)
 
 
-def split_heredocs(text: str) -> tuple[str, list[tuple[str, bool]]]:
+def split_heredocs(
+    text: str, budget: Optional[Budget] = None
+) -> tuple[str, list[tuple[str, bool]]]:
     """text without its heredoc bodies, and each body with whether its delimiter is
     quoted, which makes the body literal text without substitutions.
 
-    A body starts on the line after its `<<` and ends at the line holding only the
-    delimiter, leading tabs removed for `<<-`. One without that line runs to the end.
+    One pass over text. Every unquoted `<<` names a delimiter, several on one line
+    included. At the end of that line the bodies follow in order: each starts on the
+    next line and ends at the line holding only its delimiter, leading tabs removed for
+    `<<-`. One without that line runs to the end. A `$(...)` inside double quotes is
+    skipped whole, so a heredoc inside it belongs to that inner command. Raises
+    ReadLimitError past MAX_HEREDOCS when a budget is given.
     """
     kept: list[str] = []
     bodies: list[tuple[str, bool]] = []
-    rest = text
-    while rest:
-        masked = _common.mask_quoted(rest)
-        operator = HEREDOC_OPERATOR.search(masked)
-        word = HEREDOC_WORD.match(rest, operator.end()) if operator else None
-        if operator is None:
-            kept.append(rest)
-            break
-        if word is None:
-            kept.append(rest[: operator.end()])
-            rest = rest[operator.end() :]
+    pending: list[tuple[bool, str, bool]] = []
+    single = double = False
+    copied = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if single:
+            single = char != "'"
+            index += 1
             continue
-        newline = masked.find("\n", word.end())
-        if newline < 0:
-            kept.append(rest)
-            break
-        kept.append(rest[: newline + 1])
-        strip_tabs = word.group(1) == "-"
-        raw_delimiter = word.group(2)
-        delimiter = re.sub(r"[\"'\\]", "", raw_delimiter)
-        lines = rest[newline + 1 :].split("\n")
-        end = next(
-            (
-                index
-                for index, line in enumerate(lines)
-                if (line.lstrip("\t") if strip_tabs else line) == delimiter
-            ),
-            len(lines),
-        )
-        bodies.append(("\n".join(lines[:end]), raw_delimiter != delimiter))
-        rest = "\n".join(lines[end + 1 :])
+        if char == "\\":
+            index += 2
+            continue
+        if double:
+            if char == '"':
+                double = False
+            elif char == "$" and text[index + 1 : index + 2] == "(":
+                index = _substitution_end(text, index + 2)
+            index += 1
+            continue
+        if char == "'":
+            single = True
+        elif char == '"':
+            double = True
+        elif text.startswith("$((", index):
+            index = _substitution_end(text, index + 2) + 1
+            continue
+        elif text.startswith("<<", index) and not text.startswith("<<<", index):
+            word = HEREDOC_WORD.match(text, index + 2)
+            if word:
+                if budget is not None:
+                    budget.spend("heredocs", MAX_HEREDOCS)
+                raw_delimiter = word.group(2)
+                delimiter = re.sub(r"[\"'\\]", "", raw_delimiter)
+                pending.append((word.group(1) == "-", delimiter, raw_delimiter != delimiter))
+                index = word.end()
+                continue
+            index += 2
+            continue
+        elif text.startswith("<<<", index):
+            index += 3
+            continue
+        elif char == "\n" and pending:
+            kept.append(text[copied : index + 1])
+            position = index + 1
+            for strip_tabs, delimiter, quoted in pending:
+                lines: list[str] = []
+                while position < length:
+                    end = text.find("\n", position)
+                    end = length if end < 0 else end
+                    line = text[position:end]
+                    position = end + 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+                    lines.append(line)
+                bodies.append(("\n".join(lines), quoted))
+            pending = []
+            copied = index = min(position, length)
+            continue
+        index += 1
+    kept.append(text[copied:])
     return "".join(kept), bodies
 
 
@@ -711,7 +925,7 @@ def call_violation(
     call: GitCall, cwd: str, rewrites_remote: bool, remote_cache: RemoteCache
 ) -> Optional[str]:
     """The deny reason for one git call, or None when it is fine."""
-    reason = bypass_violation(" ".join(call.words))
+    reason = bypass_violation(call.words)
     if reason:
         return reason
     sub_index = git_subcommand_index(call.words, 0)
@@ -746,22 +960,21 @@ def global_directory(options: list[str]) -> Optional[str]:
     return path
 
 
-def main() -> int:
-    payload = _common.read_payload()
-    command = (payload.get("tool_input") or {}).get("command") or ""
-    if not command:
-        return _common.emit_empty()
-
-    cwd = payload.get("cwd") or os.getcwd()
+def command_violation(command: str, cwd: str) -> Optional[str]:
+    """The deny reason for command, or None when it is fine. Raises ReadLimitError, or any
+    other error, when the command cannot be read in full."""
+    command = cut_at_nul(command)
     remote_cache: RemoteCache = {}
-
-    rewrites_remote = changes_remote_config(command)
-    for call in git_calls(command, cwd):
+    calls = git_calls(command, cwd)
+    shape_text, _ = split_heredocs(command, Budget())
+    rewrites_remote = changes_remote_config(shape_text, calls)
+    for call in calls:
         reason = call_violation(call, cwd, rewrites_remote, remote_cache)
         if reason:
-            return _common.deny(EVENT, reason)
+            return reason
 
-    for raw_part, directory in _common.part_dirs(command, cwd):
+    command_alone = command_stands_alone(shape_text)
+    for raw_part, directory in _common.part_dirs(shape_text, cwd):
         part = _common.normalize_command_part(raw_part)
         if part.split(" ", 1)[0] != "git":
             continue
@@ -772,11 +985,29 @@ def main() -> int:
         if scratch_dir and rewrites_remote:
             scratch_dir = None
 
-        reason = network_shape_violation(command, raw_part, normalized, git_path, scratch_dir)
+        reason = network_shape_violation(command_alone, raw_part, normalized, git_path, scratch_dir)
         if reason:
-            return _common.deny(EVENT, reason)
+            return reason
+    return None
 
-    return _common.emit_empty()
+
+def main() -> int:
+    payload = _common.read_payload()
+    tool_input = payload.get("tool_input")
+    command = tool_input.get("command") if isinstance(tool_input, dict) else None
+    if not isinstance(command, str) or not command:
+        return _common.emit_empty()
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        cwd = os.getcwd()
+
+    # Only the reading of a command fails closed. A command that mentions git and
+    # cannot be read in full is denied rather than let through unread.
+    try:
+        reason = command_violation(command, cwd)
+    except Exception:
+        reason = UNREADABLE if "git" in command else None
+    return _common.deny(EVENT, reason) if reason else _common.emit_empty()
 
 
 if __name__ == "__main__":

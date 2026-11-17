@@ -263,7 +263,16 @@ def unquote_word(word: str) -> str:
     compares the word to a tool name resolves it through this first. The quote
     characters are removed outright when the word does not parse on its own, so an
     unbalanced quote resolves to a name rather than to nothing a check can match.
+
+    A word without a quote, a backslash or whitespace is returned as it is, which is
+    what shlex gives for it, without reading it character by character.
     """
+    if (
+        word
+        and not any(char in word for char in "'\"\\")
+        and not any(char.isspace() for char in word)
+    ):
+        return word
     try:
         resolved = shlex.split(word)
     except ValueError:
