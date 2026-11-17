@@ -606,6 +606,8 @@ def build_hook_blocks(
         handler: dict[str, Any] = {"type": "command", "command": f'python3 "{script}"'}
         if hook.get("timeout"):
             handler["timeout"] = hook["timeout"]
+        if hook.get("onFailure"):
+            handler["onFailure"] = hook["onFailure"]
         handlers[key].append(handler)
 
     result: dict[str, list[dict[str, Any]]] = {}

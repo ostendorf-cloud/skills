@@ -303,6 +303,36 @@ class PushScopeTest(ScopeCase):
         ]:
             self.expect_denied("git_guard.py", command, self.fixture)
 
+    def test_allows_signing_and_hook_config_inside_a_fixture(self):
+        for command in [
+            "git config commit.gpgsign false",
+            "git config core.hooksPath /dev/null",
+            "git -c commit.gpgsign=false commit --allow-empty -m 'chore: init'",
+            "git -c core.hooksPath=/dev/null commit --allow-empty -m 'chore: init'",
+        ]:
+            self.expect_allowed("git_guard.py", command, self.fixture)
+
+    def test_denies_signing_and_hook_config_in_a_wider_scope_or_a_real_repository(self):
+        for command in [
+            "git config --global commit.gpgsign false",
+            "git config --system core.hooksPath /dev/null",
+            "git config --file ~/.gitconfig commit.gpgsign false",
+        ]:
+            self.expect_denied("git_guard.py", command, self.fixture)
+        for command in [
+            "git config commit.gpgsign false",
+            "git -c commit.gpgsign=false commit --allow-empty -m 'chore: init'",
+        ]:
+            self.expect_denied("git_guard.py", command, self.real)
+
+    def test_denies_a_push_to_main_when_a_subshell_rewrites_the_remote(self):
+        url = "https://example.invalid/o/r.git"
+        for command in [
+            f"(git remote set-url origin {url}) && git push origin main",
+            f"bash -c 'git remote set-url origin {url}'; git push origin main",
+        ]:
+            self.expect_denied("git_guard.py", command, self.fixture)
+
     def test_allows_a_push_to_main_of_a_fixture_next_to_other_git_commands(self):
         for command in [
             "git status && git push origin main",

@@ -6,10 +6,13 @@ import contextlib
 import io
 import json
 import os
+import random
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from typing import Any, Optional
 from unittest import mock
@@ -741,6 +744,917 @@ class GitGuardTest(unittest.TestCase):
         self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
 
 
+class CommandShapeTest(unittest.TestCase):
+    """The push, branch and bypass rules apply wherever git runs in the command, not only
+    when git is its first word. Runs on linux, where the macOS only network shape rule
+    stays out of the way, so each case shows the guard rule on its own."""
+
+    def setUp(self):
+        self.repo = git_repo()
+        checkout_feature(self.repo)
+
+    def check(self, command: str) -> Optional[str]:
+        return decision(run_main_in_process(command, self.repo, "linux"))
+
+    def assert_denied(self, commands: list[str]):
+        for command in commands:
+            self.assertEqual(self.check(command), "deny", command)
+
+    def assert_allowed(self, commands: list[str]):
+        for command in commands:
+            self.assertIsNone(self.check(command), command)
+
+    def test_denies_push_to_default_branch_after_a_global_option(self):
+        self.assert_denied(
+            [
+                "git --no-pager push origin main",
+                "git -P push origin main",
+                "git -p push origin main",
+                "git --paginate push origin main",
+                "git --bare push origin main",
+                "git --no-replace-objects push origin main",
+                "git --no-lazy-fetch push origin main",
+                "git --no-optional-locks push origin main",
+                "git --no-advice push origin main",
+                "git --literal-pathspecs push origin main",
+                "git --glob-pathspecs push origin main",
+                "git --noglob-pathspecs push origin main",
+                "git --icase-pathspecs push origin main",
+                "git --exec-path=/usr/libexec/git-core push origin main",
+                "git --namespace=team push origin main",
+                "git --namespace team push origin main",
+                "git --config-env=core.pager=PAGER push origin main",
+                "git --attr-source=HEAD push origin main",
+                "git --no-pager -c color.ui=never push origin main",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_after_a_global_option_with_a_separate_value(self):
+        self.assert_denied(
+            [
+                "git --config-env core.pager=PAGER push origin main",
+                "git --attr-source HEAD push origin main",
+            ]
+        )
+
+    def test_denies_force_push_and_default_branch_delete_after_a_global_option(self):
+        self.assert_denied(
+            [
+                "git --no-pager push --force origin feat/thing",
+                "git -P push origin +feat/thing",
+                "git --no-pager push --mirror origin",
+                "git --no-pager branch -D main",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_inside_a_subshell_or_group(self):
+        self.assert_denied(
+            [
+                "(git push origin main)",
+                "( git push origin main )",
+                "{ git push origin main; }",
+                "! git push origin main",
+                "git status && (git push origin main)",
+                "git status; (git push origin main)",
+                f"(cd {self.repo} && git push origin main)",
+                "if true; then git push origin main; fi",
+            ]
+        )
+
+    def test_denies_force_push_and_hook_bypass_inside_a_subshell_or_group(self):
+        self.assert_denied(
+            [
+                "(git push --force origin feat/thing)",
+                "{ git push -f origin feat/thing; }",
+                "(git commit --no-verify -m 'fix: thing')",
+                "(git branch -D main)",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_inside_a_command_substitution(self):
+        self.assert_denied(
+            [
+                "$(git push origin main)",
+                'echo "$(git push origin main)"',
+                "result=$(git push origin main)",
+                "`git push origin main`",
+                'echo "`git push origin main`"',
+                'echo "$(echo ")"; git push origin main)"',
+                "cat <(git push origin main)",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_passed_to_a_shell_or_eval(self):
+        self.assert_denied(
+            [
+                "bash -c 'git push origin main'",
+                'sh -c "git push origin main"',
+                "bash -lc 'git status && git push origin main'",
+                "bash -o pipefail -c 'git push --force origin feat/thing'",
+                'sh -c "git push origin \\"main\\""',
+                "eval 'git push origin main'",
+                "eval git push origin main",
+                "sudo sh -c 'git commit --no-verify -m x'",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_piped_into_a_shell(self):
+        self.assert_denied(
+            [
+                "echo 'git push origin main' | sh",
+                "printf '%s\\n' 'git push --force origin feat/thing' | bash",
+                "bash <<< 'git push origin main'",
+                "bash <<'EOF'\ngit push origin main\nEOF",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_behind_any_command_prefix(self):
+        self.assert_denied(
+            [
+                "timeout 60 git push origin main",
+                "echo done | xargs git push origin main",
+                "watch -n 5 git push --force origin feat/thing",
+                "sudo -u git git push origin main",
+            ]
+        )
+
+    def test_denies_a_push_whose_refs_come_from_xargs(self):
+        self.assert_denied(
+            [
+                "echo main | xargs git push origin",
+                "printf 'main' | xargs -I{} git push origin {}",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_split_by_a_line_continuation(self):
+        self.assert_denied(
+            [
+                "git push origin \\\nmain",
+                "git commit \\\n  --no-verify -m 'fix: thing'",
+                "git branch -D \\\nmain",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_with_a_quoted_or_attached_refspec(self):
+        self.assert_denied(
+            [
+                'git push origin "main"',
+                "git push origin 'HEAD:main'",
+                "git push origin ma\\in",
+                'git push "--force" origin feat/thing',
+                "git push origin main>/dev/null",
+                "git push origin main&",
+                "git branch -D 'main'",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_through_a_command_line_alias(self):
+        self.assert_denied(
+            [
+                "git -c alias.p=push p origin main",
+                "git -c alias.p=push p --force origin feat/thing",
+                "git -c 'alias.p=!git push origin main' p",
+                "git -c 'alias.c=commit --no-verify' c -m x",
+            ]
+        )
+
+    def test_allows_feature_branch_pushes_in_the_same_shapes(self):
+        self.assert_allowed(
+            [
+                "git --no-pager push origin feat/thing",
+                "git --config-env core.pager=PAGER push origin feat/thing",
+                "(git push origin feat/thing)",
+                "{ git push --force-with-lease origin feat/thing; }",
+                'echo "$(git push origin feat/thing)"',
+                "bash -c 'git push origin feat/thing'",
+                "eval 'git push -u origin feat/thing'",
+                "timeout 60 git push origin feat/thing",
+                "git push origin \\\nfeat/thing",
+                "git push origin feat/thing>/dev/null",
+                "git -c alias.p=push p origin feat/thing",
+                "(git status) && git log --oneline",
+                "echo 'git push origin main'",
+            ]
+        )
+
+    def test_allows_a_quoted_heredoc_that_mentions_a_guarded_command(self):
+        self.assert_allowed(
+            [
+                "git commit -m \"$(cat <<'EOF'\nfix: stop git push origin main\n\n"
+                'Never git push --force or git branch -D main.\nEOF\n)"',
+                "cat <<'EOF' > notes.txt\ngit push origin main\ngit branch -D main\nEOF",
+                "cat <<-EOF > notes.txt\n\tgit push origin main\n\tEOF",
+                "cat <<'EOF' > notes.md\nThe hook reads $(git push origin main) as a call.\nEOF",
+                "cat <<'A' <<'B' > notes.txt\ngit push origin main\nA\n"
+                "git push --force origin feat/thing\nB",
+                "echo $((1 << shift))\ngit status",
+            ]
+        )
+
+    def test_denies_a_substitution_inside_an_unquoted_heredoc(self):
+        self.assert_denied(
+            [
+                "cat <<EOF > notes.txt\n$(git push origin main)\nEOF",
+                "cat <<'A' <<B > notes.txt\nplain\nA\n$(git push origin main)\nB",
+                "echo $((1 << shift))\ngit push origin main\nshift",
+            ]
+        )
+
+    def test_allows_a_shell_name_that_is_not_fed_commands(self):
+        self.assert_allowed(
+            [
+                "echo 'git push --force origin feat/thing' > notes.txt; which sh",
+                "echo 'git push origin main' > notes.txt && command -v bash",
+                "shfmt -ln bash -d scripts && echo 'git push --force origin feat/thing'",
+                "chsh -s /bin/zsh; echo 'git branch -D main' > notes.txt",
+                "pgrep bash; echo 'git push origin main'",
+                "bash; echo 'git push --force origin feat/thing' > notes.txt",
+                "echo 'git push origin main' | cat > sh",
+                "command -v bash && cat <<'EOF' > notes.md\n"
+                "git push --force origin feat/thing\nEOF",
+            ]
+        )
+
+    def test_allows_a_bypass_flag_inside_a_message_or_search_argument(self):
+        self.assert_allowed(
+            [
+                "git commit -m 'feat: deny --no-verify behind a subshell'",
+                "git log -S'--no-verify' --oneline",
+                "git commit -m 'chore: drop -c commit.gpgsign=false from docs'",
+                "git log --grep='--no-gpg-sign' --oneline",
+                "git commit -s -m \"$(cat <<'EOF'\nfix(hooks): read options\n\n"
+                'Never use git push --force or --no-verify.\nEOF\n)"',
+                "git push -n origin feat/thing",
+            ]
+        )
+
+    def test_denies_a_bypass_flag_that_stands_as_its_own_word(self):
+        self.assert_denied(
+            [
+                "git commit -n -m 'fix: thing'",
+                "git -c COMMIT.GPGSIGN=false commit -m 'fix: thing'",
+                "git push --no-verify origin feat/thing",
+                "git rebase --no-verify main",
+                "git commit -m 'fix: thing' --no-gpg-sign",
+            ]
+        )
+
+    def test_denies_a_force_flag_inside_a_cluster_of_short_push_flags(self):
+        self.assert_denied(
+            [
+                "git push -uf origin feat/thing",
+                "git push -fu origin feat/thing",
+                "git push -vf origin feat/thing",
+                "git push -fo ci.skip origin feat/thing",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push -of origin feat/thing",
+                "git push -uo ci.skip origin feat/thing",
+                "git push -uv origin feat/thing",
+            ]
+        )
+
+    def test_denies_a_hook_bypass_inside_a_cluster_of_short_commit_flags(self):
+        self.assert_denied(
+            [
+                "git commit -an -m 'fix: thing'",
+                "git commit -nm 'fix: thing'",
+                "git commit -anm 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git commit -mn",
+                "git commit -am 'fix: thing'",
+                "git commit -sm 'fix: thing'",
+                "git commit -m -n",
+            ]
+        )
+
+    def test_denies_an_abbreviated_long_option_of_push_or_commit(self):
+        self.assert_denied(
+            [
+                "git push --mirr origin",
+                "git push --al origin",
+                "git commit --no-veri -m 'fix: thing'",
+                "git commit --no-gpg -m 'fix: thing'",
+                "git push --no-verif origin feat/thing",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push --forc origin feat/thing",
+                "git push --force-with origin feat/thing",
+                "git push --set-up origin feat/thing",
+                "git commit --amen --no-edit",
+            ]
+        )
+
+    def test_denies_config_that_skips_hooks_or_signing(self):
+        self.assert_denied(
+            [
+                "git -c core.hooksPath=/dev/null commit -m 'fix: thing'",
+                "git -c commit.gpgsign=0 commit -m 'fix: thing'",
+                "git -c commit.gpgsign=no commit -m 'fix: thing'",
+                "git -c commit.gpgsign=off commit -m 'fix: thing'",
+                "git -c commit.gpgsign= commit -m 'fix: thing'",
+                "git -c tag.gpgSign=false tag -a v1.2.3 -m v1.2.3",
+                "git --config-env=core.hooksPath=HOOKS commit -m 'fix: thing'",
+                "git --config-env commit.gpgsign=SIGN commit -m 'fix: thing'",
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null "
+                "git commit -m 'fix: thing'",
+                "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign "
+                "GIT_CONFIG_VALUE_0=false; git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/dev/null'\" git commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git -c commit.gpgsign=true commit -m 'fix: thing'",
+                "git -c commit.gpgsign commit -m 'fix: thing'",
+                "git -c commit.gpgsign=yes commit -m 'fix: thing'",
+                "git -c core.pager=cat log -1",
+                "git -c color.ui=always diff",
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=true "
+                "git commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_denies_config_that_widens_a_push(self):
+        self.assert_denied(
+            [
+                "git -c push.default=matching push origin",
+                "git -c remote.origin.mirror=true push origin",
+                "git -c remote.origin.push=HEAD:refs/heads/main push origin",
+                "git -c Remote.Origin.Push=HEAD:refs/heads/main push",
+            ]
+        )
+
+    def test_denies_a_config_write_that_skips_hooks_or_signing_or_widens_a_push(self):
+        self.assert_denied(
+            [
+                "git config core.hooksPath /dev/null",
+                "git config commit.gpgsign false",
+                "git config --global commit.gpgsign false",
+                "git config set core.hooksPath /dev/null",
+                "git config --bool tag.gpgsign off",
+                "git config --global --unset commit.gpgsign",
+                "git config remote.origin.push HEAD:refs/heads/main",
+                "git config --add remote.origin.push HEAD:refs/heads/main",
+                "git config remote.origin.mirror true",
+                "git config push.default matching",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git config --get remote.origin.url",
+                "git config --get-all remote.origin.push 'refs/heads/.*'",
+                "git config core.hooksPath",
+                "git config get core.hooksPath",
+                "git config --list",
+                "git config commit.gpgsign true",
+                "git config user.name 'dev'",
+                "git config --unset core.hooksPath",
+            ]
+        )
+
+    def test_denies_a_push_whose_destination_is_the_default_branch_or_a_pattern(self):
+        self.assert_denied(
+            [
+                "git push origin heads/main",
+                "git push origin HEAD:heads/main",
+                "git push origin 'refs/heads/*:refs/heads/*'",
+                "git push origin 'feat/*'",
+                "git push origin :",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push origin :feat/old",
+                "git push origin heads/feat/thing",
+                "git push origin feat/thing:feat/thing",
+            ]
+        )
+
+    def test_denies_a_push_whose_ref_the_shell_builds(self):
+        self.assert_denied(
+            [
+                "git push origin {main,}",
+                "git push origin $'main'",
+                'git push origin "$BRANCH"',
+                "git push origin `echo main`",
+                "git push origin $(echo main) --force-with-lease",
+            ]
+        )
+        self.assert_allowed(
+            [
+                'git push -u origin "$(git branch --show-current)"',
+                "git push -u origin $(git rev-parse --abbrev-ref HEAD)",
+            ]
+        )
+
+    def test_denies_send_pack_and_update_ref_on_the_default_branch(self):
+        self.assert_denied(
+            [
+                "git send-pack ../remote.git feat/thing:main",
+                "git send-pack --all ../remote.git",
+                "git send-pack ../remote.git",
+                "git send-pack --force ../remote.git feat/thing",
+                "git update-ref -d refs/heads/main",
+                "printf 'delete refs/heads/main\\n' | git update-ref --stdin",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git send-pack ../remote.git feat/thing",
+                "git update-ref -d refs/heads/feat/old",
+                "git update-ref refs/heads/feat/thing HEAD",
+            ]
+        )
+
+    def test_denies_a_commit_or_force_delete_whose_arguments_come_from_xargs(self):
+        self.assert_denied(
+            [
+                "echo --no-verify | xargs git commit -m 'fix: thing'",
+                "echo main | xargs git branch -D",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git branch --merged | grep -v main | xargs git branch -d",
+                "git branch --merged main | grep -v '^\\*' | xargs -r git branch -d",
+                "echo main | xargs -I{} git log --oneline {}",
+            ]
+        )
+
+    def test_denies_git_named_in_another_case(self):
+        self.assert_denied(
+            [
+                "GIT push --force origin feat/thing",
+                "Git push origin main",
+                "/usr/bin/GIT push origin main",
+                "GIT commit --no-verify -m 'fix: thing'",
+                "GIT branch -D main",
+            ]
+        )
+        self.assert_allowed(["GIT status", "Git push origin feat/thing"])
+
+    def test_denies_a_command_in_an_env_split_string(self):
+        self.assert_denied(
+            [
+                "env -S 'git push origin main'",
+                "env -S 'git push --force origin feat/thing'",
+                "env -S'git push origin main'",
+                "env --split-string='git push origin main'",
+                "env --split-string 'git push origin main'",
+            ]
+        )
+        self.assert_allowed(["env -S 'git push origin feat/thing'"])
+
+    def test_denies_config_parameters_written_as_one_quoted_item(self):
+        self.assert_denied(
+            [
+                "GIT_CONFIG_PARAMETERS=\"'core.hookspath=/dev/null'\" git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'commit.gpgsign=false'\" git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'commit.gpgsign'=''\" git commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            ["GIT_CONFIG_PARAMETERS=\"'commit.gpgsign=true'\" git commit -m 'fix: thing'"]
+        )
+
+    def test_denies_update_ref_whose_arguments_come_from_xargs(self):
+        self.assert_denied(["echo refs/heads/main | xargs git update-ref -d"])
+
+    def test_denies_a_subtree_push_to_the_default_branch(self):
+        self.assert_denied(
+            [
+                "git subtree push --prefix=lib origin main",
+                "git subtree push -P lib origin main",
+                "git subtree push --prefix lib origin HEAD:main",
+            ]
+        )
+        self.assert_allowed(["git subtree push --prefix=lib origin feat/thing"])
+
+    def test_denies_only_the_push_default_values_that_widen_a_push(self):
+        self.assert_denied(
+            [
+                "git -c push.default=matching push origin",
+                "git -c push.default=upstream push",
+                "git -c push.default=tracking push",
+                "git config push.default matching",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git -c push.default=current push",
+                "git -c push.default=simple push",
+                "git config push.default current",
+            ]
+        )
+
+    def test_allows_help_of_send_pack_and_a_reflog_suffix_in_a_refspec(self):
+        self.assert_allowed(
+            [
+                "git send-pack --help",
+                "git send-pack -h",
+                "git push origin feat/thing@{u}",
+                "git push origin HEAD@{1}:feat/thing",
+            ]
+        )
+        self.assert_denied(["git push origin {main,}", "git push origin feat/thing@{u}:main"])
+
+    def test_allows_hooks_from_a_directory_inside_the_repository(self):
+        self.assert_allowed(
+            [
+                "git config core.hooksPath .githooks",
+                "git config core.hooksPath .husky/_",
+                "git -c core.hooksPath=.githooks commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_denied(
+            [
+                "git config core.hooksPath /dev/null",
+                "git config core.hooksPath ''",
+                "git config core.hooksPath ~/hooks",
+                "git config core.hooksPath ../elsewhere",
+                "git config core.hooksPath .githooks/../../elsewhere",
+                "git -c core.hooksPath=/tmp/hooks commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_allows_unsetting_signing_in_the_repository_but_not_in_a_wider_scope(self):
+        self.assert_allowed(["git config --unset commit.gpgsign", "git config unset tag.gpgsign"])
+        self.assert_denied(
+            [
+                "git config --global --unset commit.gpgsign",
+                "git config --system --unset tag.gpgsign",
+                "git config commit.gpgsign false",
+            ]
+        )
+
+    def test_denies_a_push_fed_to_a_sourced_stdin(self):
+        self.assert_denied(
+            [
+                "source /dev/stdin <<'EOF'\ngit push origin main\nEOF",
+                ". /dev/stdin <<'EOF'\ngit push origin main\nEOF",
+                "printf 'git push origin main\\n' | source /dev/stdin",
+                ". /dev/stdin <<< 'git push origin main'",
+                "source - <<'EOF'\ngit push --force origin feat/thing\nEOF",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "source ./env.sh",
+                ". ~/.profile && git status",
+                "source /dev/stdin <<'EOF'\ngit status\nEOF",
+                "printf 'git push origin main' | source ./env.sh",
+            ]
+        )
+
+    def test_denies_a_heredoc_body_that_eval_or_a_shell_runs(self):
+        self.assert_denied(
+            [
+                "eval \"$(cat <<'EOF'\ngit push --force origin feat/thing\nEOF\n)\"",
+                "bash -c \"$(cat <<'EOF'\ngit push origin main\nEOF\n)\"",
+                "sh -c \"$(cat <<'EOF'\ngit push origin main\nEOF\n)\"",
+                "eval \"$(printf '%s' 'git push --force origin feat/thing')\"",
+                'eval "$(echo git push --force origin feat/thing)"',
+            ]
+        )
+        self.assert_allowed(
+            [
+                "eval \"$(cat <<'EOF'\ngit status\nEOF\n)\"",
+                "git commit -m \"$(cat <<'EOF'\nfix: git push --force\nEOF\n)\"",
+                'eval "$(mise activate bash)"',
+            ]
+        )
+
+    def test_denies_a_split_string_inside_a_cluster_of_env_flags(self):
+        self.assert_denied(
+            [
+                "env -vS 'git push origin main'",
+                "env -iS 'git push origin main'",
+                "env -vS'git push origin main'",
+                "env -u X -S 'git push origin main'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "env -vS 'git push origin feat/thing'",
+                "env -u S git status",
+                "env -uS echo 'git push origin main'",
+            ]
+        )
+
+    def test_reads_the_branch_as_unknown_after_a_switch_in_the_same_command(self):
+        self.assert_denied(
+            [
+                "git checkout main && git push",
+                "git switch main && git push origin HEAD",
+                "git checkout -q main; git push -u origin HEAD",
+                "git symbolic-ref HEAD refs/heads/main && git push",
+                "git checkout - && git push origin HEAD",
+                "git switch @{-1} && git push origin HEAD",
+                'git checkout "$BRANCH" && git push origin HEAD',
+                "git branch -m main && git push origin HEAD",
+                "git checkout -B main && git push origin HEAD",
+                "git checkout -B main feat/thing && git push origin HEAD",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git checkout -- main && git push origin HEAD",
+                "git switch -c feat/new && git push -u origin feat/new",
+                "git checkout -b feat/new && git push -u origin HEAD",
+                "git checkout main -- README.md && git push origin HEAD",
+                "git checkout main && git push origin feat/thing",
+                "git switch main && git pull --ff-only",
+            ]
+        )
+
+    def test_answers_odd_input_without_failing(self):
+        for command in [
+            "$(",
+            "(((",
+            "`",
+            "bash -c",
+            "eval",
+            "git -c",
+            "git --namespace",
+            "xargs git",
+            "cat <<",
+            "cat <<EOF",
+            "echo $(echo $(echo $(echo $(echo $(echo $(echo $(git status)))))))",
+            "(" * 200 + "git status" + ")" * 200,
+            "bash -c " * 50 + "'git status'",
+        ]:
+            output = run_main_in_process(command, self.repo, "linux")
+            self.assertIsInstance(output, dict, command)
+
+
+def nested_shell(command: str, levels: int) -> str:
+    """command wrapped in levels of `sh -c`."""
+    for _ in range(levels):
+        command = "sh -c " + shlex.quote(command)
+    return command
+
+
+# The longest a single pathological command may take in these tests. The hook itself
+# aims at well under a second, the bound leaves room for a slow runner.
+TIME_BOUND_SECONDS = 3.0
+FORCE_PUSH = "git push --force origin feat/thing"
+
+
+class ReadLimitTest(unittest.TestCase):
+    """The guard reads every command within a bounded time, and denies a command that
+    mentions git when it cannot read it in full."""
+
+    def setUp(self):
+        self.repo = git_repo()
+        checkout_feature(self.repo)
+
+    def timed(self, command: str, platform: str = "linux") -> tuple[Optional[str], float]:
+        start = time.monotonic()
+        output = run_main_in_process(command, self.repo, platform)
+        return decision(output), time.monotonic() - start
+
+    def test_denies_a_force_push_next_to_a_deep_substitution(self):
+        for command in [
+            FORCE_PUSH + " # " + "$(" * 1200,
+            FORCE_PUSH + '; echo "' + "$(" * 1200 + '"',
+            FORCE_PUSH + "; : " + "<(" * 1200,
+            FORCE_PUSH + "; echo " + "$(" * 2000 + "x" + ")" * 2000,
+            FORCE_PUSH + "; echo " + "`" * 3001,
+            FORCE_PUSH + "; " + "(" * 3000,
+        ]:
+            verdict, seconds = self.timed(command)
+            self.assertEqual(verdict, "deny", command[:80])
+            self.assertLess(seconds, TIME_BOUND_SECONDS, command[:80])
+
+    def test_denies_a_force_push_next_to_random_deep_nesting(self):
+        rng = random.Random(210)
+        pieces = ["$(", "(", ")", "`", '"', "'", "{ ", "; ", "<(", "\\", "<<A\n", " ", "git "]
+        for _ in range(20):
+            noise = "".join(rng.choice(pieces) for _ in range(3000))
+            verdict, seconds = self.timed(FORCE_PUSH + "; " + noise)
+            self.assertEqual(verdict, "deny", noise[:80])
+            self.assertLess(seconds, TIME_BOUND_SECONDS, noise[:80])
+
+    def test_reads_any_depth_of_substitution_without_an_error(self):
+        for text in ["$(" * 5000, "echo " + "$(" * 3000 + "x" + ")" * 3000]:
+            self.assertEqual(len(git_guard.substitutions(text)), 1)
+
+    def test_denies_a_command_that_mentions_git_past_the_reading_deadline(self):
+        with mock.patch.object(git_guard, "READ_SECONDS", -1.0):
+            self.assertEqual(self.timed("git status")[0], "deny")
+            self.assertIsNone(self.timed("ls -la")[0])
+
+    def test_denies_a_command_that_mentions_git_when_reading_it_fails(self):
+        with mock.patch.object(git_guard, "git_calls", side_effect=RuntimeError("unreadable")):
+            self.assertEqual(self.timed("git status")[0], "deny")
+            self.assertIsNone(self.timed("ls -la")[0])
+
+    def test_answers_a_command_field_that_is_not_text_with_an_empty_response(self):
+        payload = bash_payload("git status", self.repo)
+        payload["tool_input"]["command"] = ["git", "push", "--force"]
+        self.assertEqual(run_hook("git_guard.py", payload), {})
+
+    def test_denies_a_push_inside_more_shell_levels_than_the_hook_reads(self):
+        for levels in (9, 10):
+            command = nested_shell("git push origin main", levels)
+            self.assertEqual(self.timed(command)[0], "deny", levels)
+
+    def test_reads_pathological_commands_within_the_time_bound(self):
+        quoted_words = " ".join(["'git status'"] * 2000)
+        substitution_lines = "line $(echo a) `b`\n" * 2000
+        cases = [
+            (FORCE_PUSH + "; echo " + "git " * 2000, "deny"),
+            (FORCE_PUSH + "; echo " + "$(git status) " * 1000, "deny"),
+            ("xargs " * 3000 + "git push origin main", "deny"),
+            ("cat " + "<<A " * 2000 + "\n" + FORCE_PUSH, "deny"),
+            ("cat notes | bash; echo " + quoted_words + "; " + FORCE_PUSH, "deny"),
+            ("; ".join(["git status"] * 2000) + "; " + FORCE_PUSH, "deny"),
+            ("cat <<EOF > notes.txt\n" + substitution_lines + "EOF\n" + FORCE_PUSH, "deny"),
+            ("echo " + "a" * 200000 + "; " + FORCE_PUSH, "deny"),
+            ("echo " + "a" * 200000 + "; git status", "deny"),
+            ("git add " + "notes.txt " * 2500, "deny"),
+            ("bash " * 3000 + "-c 'git status'", None),
+            ("cat <<'EOF' > notes.txt\n" + "git push origin main\n" * 20000 + "EOF", None),
+        ]
+        for command, expected in cases:
+            for platform in ("linux", "darwin"):
+                verdict, seconds = self.timed(command, platform)
+                self.assertEqual(verdict, expected, (platform, command[:80]))
+                self.assertLess(seconds, TIME_BOUND_SECONDS, (platform, command[:80]))
+
+    def slow_git(self, delay: float):
+        """A stand in for subprocess.run that answers git's queries after delay seconds,
+        as a slow machine would, and records every call."""
+        calls: list[list[str]] = []
+
+        def fake(args, **kwargs):
+            argv = list(args)
+            calls.append(argv)
+            time.sleep(delay)
+            answers = {
+                ("rev-parse", "--abbrev-ref", "HEAD"): "feat/thing\n",
+                ("rev-parse", "--show-toplevel"): self.repo + "\n",
+                ("symbolic-ref", "refs/remotes/origin/HEAD"): "refs/remotes/origin/main\n",
+                ("branch", "--list"): "  main\n* feat/thing\n",
+            }
+            answer = answers.get(tuple(argv[1:]))
+            if argv[1:2] == ["ls-remote"]:
+                answer = "abc\trefs/heads/main\n"
+            return subprocess.CompletedProcess(argv, 0 if answer else 1, answer or "", "")
+
+        return fake, calls
+
+    def test_answers_many_guarded_calls_quickly_when_git_is_slow(self):
+        fake, calls = self.slow_git(0.05)
+        with mock.patch.object(subprocess, "run", fake):
+            for command in [
+                "; ".join(["git push"] * 199),
+                "; ".join(f"git branch -d feat/old-{i}" for i in range(199)),
+                "; ".join(f"git push origin feat/thing-{i}" for i in range(199)),
+            ]:
+                del calls[:]
+                verdict, seconds = self.timed(command)
+                self.assertIsNone(verdict, command[:60])
+                self.assertLess(seconds, 1.0, command[:60])
+                self.assertLess(len(calls), 20, command[:60])
+
+    def test_denies_a_command_whose_git_queries_go_past_their_bound(self):
+        fake, _ = self.slow_git(0.02)
+        command = "; ".join(f"git -C ../repo-{i} push origin feat/thing" for i in range(199))
+        with mock.patch.object(subprocess, "run", fake):
+            verdict, seconds = self.timed(command)
+        self.assertEqual(verdict, "deny")
+        self.assertLess(seconds, TIME_BOUND_SECONDS)
+        fake, _ = self.slow_git(0.3)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(subprocess, "run", fake))
+            stack.enter_context(mock.patch.object(git_guard, "GIT_QUERY_SECONDS", 1.0))
+            verdict, seconds = self.timed("; ".join(f"git -C ../repo-{i} push" for i in range(30)))
+        self.assertEqual(verdict, "deny")
+        self.assertLess(seconds, 1.0 + TIME_BOUND_SECONDS)
+
+    def test_denies_a_command_that_mentions_git_when_the_working_directory_is_gone(self):
+        gone = tempfile.mkdtemp(prefix="git-guard-gone-")
+        hook = os.path.join(HOOKS_DIR, "git_guard.py")
+        script = (
+            "import json, os, subprocess, sys\n"
+            "os.chdir(sys.argv[1])\n"
+            "os.rmdir(sys.argv[1])\n"
+            "for command in sys.argv[3:]:\n"
+            "    payload = json.dumps({'tool_input': {'command': command}})\n"
+            "    result = subprocess.run([sys.executable, sys.argv[2]], input=payload,\n"
+            "                            capture_output=True, text=True)\n"
+            "    print(result.returncode, result.stdout.strip() or '{}')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script, gone, hook, "git push --force origin feat/thing", "ls"],
+            capture_output=True,
+            text=True,
+            env=scratch_env(NO_SCRATCH),
+        )
+        first, second = result.stdout.splitlines()
+        self.assertTrue(first.startswith("0 "), result.stdout)
+        self.assertEqual(decision(json.loads(first[2:])), "deny")
+        self.assertEqual(second, "0 {}")
+
+    def test_blocks_the_command_when_the_hook_itself_fails(self):
+        with open(os.path.join(HOOKS_DIR, "hooks.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        entry = next(hook for hook in manifest["hooks"] if hook["id"] == "git-guard")
+        self.assertEqual(entry.get("onFailure"), "block")
+
+    def test_denies_a_command_that_holds_a_nul_byte_and_mentions_git(self):
+        for command in [
+            "git push\x00 --force origin feat/thing",
+            "git push origin ma\x00in",
+            "gi\x00t push origin main",
+            "git branch -D ma\x00in",
+        ]:
+            self.assertEqual(self.timed(command)[0], "deny", repr(command))
+        self.assertIsNone(self.timed("echo a\x00b")[0])
+
+    def assert_both_platforms(self, commands: list[str], expected: Optional[str]):
+        for command in commands:
+            for platform in ("linux", "darwin"):
+                verdict, _ = self.timed(command, platform)
+                self.assertEqual(verdict, expected, (platform, command))
+
+    def test_denies_a_command_after_a_quoted_heredoc_whose_body_line_ends_in_a_backslash(self):
+        body = "cat <<'EOF' > /dev/null\nx\\\nEOF\n"
+        self.assert_both_platforms(
+            [
+                body + "git branch -D main",
+                body + "git commit --no-verify -m 'fix: thing'",
+                body + "git push origin main",
+                body + FORCE_PUSH,
+                body + FORCE_PUSH + "\nEOF",
+            ],
+            "deny",
+        )
+        self.assert_both_platforms([body + "git status"], None)
+
+    def test_reads_an_unquoted_heredoc_body_line_that_ends_in_a_backslash(self):
+        closed = "cat <<EOF > notes.txt\nline \\\nmore\nEOF\n"
+        self.assert_both_platforms([closed + FORCE_PUSH], "deny")
+        self.assert_both_platforms([closed + "git status"], None)
+        self.assert_both_platforms(["cat <<EOF > /dev/null\nx\\\nEOF\n" + FORCE_PUSH], "deny")
+        joined = "cat <<EOF > notes.txt\nx\\\nEOF\n" + FORCE_PUSH + "\nEOF\ngit status"
+        self.assert_both_platforms([joined], None)
+
+    def test_denies_a_command_after_a_marker_that_opens_no_heredoc(self):
+        self.assert_both_platforms(
+            [
+                "# see <<EOF\n" + FORCE_PUSH,
+                "echo hi # <<EOF\ngit branch -D main",
+                "(( x = 1 <<y ))\n" + FORCE_PUSH,
+                "echo $[1<<y]\n" + FORCE_PUSH,
+                "echo $((1 << shift))\n" + FORCE_PUSH,
+                "# see <<EOF\n" + FORCE_PUSH + "\nEOF",
+                "(( x = 1 <<y ))\n" + FORCE_PUSH + "\ny",
+                "echo $[1<<y]\n" + FORCE_PUSH + "\ny]",
+                "echo $((1 << shift))\n" + FORCE_PUSH + "\nshift",
+            ],
+            "deny",
+        )
+        self.assert_both_platforms(["# see <<EOF\ngit status", "(( x = 1 <<y ))\ngit status"], None)
+
+    def test_reads_the_body_of_a_heredoc_that_never_closes_as_commands(self):
+        self.assert_both_platforms(
+            [
+                "cat <<EOF\n" + FORCE_PUSH,
+                'cat <<"EOF"\nbody\n"EOF"\n' + FORCE_PUSH,
+                "cat <<-'EOF'\n\tbody\n  EOF\n" + FORCE_PUSH,
+                "cat << 'EOF'\nbody\nEOF \n" + FORCE_PUSH,
+                ": <<EOF\nEOF\n" + FORCE_PUSH,
+                "cat <<E\\OF\nbody\nEOF\n" + FORCE_PUSH,
+                "echo x <<EOF; " + FORCE_PUSH + "\nbody\nEOF",
+            ],
+            "deny",
+        )
+
+    def test_denies_an_unreadable_command_that_spells_git_with_quotes_backslashes_or_case(self):
+        pad = " # " + "a" * 100001
+        self.assert_both_platforms(
+            [
+                "g''it push --force origin feat/thing" + pad,
+                "g\\it push --force origin feat/thing" + pad,
+                "GIT push --force origin feat/thing" + pad,
+                nested_shell("g''it push origin main", 9),
+                nested_shell("g\\it push origin main", 9),
+            ],
+            "deny",
+        )
+        self.assert_both_platforms(["echo hello" + pad], None)
+
+
 class NetworkShapeTest(unittest.TestCase):
     """A git fetch, pull or push leaves the sandbox only when it stands alone in the
     call. Any other shape runs inside the sandbox and fails with a host key error."""
@@ -806,6 +1720,24 @@ class NetworkShapeTest(unittest.TestCase):
             "git --no-pager pull",
             f"git --git-dir={repo}/.git fetch origin",
             f"git --work-tree={repo} push origin feat/thing",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_allows_a_quoted_heredoc_body_that_names_a_network_command(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "cat <<'EOF' > notes.txt\ngit push origin main\ngit fetch origin\nEOF",
+            "tee body.md <<'EOF'\ngit push --force\nEOF",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
+
+    def test_denies_a_global_option_with_a_separate_value_before_the_network_subcommand(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git --config-env core.pager=PAGER push origin feat/thing",
+            "git --attr-source HEAD fetch origin",
         ]:
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
 
