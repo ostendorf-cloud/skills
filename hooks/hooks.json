@@ -8,7 +8,7 @@
       "matcher": "Bash",
       "timeout": 10,
       "decision": "deny",
-      "description": "Push to the default branch, unless the remote has no branch yet, force push without lease or onto the default branch, git push --all or --mirror, bypassed hooks or signing, deletion of the default branch."
+      "description": "Push to the default branch, unless the remote has no branch yet, force push without lease or onto the default branch, git push --all or --mirror, bypassed hooks or signing, deletion of the default branch. On macOS also git fetch, pull or push that does not stand alone in its call."
     },
     {
       "id": "secret-guard",

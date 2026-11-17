@@ -2,14 +2,52 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for git_guard.py."""
 
+import contextlib
+import io
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from typing import Any, Optional
+from unittest import mock
 
 from helper import HOOKS_DIR, NO_SCRATCH, bash_payload, decision, reason, run_hook, scratch_env
+
+# The hook is imported in process for the tests that need to fake sys.platform or to
+# watch one run's cache. Importing it adds the hooks directory to sys.path, so the
+# path is put back right after.
+_saved_path = list(sys.path)
+sys.path.insert(0, HOOKS_DIR)
+import git_guard  # noqa: E402
+
+sys.path[:] = _saved_path
+
+
+def run_main_in_process(
+    command: str,
+    cwd: str,
+    platform: str,
+    tmpdir: str = NO_SCRATCH,
+    path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Runs git_guard.main() in this process with sys.platform faked as platform and
+    $TMPDIR (the session scratch scope) as tmpdir. Returns the parsed response."""
+    payload = json.dumps(bash_payload(command, cwd))
+    out = io.StringIO()
+    env = {"TMPDIR": tmpdir}
+    if path is not None:
+        env["PATH"] = path
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(mock.patch.object(sys, "platform", platform))
+        stack.enter_context(mock.patch.dict(os.environ, env))
+        stack.enter_context(mock.patch.object(sys, "stdin", io.StringIO(payload)))
+        stack.enter_context(contextlib.redirect_stdout(out))
+        git_guard.main()
+    return json.loads(out.getvalue())
+
 
 # How long the slow-remote fixture sleeps on ls-remote. Longer than git_guard's own
 # LS_REMOTE_TIMEOUT (5 seconds), so the hook's subprocess call times out first.
@@ -374,7 +412,7 @@ class GitGuardTest(unittest.TestCase):
         checkout_feature(repo)
         for command in [
             "time git push origin feat/thing",
-            "env git push --force-with-lease origin feat/thing",
+            "command git push --force-with-lease origin feat/thing",
             "mise exec -- git status",
         ]:
             self.assertIsNone(
@@ -612,19 +650,24 @@ class GitGuardTest(unittest.TestCase):
         checkout_feature(repo)
         add_remote(repo, bare_remote())
         env, log_path = counting_git_env()
-        sys.path.insert(0, HOOKS_DIR)
-        import git_guard
-
         cache: git_guard.RemoteCache = {}
-        saved_path = os.environ["PATH"]
-        os.environ["PATH"] = env["PATH"]
-        try:
+        with mock.patch.dict(os.environ, {"PATH": env["PATH"]}):
             for _ in range(3):
                 self.assertIsNone(
                     git_guard.push_violation("git push origin main", repo, "main", cache)
                 )
-        finally:
-            os.environ["PATH"] = saved_path
+        with open(log_path, encoding="utf-8") as handle:
+            calls = handle.read().splitlines()
+        self.assertEqual(len(calls), 1)
+
+    def test_main_shares_one_remote_cache_across_a_chain_of_default_branch_pushes(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, bare_remote())
+        env, log_path = counting_git_env()
+        command = "git push origin main; git push origin main; git push origin main"
+        output = run_main_in_process(command, repo, "linux", path=env["PATH"])
+        self.assertIsNone(decision(output))
         with open(log_path, encoding="utf-8") as handle:
             calls = handle.read().splitlines()
         self.assertEqual(len(calls), 1)
@@ -702,8 +745,8 @@ class NetworkShapeTest(unittest.TestCase):
     """A git fetch, pull or push leaves the sandbox only when it stands alone in the
     call. Any other shape runs inside the sandbox and fails with a host key error."""
 
-    def check(self, command: str, repo: str):
-        return run_hook("git_guard.py", bash_payload(command, repo))
+    def check(self, command: str, repo: str, platform: str = "darwin", tmpdir: str = NO_SCRATCH):
+        return run_main_in_process(command, repo, platform, tmpdir)
 
     def test_denies_piped_git_push(self):
         repo = git_repo()
@@ -722,11 +765,94 @@ class NetworkShapeTest(unittest.TestCase):
         repo = git_repo()
         checkout_feature(repo)
         for command in [
-            "git push origin feat/thing 2>&1",
-            "git fetch origin 2>&1",
+            "git push origin feat/thing 2>/dev/null",
+            "git fetch origin < /dev/null",
             "git pull 2>/dev/null",
+            "git fetch origin 2>&1 > fetch.log",
         ]:
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_a_background_git_push(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        self.assertEqual(decision(self.check("git push origin feat/thing &", repo)), "deny")
+
+    def test_allows_the_redirections_that_keep_the_call_outside_the_sandbox(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push origin feat/thing 2>&1",
+            "git fetch origin 2>&1",
+            "git pull >&2",
+            "time git fetch --dry-run origin",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
+
+    def test_denies_an_env_prefix_before_a_git_network_command(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "FOO=1 git fetch --dry-run origin",
+            "env X=1 git push origin feat/thing",
+            "GIT_SSH_COMMAND=ssh git pull",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_a_global_option_before_the_network_subcommand(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git -c http.sslVerify=false fetch origin",
+            "git --no-pager pull",
+            f"git --git-dir={repo}/.git fetch origin",
+            f"git --work-tree={repo} push origin feat/thing",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_allows_network_shapes_on_other_platforms(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push origin feat/thing 2>&1 | tail -3",
+            "git status && git fetch origin",
+            f"git -C {repo} pull",
+            "FOO=1 git fetch origin",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo, platform="linux")), command)
+
+    def test_default_branch_push_is_denied_on_other_platforms_too(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        out = self.check("git push origin main | tail -3", repo, platform="linux")
+        self.assertEqual(decision(out), "deny")
+
+    def test_allows_a_scratch_local_remote_in_any_shape(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        scratch = os.path.dirname(repo)
+        for command in [
+            "git push origin feat/thing 2>/dev/null",
+            "git status && git push origin feat/thing",
+        ]:
+            out = self.check(command, repo, tmpdir=scratch)
+            self.assertIsNone(decision(out), command)
+
+    def test_denies_a_network_remote_in_a_scratch_repository(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        add_remote(repo, "git@example.com:org/repo.git")
+        scratch = os.path.dirname(repo)
+        out = self.check("git status && git push origin feat/thing", repo, tmpdir=scratch)
+        self.assertEqual(decision(out), "deny")
+
+    def test_allows_a_quoted_operator_in_a_network_argument(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            'git push origin "a>b"',
+            'git push origin "feat/a&&b"',
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
 
     def test_denies_git_network_command_redirected_to_a_file(self):
         repo = git_repo()
