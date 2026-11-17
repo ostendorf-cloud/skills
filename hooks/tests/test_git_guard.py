@@ -5,10 +5,11 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
-from helper import NO_SCRATCH, bash_payload, decision, reason, run_hook, scratch_env
+from helper import HOOKS_DIR, NO_SCRATCH, bash_payload, decision, reason, run_hook, scratch_env
 
 # How long the slow-remote fixture sleeps on ls-remote. Longer than git_guard's own
 # LS_REMOTE_TIMEOUT (5 seconds), so the hook's subprocess call times out first.
@@ -611,9 +612,19 @@ class GitGuardTest(unittest.TestCase):
         checkout_feature(repo)
         add_remote(repo, bare_remote())
         env, log_path = counting_git_env()
-        command = "git push origin main; git push origin main; git push origin main"
-        output = run_hook("git_guard.py", bash_payload(command, repo), env=env)
-        self.assertIsNone(decision(output))
+        sys.path.insert(0, HOOKS_DIR)
+        import git_guard
+
+        cache: git_guard.RemoteCache = {}
+        saved_path = os.environ["PATH"]
+        os.environ["PATH"] = env["PATH"]
+        try:
+            for _ in range(3):
+                self.assertIsNone(
+                    git_guard.push_violation("git push origin main", repo, "main", cache)
+                )
+        finally:
+            os.environ["PATH"] = saved_path
         with open(log_path, encoding="utf-8") as handle:
             calls = handle.read().splitlines()
         self.assertEqual(len(calls), 1)
@@ -685,6 +696,139 @@ class GitGuardTest(unittest.TestCase):
         set_config(repo, "branch.main.remote", "origin")
         set_config(repo, "remote.pushDefault", "upstream")
         self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
+
+
+class NetworkShapeTest(unittest.TestCase):
+    """A git fetch, pull or push leaves the sandbox only when it stands alone in the
+    call. Any other shape runs inside the sandbox and fails with a host key error."""
+
+    def check(self, command: str, repo: str):
+        return run_hook("git_guard.py", bash_payload(command, repo))
+
+    def test_denies_piped_git_push(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        out = self.check("git push origin feat/thing 2>&1 | tail -3", repo)
+        self.assertEqual(decision(out), "deny")
+        self.assertIn("alone", reason(out))
+        self.assertIn("sandbox", reason(out))
+
+    def test_denies_piped_git_fetch_and_pull(self):
+        repo = git_repo()
+        for command in ["git fetch --dry-run origin | tail -3", "git pull | cat"]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_with_stderr_redirect(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push origin feat/thing 2>&1",
+            "git fetch origin 2>&1",
+            "git pull 2>/dev/null",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_redirected_to_a_file(self):
+        repo = git_repo()
+        for command in ["git fetch origin > fetch.log", "git pull >> pull.log"]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_in_an_and_chain(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git status && git push origin feat/thing",
+            "git push origin feat/thing && git status",
+            "git fetch origin || echo failed",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_in_a_semicolon_chain(self):
+        repo = git_repo()
+        for command in ["git status; git fetch origin", "git pull; git log --oneline"]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_with_dash_c(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            f"git -C {repo} push origin feat/thing",
+            f"git -C {repo} fetch origin",
+            f"git -C {repo} pull",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_git_network_command_behind_cd(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            f"cd {repo} && git push origin feat/thing",
+            f"cd {repo}; git fetch origin",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_allows_git_network_commands_that_stand_alone(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push",
+            "git push origin feat/thing",
+            "git push -u origin feat/thing",
+            "git push --force-with-lease origin feat/thing",
+            "git fetch",
+            "git fetch --dry-run origin",
+            "git fetch origin main",
+            "git pull",
+            "git pull --ff-only origin feat/thing",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
+
+    def test_allows_git_commands_that_are_not_network_commands(self):
+        repo = git_repo()
+        for command in [
+            "git log --oneline | head",
+            "git status 2>&1",
+            f"git -C {repo} status && git diff > out.patch",
+            f"cd {repo} && git log",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
+
+    def test_allows_network_words_inside_quotes(self):
+        repo = git_repo()
+        for command in [
+            'git commit -m "docs: say git push alone, not git push | tail"',
+            "echo 'run git fetch > log; then git pull && git push'",
+            "git commit -m \"$(cat <<'EOF'\nfix: git push 2>&1 stays alone\nEOF\n)\"",
+        ]:
+            self.assertIsNone(decision(self.check(command, repo)), command)
+
+    def test_default_branch_push_stays_denied_in_every_shape(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push origin main",
+            "git push origin main 2>&1 | tail -3",
+            f"git -C {repo} push origin main",
+            f"cd {repo} && git push origin main",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_force_push_stays_denied_in_every_shape(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git push --force origin feat/thing",
+            "git push --force origin feat/thing | tail -3",
+            "git status && git push -f origin feat/thing",
+        ]:
+            out = self.check(command, repo)
+            self.assertEqual(decision(out), "deny", command)
+
+    def test_a_default_branch_denial_names_its_own_rule_first(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        out = self.check("git push origin main | tail -3", repo)
+        self.assertIn("default branch", reason(out))
 
 
 if __name__ == "__main__":

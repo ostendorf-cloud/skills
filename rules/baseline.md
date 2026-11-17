@@ -56,6 +56,7 @@ Applies to every session and every repository. Conventions live in skills and lo
   - `gh ... --body "<multi-line>"` fails with `operation not permitted` on the config file. Use `--body-file`.
   - `diff <(...) <(...)` fails on blocked `/dev/fd` and reports a false difference. Compare `git rev-parse <rev>:<path>` hashes.
   - `grep -rc` summed gives zero. Use `grep -rho` and count lines.
+  - `git fetch`, `git pull` and `git push` fail with a host key error behind a pipe, redirection, chain, `-C` or `cd`. Run each alone.
   - `task check` and `mise x` limits in a sandbox: see `fix-ci`.
 
 ## Autonomy and safety

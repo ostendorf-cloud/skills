@@ -280,6 +280,32 @@ def bypass_violation(part: str) -> Optional[str]:
     return None
 
 
+GIT_NETWORK = re.compile(r"^git\s+(fetch|pull|push)\b")
+SHELL_OPERATOR = re.compile(r"[<>&]")
+
+RUN_NETWORK_ALONE = (
+    "A git fetch, pull or push leaves the sandbox only when it stands alone in the call. "
+    "With a pipe, redirection, chain, -C or cd it runs inside the sandbox and fails with a "
+    "host key error. Run it alone, from the worktree directory."
+)
+
+
+def network_shape_violation(
+    command: str, normalized: str, git_path: Optional[str]
+) -> Optional[str]:
+    """The deny reason when a `git fetch`, `git pull` or `git push` part shares its call
+    with anything else: another part (pipe, chain, newline), a redirection or `&`
+    outside quotes, or a `-C` path. A leading `cd` is another part, so it is covered."""
+    if not GIT_NETWORK.match(normalized):
+        return None
+    alone = (
+        len(_common.command_parts(command)) == 1
+        and git_path is None
+        and not SHELL_OPERATOR.search(_common.mask_quoted(command))
+    )
+    return None if alone else RUN_NETWORK_ALONE
+
+
 def main() -> int:
     payload = _common.read_payload()
     command = (payload.get("tool_input") or {}).get("command") or ""
@@ -309,6 +335,7 @@ def main() -> int:
             bypass_violation(part)
             or push_violation(normalized, part_cwd, default, remote_cache, scratch_dir)
             or branch_delete_violation(normalized, default)
+            or (None if scratch_dir else network_shape_violation(command, normalized, git_path))
         )
         if reason:
             return _common.deny(EVENT, reason)

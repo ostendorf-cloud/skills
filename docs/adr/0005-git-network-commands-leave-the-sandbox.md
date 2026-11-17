@@ -24,6 +24,8 @@ Date: 2026-10-21
 
 - An excluded command sees the real environment and the whole filesystem, including the paths in
   `denyRead` and the credential files the sandbox hides. The hook, not the sandbox, limits it.
-- `git -C <path> push` and a push behind `cd` stay sandboxed and still fail over SSH. Run them
-  from the worktree directory instead.
+- The exclusion applies only when the command stands alone in the call. A pipe, a redirection
+  such as `2>&1` or `> file`, a chain with `&&`, `||` or `;`, `git -C <path> push` and a push
+  behind `cd` stay sandboxed and still fail over SSH. Run them alone from the worktree
+  directory instead. The `git-guard` hook denies these shapes.
 - Linux is unaffected either way; the exclusion only matters where the proxy cannot carry SSH.
