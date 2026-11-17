@@ -14,6 +14,14 @@ grouping, inside a command substitution, and in a string handed to a shell or `e
 The command is read within fixed bounds on its size, its nesting and the time spent.
 When a command that mentions git goes past a bound, or reading it fails, the hook
 denies it. Hook input that is not a payload at all still gets the empty answer.
+
+Options and config keys are read the way git reads them: short flag clusters, unique
+prefixes of long options, config keys without case and git's boolean values.
+
+Limits: the hook reads the shell text of the command. It does not follow another
+interpreter, a sourced file, a git binary named through a variable or a glob, an alias
+from a config file, or `--git-dir` pointing at another repository. Branch protection
+on the remote is the backstop. This hook stops mistakes early.
 """
 
 import os
@@ -36,6 +44,104 @@ BYPASS = (
     "This bypasses git hooks or commit signing. Run the command without --no-verify, -n, "
     "--no-gpg-sign or -c commit.gpgsign=false."
 )
+CONFIG_BYPASS = (
+    "This sets git config that skips hooks or signing: core.hooksPath, or commit.gpgsign "
+    "or tag.gpgsign other than true. Leave that config as it is."
+)
+CONFIG_PUSH = (
+    "This sets push config, push.default, remote.<name>.push or remote.<name>.mirror, "
+    "that can move the default branch or many refs at once. Push named refs from a "
+    "feature branch instead."
+)
+# Characters that leave a ref to the shell: an expansion, a substitution or a brace list.
+SHELL_BUILT = "$`{"
+SHELL_BUILT_REF = (
+    "This push names a ref the shell builds when it runs, so this hook cannot check it. "
+    "Write the branch name out."
+)
+# Substitutions that name the checked out branch, read as HEAD.
+CURRENT_BRANCH_SUBSTITUTIONS = frozenset(
+    {
+        "$(git branch --show-current)",
+        "$(git rev-parse --abbrev-ref HEAD)",
+        "$(git symbolic-ref --short HEAD)",
+        "`git branch --show-current`",
+        "`git rev-parse --abbrev-ref HEAD`",
+    }
+)
+
+
+def _long_options(negatable: str, plain: str) -> tuple[str, ...]:
+    """Long option names: every negatable name with its `--no-` form, and the plain
+    names as they are."""
+    names = [f"--{prefix}{name}" for name in negatable.split() for prefix in ("", "no-")]
+    return tuple(names + [f"--{name}" for name in plain.split()])
+
+
+class OptionGrammar(NamedTuple):
+    """How a git subcommand reads its options, as its `-h` output lists them.
+
+    long_names: every long option, negated forms included, for prefix resolution.
+    long_values: the long options that take a value, from the next word when no `=`.
+    short_values: short letters that take a value, each with its long name.
+    short_optional: short letters whose value can only be attached, with the long name.
+    """
+
+    long_names: tuple[str, ...]
+    long_values: tuple[str, ...]
+    short_values: dict[str, str]
+    short_optional: dict[str, str]
+
+
+# Taken from `git push -h` and `git commit -h` of git 2.56.
+OPTION_GRAMMARS = {
+    "push": OptionGrammar(
+        _long_options(
+            "all atomic branches delete dry-run exec follow-tags force force-if-includes "
+            "force-with-lease mirror porcelain progress prune push-option quiet receive-pack "
+            "recurse-submodules repo set-upstream signed tags thin verbose",
+            "ipv4 ipv6 verify no-verify",
+        ),
+        ("--exec", "--receive-pack", "--repo", "--push-option", "--recurse-submodules"),
+        {"o": "--push-option"},
+        {},
+    ),
+    "commit": OptionGrammar(
+        _long_options(
+            "ahead-behind all amend author branch cleanup date dry-run edit file fixup "
+            "gpg-sign include interactive long message null only patch pathspec-file-nul "
+            "pathspec-from-file porcelain quiet reedit-message reset-author reuse-message "
+            "short signoff squash status template trailer untracked-files verbose",
+            "allow-empty allow-empty-message inter-hunk-context no-post-rewrite "
+            "post-rewrite unified verify no-verify",
+        ),
+        (
+            "--author",
+            "--cleanup",
+            "--date",
+            "--file",
+            "--fixup",
+            "--inter-hunk-context",
+            "--message",
+            "--pathspec-from-file",
+            "--reedit-message",
+            "--reuse-message",
+            "--squash",
+            "--template",
+            "--trailer",
+            "--unified",
+        ),
+        {
+            "F": "--file",
+            "m": "--message",
+            "c": "--reedit-message",
+            "C": "--reuse-message",
+            "t": "--template",
+            "U": "--unified",
+        },
+        {"S": "--gpg-sign", "u": "--untracked-files"},
+    ),
+}
 
 USE_FEATURE_BRANCH = "Push a feature branch and open a pull request instead."
 USE_FORCE_WITH_LEASE = (
@@ -73,7 +179,10 @@ def refspec_target(token: str, cwd: Optional[str]) -> tuple[str, bool]:
     if not dst:
         dst = current_branch(cwd) if src in ("", "HEAD", "@") else src
 
-    dst = dst[len("refs/heads/") :] if dst.startswith("refs/heads/") else dst
+    for prefix in ("refs/heads/", "heads/"):
+        if dst.startswith(prefix):
+            dst = dst[len(prefix) :]
+            break
     return dst, forced
 
 
@@ -228,9 +337,20 @@ def push_violation(
     """The deny reason for a `git push` part, or None when it is fine."""
     if not GIT_PUSH.match(part):
         return None
+    return push_tokens_violation(part.split()[2:], cwd, default, remote_cache, scratch_dir)
 
-    tokens = part.split()[2:]
 
+def push_tokens_violation(
+    tokens: list[str],
+    cwd: Optional[str],
+    default: str,
+    remote_cache: RemoteCache,
+    scratch_dir: Optional[str] = None,
+) -> Optional[str]:
+    """The deny reason for a `git push` with these arguments, or None when it is fine.
+
+    tokens are the words after "push", options already read the way git reads them,
+    see normalize_options."""
     if "--all" in tokens:
         return f"This pushes every local branch, including {default}. {USE_FEATURE_BRANCH}"
 
@@ -240,6 +360,15 @@ def push_violation(
     non_flag = [token for token in tokens if not token.startswith("-")]
     if "--delete" in tokens and default in non_flag:
         return f"This deletes {default} on the remote. The default branch is never deleted."
+
+    for refspec in non_flag[1:]:
+        if any(char in refspec for char in SHELL_BUILT):
+            return SHELL_BUILT_REF
+        if "*" in refspec or refspec in (":", "+:"):
+            return (
+                f"This pushes every ref that matches, which can include {default}. "
+                f"{USE_FEATURE_BRANCH}"
+            )
 
     # The force and lease checks never depend on the default branch exemption below:
     # a plain force push is denied outright, whatever ref it also names, so a command
@@ -289,39 +418,232 @@ def branch_delete_violation(part: str, default: str) -> Optional[str]:
     return None
 
 
-def bypass_violation(words: list[str]) -> Optional[str]:
-    """The deny reason when the git call in words skips hooks or commit signing.
+def bypass_violation(subcommand: str, arguments: list[str]) -> Optional[str]:
+    """The deny reason when a git subcommand with these arguments skips hooks or commit
+    signing.
 
     Whole words are compared, so a message or a search argument that only mentions a
     flag is not read as the flag: `--no-verify` or `--no-gpg-sign` as an argument of any
-    subcommand, `-n` as an argument of `git commit`, and `-c commit.gpgsign=false` in
-    front of the subcommand, the key compared without case as git does."""
-    sub_index = git_subcommand_index(words, 0)
-    options = words[1:sub_index] if sub_index is not None else words[1:]
-    for key, value in config_options(options):
-        if key == "commit.gpgsign" and value.lower() == "false":
-            return BYPASS
-    if sub_index is None:
-        return None
-    arguments = words[sub_index + 1 :]
+    subcommand, and `-n` as an argument of `git commit`. For push and commit the
+    arguments are read the way git reads them first, see normalize_options."""
     if any(word in BYPASS_WORDS for word in arguments):
         return BYPASS
-    if words[sub_index] == "commit" and "-n" in arguments:
+    if subcommand == "commit" and "-n" in arguments:
         return BYPASS
     return None
 
 
-def config_options(options: list[str]) -> list[tuple[str, str]]:
-    """The key and value of every `-c <key>=<value>` among git's global options, the key
-    lowercased."""
-    found: list[tuple[str, str]] = []
+def normalize_options(arguments: list[str], grammar: OptionGrammar) -> list[str]:
+    """arguments with each option written the way git reads it.
+
+    A unique prefix of a long option becomes its full name, an exact name winning over
+    a longer one, through _common._resolve_long_flag. A prefix that names several
+    options stays as it is, git refuses it. A cluster of short flags becomes one flag
+    each, up to a letter that takes a value. An option that takes a value becomes one
+    `--name=value` word, so its value never reads as a remote or a ref. Everything from
+    `--` on stays as it is."""
+    out: list[str] = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if argument == "--":
+            out.extend(arguments[index - 1 :])
+            break
+        if argument.startswith("--"):
+            name, separator, value = argument.partition("=")
+            full = _common._resolve_long_flag(name, grammar.long_names) or name
+            if full in grammar.long_values and not separator and index < len(arguments):
+                out.append(f"{full}={arguments[index]}")
+                index += 1
+            else:
+                out.append(full + separator + value)
+        elif argument.startswith("-") and len(argument) > 1:
+            for position, letter in enumerate(argument[1:], start=1):
+                tail = argument[position + 1 :]
+                if letter in grammar.short_values:
+                    long_name = grammar.short_values[letter]
+                    if tail:
+                        out.append(f"{long_name}={tail}")
+                    elif index < len(arguments):
+                        out.append(f"{long_name}={arguments[index]}")
+                        index += 1
+                    else:
+                        out.append(long_name)
+                    break
+                if letter in grammar.short_optional:
+                    long_name = grammar.short_optional[letter]
+                    out.append(f"{long_name}={tail}" if tail else long_name)
+                    break
+                out.append(f"-{letter}")
+        else:
+            out.append(argument)
+    return out
+
+
+def config_entries(options: list[str]) -> list[tuple[str, Optional[str]]]:
+    """The key and value of every config entry among git's global options.
+
+    `-c <key>=<value>` gives its value, a bare `-c <key>` means true, as in git, and
+    `--config-env` gives None, the value coming from a variable this hook cannot read."""
+    found: list[tuple[str, Optional[str]]] = []
     index = 0
     while index < len(options):
-        if options[index] == "-c" and index + 1 < len(options):
-            key, _, value = options[index + 1].partition("=")
-            found.append((key.lower(), value))
-        index += 2 if options[index] in GLOBAL_OPTIONS_WITH_VALUE else 1
+        option = options[index]
+        if option in ("-c", "--config-env") and index + 1 < len(options):
+            key, separator, value = options[index + 1].partition("=")
+            if option == "-c":
+                found.append((key, value if separator else "true"))
+            else:
+                found.append((key, None))
+        elif option.startswith("--config-env="):
+            found.append((option[len("--config-env=") :].partition("=")[0], None))
+        index += 2 if option in GLOBAL_OPTIONS_WITH_VALUE else 1
     return found
+
+
+def git_bool(value: str) -> bool:
+    """value read as a git boolean: true, yes, on or a nonzero number."""
+    text = value.strip().lower()
+    if text in ("true", "yes", "on"):
+        return True
+    try:
+        return int(text) != 0
+    except ValueError:
+        return False
+
+
+def config_violation(key: str, value: Optional[str]) -> Optional[str]:
+    """The deny reason when setting config key to value skips hooks or signing or widens
+    a push. value None means it cannot be read. Keys compare without case, as in git."""
+    key = key.lower()
+    if key == "core.hookspath":
+        return CONFIG_BYPASS
+    if key in ("commit.gpgsign", "tag.gpgsign") and (value is None or not git_bool(value)):
+        return CONFIG_BYPASS
+    if key == "push.default" or (
+        key.startswith("remote.") and key.rsplit(".", 1)[-1] in ("push", "mirror")
+    ):
+        return CONFIG_PUSH
+    return None
+
+
+ENV_CONFIG = re.compile(r"^GIT_CONFIG_(KEY|VALUE)_(\d+)=(.*)$", re.DOTALL)
+CONFIG_PARAMETER = re.compile(r"'([^']*)'(?:='([^']*)')?")
+
+
+def env_config_violation(parts: list[str]) -> Optional[str]:
+    """The deny reason when the command parts set config through the environment,
+    `GIT_CONFIG_KEY_<n>` with `GIT_CONFIG_VALUE_<n>` or `GIT_CONFIG_PARAMETERS`, that
+    config_violation denies."""
+    keys: dict[str, str] = {}
+    values: dict[str, str] = {}
+    for part in parts:
+        for word in shell_words_of(part):
+            match = ENV_CONFIG.match(word)
+            if match:
+                (keys if match.group(1) == "KEY" else values)[match.group(2)] = match.group(3)
+            elif word.startswith("GIT_CONFIG_PARAMETERS="):
+                for key, value in CONFIG_PARAMETER.findall(word.partition("=")[2]):
+                    reason = config_violation(key, value or "true")
+                    if reason:
+                        return reason
+    for number, key in keys.items():
+        reason = config_violation(key, values.get(number))
+        if reason:
+            return reason
+    return None
+
+
+CONFIG_VALUE_FLAGS = frozenset({"-f", "--file", "--blob", "--type", "--default", "--value"})
+CONFIG_READ_FLAGS = frozenset(
+    {
+        "--get",
+        "--get-all",
+        "--get-regexp",
+        "--get-urlmatch",
+        "--get-color",
+        "--get-colorbool",
+        "-l",
+        "--list",
+        "-e",
+        "--edit",
+    }
+)
+CONFIG_OTHER_MODES = frozenset({"get", "list", "edit", "rename-section", "remove-section"})
+
+
+def config_write_violation(arguments: list[str]) -> Optional[str]:
+    """The deny reason when a `git config` call with these arguments writes config that
+    config_violation denies, or unsets commit.gpgsign or tag.gpgsign. A read is fine."""
+    positional: list[str] = []
+    unset = read = False
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        index += 1
+        if argument in CONFIG_VALUE_FLAGS:
+            index += 1
+        elif argument in ("--unset", "--unset-all"):
+            unset = True
+        elif argument in CONFIG_READ_FLAGS:
+            read = True
+        elif not argument.startswith("-"):
+            positional.append(argument)
+    if positional and positional[0] in CONFIG_OTHER_MODES:
+        return None
+    if positional and positional[0] in ("set", "unset"):
+        unset = unset or positional[0] == "unset"
+        positional = positional[1:]
+    if read or not positional:
+        return None
+    key = positional[0]
+    if unset:
+        return config_violation(key, "false") if key.lower().endswith(".gpgsign") else None
+    if len(positional) < 2:
+        return None
+    return config_violation(key, positional[1])
+
+
+def branch_force_delete(arguments: list[str]) -> bool:
+    """Whether `git branch` with these arguments deletes by force: `-D`, also inside a
+    cluster, or `--delete` with `--force`."""
+    short = [a for a in arguments if a.startswith("-") and not a.startswith("--")]
+    if any("D" in argument for argument in short):
+        return True
+    deletes = "--delete" in arguments or any("d" in argument for argument in short)
+    forces = "--force" in arguments or any("f" in argument for argument in short)
+    return deletes and forces
+
+
+def send_pack_violation(arguments: list[str], cwd: Optional[str], default: str) -> Optional[str]:
+    """The deny reason for `git send-pack` with these arguments: every ref, matching
+    refs when it names none, refs from stdin, a forced update, or the default branch."""
+    non_flag = [argument for argument in arguments if not argument.startswith("-")]
+    refs = non_flag[1:]
+    if not refs or any(flag in arguments for flag in ("--all", "--mirror", "--stdin")):
+        return f"This sends every matching ref, which can include {default}. {USE_FEATURE_BRANCH}"
+    if "--force" in arguments or any(ref.startswith("+") for ref in refs):
+        return f"This force pushes without --force-with-lease. {USE_FORCE_WITH_LEASE}"
+    for ref in refs:
+        if any(char in ref for char in SHELL_BUILT):
+            return SHELL_BUILT_REF
+        if "*" in ref or refspec_target(ref, cwd)[0] == default:
+            return f"This pushes to {default}, the default branch. {USE_FEATURE_BRANCH}"
+    return None
+
+
+def update_ref_violation(arguments: list[str], default: str) -> Optional[str]:
+    """The deny reason for `git update-ref` with these arguments: updates read from
+    stdin, which this hook cannot check, or a delete of the default branch."""
+    if "--stdin" in arguments:
+        return (
+            "This reads ref updates from stdin, so this hook cannot check them. Use git "
+            "branch or git push on named refs instead."
+        )
+    if "-d" in arguments and f"refs/heads/{default}" in arguments:
+        return f"This deletes the local branch {default}, the default branch. It is never deleted."
+    return None
 
 
 NETWORK_SUBCOMMANDS = ("fetch", "pull", "push")
@@ -429,7 +751,7 @@ def shell_words_of(part: str) -> list[str]:
     return [_common.unquote_word(word) for word in _common.shell_words(part)]
 
 
-GUARDED_SUBCOMMANDS = ("push", "branch")
+GUARDED_SUBCOMMANDS = ("push", "branch", "send-pack", "update-ref")
 SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish", "su"})
 SHELL_VALUE_FLAGS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 SHELL_COMMAND_FLAG = re.compile(r"^-[A-Za-z]*c[A-Za-z]*$")
@@ -437,6 +759,7 @@ NESTING_LIMIT = 8
 # Characters a shell reads as grouping or substitution in front of a command word.
 COMMAND_PREFIX_CHARS = "({!$<>`"
 WORD_END = re.compile(r"[<>&)`]")
+CALL_WORD_SPECIAL = re.compile(r"[<>&()`]")
 OPERATOR_ONLY = re.compile(r"\d*[<>&]+")
 REDIRECTION = re.compile(r"^\d*(?:[<>]|&>)")
 HEREDOC_WORD = re.compile(r"(-?)[ \t]*([A-Za-z_'\"\\][^\s;&|<>()]*)")
@@ -459,6 +782,10 @@ READ_SECONDS = 2.0
 XARGS_PUSH = (
     "A git push behind xargs takes refs this hook cannot check. Run git push with its "
     "refs written out in the command."
+)
+XARGS_ARGUMENTS = (
+    "A git commit or a git branch -D behind xargs takes arguments this hook cannot check. "
+    "Run it with its arguments written out in the command."
 )
 UNREADABLE = (
     "This command mentions git in a form this hook cannot read in full. Run each git "
@@ -565,7 +892,8 @@ def _calls_in(
                 behind_xargs = True
             elif name == "git":
                 budget.spend("calls", MAX_GIT_CALLS)
-                call_words, alias_command = git_call_words(words, resolved, index + 1)
+                in_backtick = "`" in words[index].partition("git")[0]
+                call_words, alias_command = git_call_words(words, resolved, index + 1, in_backtick)
                 calls.append(GitCall(call_words, raw, directory, behind_xargs))
                 if alias_command:
                     nested.append(alias_command)
@@ -638,18 +966,26 @@ def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
 
 
 def git_call_words(
-    words: list[str], resolved: list[str], start: int
+    words: list[str], resolved: list[str], start: int, in_backtick: bool = False
 ) -> tuple[list[str], Optional[str]]:
     """The words of a git call whose arguments start at index start of words, and the
     command a `-c alias.*` starting with `!` runs instead, None when there is none.
 
-    resolved holds words with their quoting resolved. The call ends at a word holding
-    an unquoted `)` or backtick, which closes the group or substitution it runs in, and
-    at a lone `&`. A redirection and its target are dropped, so `main>/dev/null` reads
-    as `main`. Raises ReadLimitError past MAX_CALL_WORDS words.
+    resolved holds words with their quoting resolved. in_backtick says the call runs
+    inside a backtick substitution, so the next backtick closes it.
+
+    A substitution that opens inside an argument, `$(`, `<(` or a backtick, stays part
+    of that argument until it closes, so `$(echo main)` is one argument that still
+    shows its `$`. Otherwise the call ends at an unquoted `)` or backtick, which closes
+    the group or substitution it runs in, and at a lone `&`. A redirection and its
+    target are dropped, so `main>/dev/null` reads as `main`. Raises ReadLimitError past
+    MAX_CALL_WORDS words.
     """
     call = ["git"]
     skip_next = False
+    opened = 0
+    ticked = False
+    pending: list[str] = []
     for index in range(start, len(words)):
         if len(call) > MAX_CALL_WORDS:
             raise ReadLimitError("call")
@@ -657,17 +993,55 @@ def git_call_words(
             skip_next = False
             continue
         word = words[index]
-        end = WORD_END.search(word) and WORD_END.search(_common.mask_quoted(word))
-        if not end:
+        if not CALL_WORD_SPECIAL.search(word) and not opened and not ticked:
             call.append(resolved[index])
             continue
-        prefix, rest = word[: end.start()], word[end.start() :]
-        if prefix and not (prefix.isdigit() and rest[0] in "<>"):
-            call.append(_common.unquote_word(prefix))
+        cut = None
+        for position, char in enumerate(_common.mask_quoted(word)):
+            if char == "(":
+                opened += 1
+            elif char == ")":
+                if not opened:
+                    cut = position
+                    break
+                opened -= 1
+            elif char == "`":
+                if ticked:
+                    ticked = False
+                elif in_backtick:
+                    cut = position
+                    break
+                else:
+                    ticked = True
+            elif char in "<>&" and not opened and not ticked:
+                cut = position
+                break
+        if cut is None:
+            pending.append(word)
+            if not opened and not ticked:
+                call.append(_join_argument(pending))
+                pending = []
+            continue
+        prefix, rest = word[:cut], word[cut:]
+        if prefix and prefix.isdigit() and rest[0] in "<>":
+            prefix = ""
+        if prefix or pending:
+            call.append(_join_argument([part for part in (*pending, prefix) if part]))
+            pending = []
         if rest[0] in ")`" or (rest[0] == "&" and not rest.startswith("&>")):
             break
         skip_next = bool(OPERATOR_ONLY.fullmatch(rest))
+    if pending:
+        call.append(_join_argument(pending))
     return expand_alias(call)
+
+
+def _join_argument(words: list[str]) -> str:
+    """One argument made of words that a substitution held together, with the quoting
+    of each resolved. A single plain word stays as it is."""
+    if len(words) == 1:
+        return _common.unquote_word(words[0])
+    return " ".join(_common.unquote_word(word) for word in words)
 
 
 def expand_alias(words: list[str]) -> tuple[list[str], Optional[str]]:
@@ -925,26 +1299,51 @@ def call_violation(
     call: GitCall, cwd: str, rewrites_remote: bool, remote_cache: RemoteCache
 ) -> Optional[str]:
     """The deny reason for one git call, or None when it is fine."""
-    reason = bypass_violation(call.words)
+    sub_index = git_subcommand_index(call.words, 0)
+    options = call.words[1:sub_index] if sub_index is not None else call.words[1:]
+    for key, value in config_entries(options):
+        reason = config_violation(key, value)
+        if reason:
+            return reason
+    if sub_index is None:
+        return None
+
+    subcommand = call.words[sub_index]
+    arguments = call.words[sub_index + 1 :]
+    grammar = OPTION_GRAMMARS.get(subcommand)
+    if grammar:
+        arguments = normalize_options(arguments, grammar)
+    reason = bypass_violation(subcommand, arguments)
     if reason:
         return reason
-    sub_index = git_subcommand_index(call.words, 0)
-    if sub_index is None or call.words[sub_index] not in GUARDED_SUBCOMMANDS:
+    if subcommand == "config":
+        return config_write_violation(arguments)
+    if call.behind_xargs:
+        if subcommand == "push":
+            return XARGS_PUSH
+        if subcommand == "commit" or (subcommand == "branch" and branch_force_delete(arguments)):
+            return XARGS_ARGUMENTS
+    if subcommand not in GUARDED_SUBCOMMANDS:
         return None
-    if call.behind_xargs and call.words[sub_index] == "push":
-        return XARGS_PUSH
 
-    git_path = global_directory(call.words[1:sub_index])
-    normalized = " ".join(["git", *call.words[sub_index:]])
+    git_path = global_directory(options)
     part_cwd = git_path or cwd
     scope_dir = _common.git_part_dir(call.raw, call.directory, git_path)
     scratch_dir = scope_dir if _common.in_scratch(scope_dir) and not rewrites_remote else None
     if scratch_dir:
         part_cwd = scratch_dir
     default = _common.default_branch(part_cwd)
-    return push_violation(
-        normalized, part_cwd, default, remote_cache, scratch_dir
-    ) or branch_delete_violation(normalized, default)
+    if subcommand == "push":
+        tokens = [
+            "HEAD" if " ".join(argument.split()) in CURRENT_BRANCH_SUBSTITUTIONS else argument
+            for argument in arguments
+        ]
+        return push_tokens_violation(tokens, part_cwd, default, remote_cache, scratch_dir)
+    if subcommand == "send-pack":
+        return send_pack_violation(arguments, part_cwd, default)
+    if subcommand == "update-ref":
+        return update_ref_violation(arguments, default)
+    return branch_delete_violation(" ".join(["git", "branch", *arguments]), default)
 
 
 def global_directory(options: list[str]) -> Optional[str]:
@@ -967,6 +1366,11 @@ def command_violation(command: str, cwd: str) -> Optional[str]:
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
     shape_text, _ = split_heredocs(command, Budget())
+    if calls:
+        parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
+        reason = env_config_violation(sorted(parts))
+        if reason:
+            return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
     for call in calls:
         reason = call_violation(call, cwd, rewrites_remote, remote_cache)

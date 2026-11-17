@@ -999,6 +999,196 @@ class CommandShapeTest(unittest.TestCase):
             ]
         )
 
+    def test_denies_a_force_flag_inside_a_cluster_of_short_push_flags(self):
+        self.assert_denied(
+            [
+                "git push -uf origin feat/thing",
+                "git push -fu origin feat/thing",
+                "git push -vf origin feat/thing",
+                "git push -fo ci.skip origin feat/thing",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push -of origin feat/thing",
+                "git push -uo ci.skip origin feat/thing",
+                "git push -uv origin feat/thing",
+            ]
+        )
+
+    def test_denies_a_hook_bypass_inside_a_cluster_of_short_commit_flags(self):
+        self.assert_denied(
+            [
+                "git commit -an -m 'fix: thing'",
+                "git commit -nm 'fix: thing'",
+                "git commit -anm 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git commit -mn",
+                "git commit -am 'fix: thing'",
+                "git commit -sm 'fix: thing'",
+                "git commit -m -n",
+            ]
+        )
+
+    def test_denies_an_abbreviated_long_option_of_push_or_commit(self):
+        self.assert_denied(
+            [
+                "git push --mirr origin",
+                "git push --al origin",
+                "git commit --no-veri -m 'fix: thing'",
+                "git commit --no-gpg -m 'fix: thing'",
+                "git push --no-verif origin feat/thing",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push --forc origin feat/thing",
+                "git push --force-with origin feat/thing",
+                "git push --set-up origin feat/thing",
+                "git commit --amen --no-edit",
+            ]
+        )
+
+    def test_denies_config_that_skips_hooks_or_signing(self):
+        self.assert_denied(
+            [
+                "git -c core.hooksPath=/dev/null commit -m 'fix: thing'",
+                "git -c commit.gpgsign=0 commit -m 'fix: thing'",
+                "git -c commit.gpgsign=no commit -m 'fix: thing'",
+                "git -c commit.gpgsign=off commit -m 'fix: thing'",
+                "git -c commit.gpgsign= commit -m 'fix: thing'",
+                "git -c tag.gpgSign=false tag -a v1.2.3 -m v1.2.3",
+                "git --config-env=core.hooksPath=HOOKS commit -m 'fix: thing'",
+                "git --config-env commit.gpgsign=SIGN commit -m 'fix: thing'",
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null "
+                "git commit -m 'fix: thing'",
+                "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign "
+                "GIT_CONFIG_VALUE_0=false; git commit -m 'fix: thing'",
+                "GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/dev/null'\" git commit -m 'fix: thing'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git -c commit.gpgsign=true commit -m 'fix: thing'",
+                "git -c commit.gpgsign commit -m 'fix: thing'",
+                "git -c commit.gpgsign=yes commit -m 'fix: thing'",
+                "git -c core.pager=cat log -1",
+                "git -c color.ui=always diff",
+                "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=true "
+                "git commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_denies_config_that_widens_a_push(self):
+        self.assert_denied(
+            [
+                "git -c push.default=matching push origin",
+                "git -c remote.origin.mirror=true push origin",
+                "git -c remote.origin.push=HEAD:refs/heads/main push origin",
+                "git -c Remote.Origin.Push=HEAD:refs/heads/main push",
+            ]
+        )
+
+    def test_denies_a_config_write_that_skips_hooks_or_signing_or_widens_a_push(self):
+        self.assert_denied(
+            [
+                "git config core.hooksPath /dev/null",
+                "git config commit.gpgsign false",
+                "git config --global commit.gpgsign false",
+                "git config set core.hooksPath /dev/null",
+                "git config --bool tag.gpgsign off",
+                "git config --unset commit.gpgsign",
+                "git config remote.origin.push HEAD:refs/heads/main",
+                "git config --add remote.origin.push HEAD:refs/heads/main",
+                "git config remote.origin.mirror true",
+                "git config push.default matching",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git config --get remote.origin.url",
+                "git config --get-all remote.origin.push 'refs/heads/.*'",
+                "git config core.hooksPath",
+                "git config get core.hooksPath",
+                "git config --list",
+                "git config commit.gpgsign true",
+                "git config user.name 'dev'",
+                "git config --unset core.hooksPath",
+            ]
+        )
+
+    def test_denies_a_push_whose_destination_is_the_default_branch_or_a_pattern(self):
+        self.assert_denied(
+            [
+                "git push origin heads/main",
+                "git push origin HEAD:heads/main",
+                "git push origin 'refs/heads/*:refs/heads/*'",
+                "git push origin 'feat/*'",
+                "git push origin :",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git push origin :feat/old",
+                "git push origin heads/feat/thing",
+                "git push origin feat/thing:feat/thing",
+            ]
+        )
+
+    def test_denies_a_push_whose_ref_the_shell_builds(self):
+        self.assert_denied(
+            [
+                "git push origin {main,}",
+                "git push origin $'main'",
+                'git push origin "$BRANCH"',
+                "git push origin `echo main`",
+                "git push origin $(echo main) --force-with-lease",
+            ]
+        )
+        self.assert_allowed(
+            [
+                'git push -u origin "$(git branch --show-current)"',
+                "git push -u origin $(git rev-parse --abbrev-ref HEAD)",
+            ]
+        )
+
+    def test_denies_send_pack_and_update_ref_on_the_default_branch(self):
+        self.assert_denied(
+            [
+                "git send-pack ../remote.git feat/thing:main",
+                "git send-pack --all ../remote.git",
+                "git send-pack ../remote.git",
+                "git send-pack --force ../remote.git feat/thing",
+                "git update-ref -d refs/heads/main",
+                "printf 'delete refs/heads/main\\n' | git update-ref --stdin",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git send-pack ../remote.git feat/thing",
+                "git update-ref -d refs/heads/feat/old",
+                "git update-ref refs/heads/feat/thing HEAD",
+            ]
+        )
+
+    def test_denies_a_commit_or_force_delete_whose_arguments_come_from_xargs(self):
+        self.assert_denied(
+            [
+                "echo --no-verify | xargs git commit -m 'fix: thing'",
+                "echo main | xargs git branch -D",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "git branch --merged | grep -v main | xargs git branch -d",
+                "git branch --merged main | grep -v '^\\*' | xargs -r git branch -d",
+                "echo main | xargs -I{} git log --oneline {}",
+            ]
+        )
+
     def test_answers_odd_input_without_failing(self):
         for command in [
             "$(",
