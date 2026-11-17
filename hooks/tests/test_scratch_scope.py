@@ -303,6 +303,14 @@ class PushScopeTest(ScopeCase):
         ]:
             self.expect_denied("git_guard.py", command, self.fixture)
 
+    def test_denies_a_push_to_main_when_a_subshell_rewrites_the_remote(self):
+        url = "https://example.invalid/o/r.git"
+        for command in [
+            f"(git remote set-url origin {url}) && git push origin main",
+            f"bash -c 'git remote set-url origin {url}'; git push origin main",
+        ]:
+            self.expect_denied("git_guard.py", command, self.fixture)
+
     def test_allows_a_push_to_main_of_a_fixture_next_to_other_git_commands(self):
         for command in [
             "git status && git push origin main",

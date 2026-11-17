@@ -741,6 +741,232 @@ class GitGuardTest(unittest.TestCase):
         self.assertIsNone(decision(run_hook("git_guard.py", bash_payload("git push", repo))))
 
 
+class CommandShapeTest(unittest.TestCase):
+    """The push, branch and bypass rules apply wherever git runs in the command, not only
+    when git is its first word. Runs on linux, where the macOS only network shape rule
+    stays out of the way, so each case shows the guard rule on its own."""
+
+    def setUp(self):
+        self.repo = git_repo()
+        checkout_feature(self.repo)
+
+    def check(self, command: str) -> Optional[str]:
+        return decision(run_main_in_process(command, self.repo, "linux"))
+
+    def assert_denied(self, commands: list[str]):
+        for command in commands:
+            self.assertEqual(self.check(command), "deny", command)
+
+    def assert_allowed(self, commands: list[str]):
+        for command in commands:
+            self.assertIsNone(self.check(command), command)
+
+    def test_denies_push_to_default_branch_after_a_global_option(self):
+        self.assert_denied(
+            [
+                "git --no-pager push origin main",
+                "git -P push origin main",
+                "git -p push origin main",
+                "git --paginate push origin main",
+                "git --bare push origin main",
+                "git --no-replace-objects push origin main",
+                "git --no-lazy-fetch push origin main",
+                "git --no-optional-locks push origin main",
+                "git --no-advice push origin main",
+                "git --literal-pathspecs push origin main",
+                "git --glob-pathspecs push origin main",
+                "git --noglob-pathspecs push origin main",
+                "git --icase-pathspecs push origin main",
+                "git --exec-path=/usr/libexec/git-core push origin main",
+                "git --namespace=team push origin main",
+                "git --namespace team push origin main",
+                "git --config-env=core.pager=PAGER push origin main",
+                "git --attr-source=HEAD push origin main",
+                "git --no-pager -c color.ui=never push origin main",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_after_a_global_option_with_a_separate_value(self):
+        self.assert_denied(
+            [
+                "git --config-env core.pager=PAGER push origin main",
+                "git --attr-source HEAD push origin main",
+            ]
+        )
+
+    def test_denies_force_push_and_default_branch_delete_after_a_global_option(self):
+        self.assert_denied(
+            [
+                "git --no-pager push --force origin feat/thing",
+                "git -P push origin +feat/thing",
+                "git --no-pager push --mirror origin",
+                "git --no-pager branch -D main",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_inside_a_subshell_or_group(self):
+        self.assert_denied(
+            [
+                "(git push origin main)",
+                "( git push origin main )",
+                "{ git push origin main; }",
+                "! git push origin main",
+                "git status && (git push origin main)",
+                "git status; (git push origin main)",
+                f"(cd {self.repo} && git push origin main)",
+                "if true; then git push origin main; fi",
+            ]
+        )
+
+    def test_denies_force_push_and_hook_bypass_inside_a_subshell_or_group(self):
+        self.assert_denied(
+            [
+                "(git push --force origin feat/thing)",
+                "{ git push -f origin feat/thing; }",
+                "(git commit --no-verify -m 'fix: thing')",
+                "(git branch -D main)",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_inside_a_command_substitution(self):
+        self.assert_denied(
+            [
+                "$(git push origin main)",
+                'echo "$(git push origin main)"',
+                "result=$(git push origin main)",
+                "`git push origin main`",
+                'echo "`git push origin main`"',
+                'echo "$(echo ")"; git push origin main)"',
+                "cat <(git push origin main)",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_passed_to_a_shell_or_eval(self):
+        self.assert_denied(
+            [
+                "bash -c 'git push origin main'",
+                'sh -c "git push origin main"',
+                "bash -lc 'git status && git push origin main'",
+                "bash -o pipefail -c 'git push --force origin feat/thing'",
+                'sh -c "git push origin \\"main\\""',
+                "eval 'git push origin main'",
+                "eval git push origin main",
+                "sudo sh -c 'git commit --no-verify -m x'",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_piped_into_a_shell(self):
+        self.assert_denied(
+            [
+                "echo 'git push origin main' | sh",
+                "printf '%s\\n' 'git push --force origin feat/thing' | bash",
+                "bash <<< 'git push origin main'",
+                "bash <<'EOF'\ngit push origin main\nEOF",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_behind_any_command_prefix(self):
+        self.assert_denied(
+            [
+                "timeout 60 git push origin main",
+                "echo done | xargs git push origin main",
+                "watch -n 5 git push --force origin feat/thing",
+                "sudo -u git git push origin main",
+            ]
+        )
+
+    def test_denies_a_push_whose_refs_come_from_xargs(self):
+        self.assert_denied(
+            [
+                "echo main | xargs git push origin",
+                "printf 'main' | xargs -I{} git push origin {}",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_split_by_a_line_continuation(self):
+        self.assert_denied(
+            [
+                "git push origin \\\nmain",
+                "git commit \\\n  --no-verify -m 'fix: thing'",
+                "git branch -D \\\nmain",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_with_a_quoted_or_attached_refspec(self):
+        self.assert_denied(
+            [
+                'git push origin "main"',
+                "git push origin 'HEAD:main'",
+                "git push origin ma\\in",
+                'git push "--force" origin feat/thing',
+                "git push origin main>/dev/null",
+                "git push origin main&",
+                "git branch -D 'main'",
+            ]
+        )
+
+    def test_denies_push_to_default_branch_through_a_command_line_alias(self):
+        self.assert_denied(
+            [
+                "git -c alias.p=push p origin main",
+                "git -c alias.p=push p --force origin feat/thing",
+                "git -c 'alias.p=!git push origin main' p",
+                "git -c 'alias.c=commit --no-verify' c -m x",
+            ]
+        )
+
+    def test_allows_feature_branch_pushes_in_the_same_shapes(self):
+        self.assert_allowed(
+            [
+                "git --no-pager push origin feat/thing",
+                "git --config-env core.pager=PAGER push origin feat/thing",
+                "(git push origin feat/thing)",
+                "{ git push --force-with-lease origin feat/thing; }",
+                'echo "$(git push origin feat/thing)"',
+                "bash -c 'git push origin feat/thing'",
+                "eval 'git push -u origin feat/thing'",
+                "timeout 60 git push origin feat/thing",
+                "git push origin \\\nfeat/thing",
+                "git push origin feat/thing>/dev/null",
+                "git -c alias.p=push p origin feat/thing",
+                "(git status) && git log --oneline",
+                "echo 'git push origin main'",
+            ]
+        )
+
+    def test_allows_a_quoted_heredoc_that_mentions_a_guarded_command(self):
+        self.assert_allowed(
+            [
+                "git commit -m \"$(cat <<'EOF'\nfix: stop git push origin main\n\n"
+                'Never git push --force or git branch -D main.\nEOF\n)"',
+                "cat <<'EOF' > notes.txt\ngit push origin main\ngit branch -D main\nEOF",
+                "cat <<-EOF > notes.txt\n\tgit push origin main\n\tEOF",
+            ]
+        )
+
+    def test_denies_a_substitution_inside_an_unquoted_heredoc(self):
+        self.assert_denied(["cat <<EOF > notes.txt\n$(git push origin main)\nEOF"])
+
+    def test_answers_odd_input_without_failing(self):
+        for command in [
+            "$(",
+            "(((",
+            "`",
+            "bash -c",
+            "eval",
+            "git -c",
+            "git --namespace",
+            "xargs git",
+            "cat <<",
+            "cat <<EOF",
+            "echo $(echo $(echo $(echo $(echo $(echo $(echo $(git status)))))))",
+            "(" * 200 + "git status" + ")" * 200,
+            "bash -c " * 50 + "'git status'",
+        ]:
+            output = run_main_in_process(command, self.repo, "linux")
+            self.assertIsInstance(output, dict, command)
+
+
 class NetworkShapeTest(unittest.TestCase):
     """A git fetch, pull or push leaves the sandbox only when it stands alone in the
     call. Any other shape runs inside the sandbox and fails with a host key error."""
@@ -806,6 +1032,15 @@ class NetworkShapeTest(unittest.TestCase):
             "git --no-pager pull",
             f"git --git-dir={repo}/.git fetch origin",
             f"git --work-tree={repo} push origin feat/thing",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_a_global_option_with_a_separate_value_before_the_network_subcommand(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        for command in [
+            "git --config-env core.pager=PAGER push origin feat/thing",
+            "git --attr-source HEAD fetch origin",
         ]:
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
 
