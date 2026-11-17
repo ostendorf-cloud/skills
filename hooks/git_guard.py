@@ -763,8 +763,11 @@ CALL_WORD_SPECIAL = re.compile(r"[<>&()`]")
 OPERATOR_ONLY = re.compile(r"\d*[<>&]+")
 REDIRECTION = re.compile(r"^\d*(?:[<>]|&>)")
 HEREDOC_WORD = re.compile(r"(-?)[ \t]*([A-Za-z_'\"\\][^\s;&|<>()]*)")
-# A program receives each argument cut at its first NUL byte.
-NUL_TAIL = re.compile(r"\x00\S*")
+# The characters after which a new shell word starts, for `#` and `((`.
+WORD_START_AFTER = " \t\n;&|()"
+# Characters removed before looking for git in a command the hook cannot read: quoting,
+# a backslash and a NUL byte, which a shell drops or joins around.
+SPELLING_NOISE = re.compile(r"[\"'\\\x00]")
 # A word holding one of these is read as a command of its own when a shell is fed.
 NESTED_WORD_HINTS = ("git", "'", '"', "\\", "$", "`")
 
@@ -788,8 +791,8 @@ XARGS_ARGUMENTS = (
     "Run it with its arguments written out in the command."
 )
 UNREADABLE = (
-    "This command mentions git in a form this hook cannot read in full. Run each git "
-    "command on its own, with its arguments written out."
+    "This command mentions git in a form this hook cannot read in full. Split it into "
+    "plain commands and run each git command on its own, with its arguments written out."
 )
 
 
@@ -829,10 +832,11 @@ class GitCall(NamedTuple):
     behind_xargs: bool
 
 
-def cut_at_nul(command: str) -> str:
-    """command with every word cut at its first NUL byte, the way a program receives
-    it as an argument."""
-    return NUL_TAIL.sub("", command)
+def mentions_git(text: str) -> bool:
+    """Whether text could name git once the shell has removed quoting, backslashes and
+    NUL bytes, in any case. Decides the outcome only when text cannot be read in full,
+    so it errs towards yes."""
+    return "git" in SPELLING_NOISE.sub("", text).lower()
 
 
 def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None) -> list[GitCall]:
@@ -844,7 +848,8 @@ def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None)
     alias.*` starting with `!` are read as commands of their own. When the command feeds
     a shell its commands through a pipe, a here-string or a heredoc, every word and
     heredoc body of the command is read as one too. A backslash newline joins two
-    lines, as in the shell.
+    lines, as in the shell, once heredoc bodies are taken out, so a body line ending in
+    a backslash never joins the command after the body.
 
     Raises ReadLimitError when the command goes past a bound of budget, or holds git inside
     more than NESTING_LIMIT levels of nesting.
@@ -852,8 +857,7 @@ def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None)
     Accepted false positives: a word `git` that is an argument, such as in `echo git push
     --force`, reads as a call.
     """
-    text = cut_at_nul(command).replace("\\\n", "")
-    return _calls_in(text, cwd, 0, set(), budget or Budget())
+    return _calls_in(command, cwd, 0, set(), budget or Budget())
 
 
 def _calls_in(
@@ -863,12 +867,13 @@ def _calls_in(
     if text in seen:
         return []
     if depth > NESTING_LIMIT:
-        if "git" in text:
+        if mentions_git(text):
             raise ReadLimitError("nesting")
         return []
     seen.add(text)
     budget.spend("texts", MAX_TEXTS)
     text, bodies = split_heredocs(text, budget)
+    text = text.replace("\\\n", "")
     budget.spend("chars", MAX_CHARS, len(text))
     parts = command_parts_with_pipes(text)
     budget.spend("parts", MAX_PARTS, len(parts))
@@ -1224,9 +1229,14 @@ def split_heredocs(
     One pass over text. Every unquoted `<<` names a delimiter, several on one line
     included. At the end of that line the bodies follow in order: each starts on the
     next line and ends at the line holding only its delimiter, leading tabs removed for
-    `<<-`. One without that line runs to the end. A `$(...)` inside double quotes is
-    skipped whole, so a heredoc inside it belongs to that inner command. Raises
-    ReadLimitError past MAX_HEREDOCS when a budget is given.
+    `<<-`. In a body whose delimiter is not quoted, a line ending in a backslash joins
+    the next one, so that next line never ends the body.
+
+    A `<<` that opens no heredoc is skipped: inside a `#` comment, inside an arithmetic
+    `((...))`, `$((...))` or `$[...]`, and inside a `$(...)` within double quotes, where
+    it belongs to that inner command. A body whose closing line never comes stays in the
+    text, so its lines are still read as commands. Raises ReadLimitError past
+    MAX_HEREDOCS when a budget is given.
     """
     kept: list[str] = []
     bodies: list[tuple[str, bool]] = []
@@ -1251,12 +1261,24 @@ def split_heredocs(
                 index = _substitution_end(text, index + 2)
             index += 1
             continue
+        at_word_start = index == 0 or text[index - 1] in WORD_START_AFTER
         if char == "'":
             single = True
         elif char == '"':
             double = True
+        elif char == "#" and at_word_start:
+            end = text.find("\n", index)
+            index = length if end < 0 else end
+            continue
         elif text.startswith("$((", index):
             index = _substitution_end(text, index + 2) + 1
+            continue
+        elif text.startswith("((", index) and at_word_start:
+            index = _substitution_end(text, index + 1) + 1
+            continue
+        elif text.startswith("$[", index):
+            end = text.find("]", index)
+            index = length if end < 0 else end + 1
             continue
         elif text.startswith("<<", index) and not text.startswith("<<<", index):
             word = HEREDOC_WORD.match(text, index + 2)
@@ -1274,25 +1296,44 @@ def split_heredocs(
             index += 3
             continue
         elif char == "\n" and pending:
+            read = _read_bodies(text, index + 1, pending)
+            if read is None:
+                break
             kept.append(text[copied : index + 1])
-            position = index + 1
-            for strip_tabs, delimiter, quoted in pending:
-                lines: list[str] = []
-                while position < length:
-                    end = text.find("\n", position)
-                    end = length if end < 0 else end
-                    line = text[position:end]
-                    position = end + 1
-                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
-                        break
-                    lines.append(line)
-                bodies.append(("\n".join(lines), quoted))
+            bodies.extend(read[0])
             pending = []
-            copied = index = min(position, length)
+            copied = index = read[1]
             continue
         index += 1
     kept.append(text[copied:])
     return "".join(kept), bodies
+
+
+def _read_bodies(
+    text: str, position: int, pending: list[tuple[bool, str, bool]]
+) -> Optional[tuple[list[tuple[str, bool]], int]]:
+    """The bodies of the pending heredocs, read in order from position, and where the
+    text goes on after them. None when one of them never reaches its closing line."""
+    length = len(text)
+    bodies: list[tuple[str, bool]] = []
+    for strip_tabs, delimiter, quoted in pending:
+        lines: list[str] = []
+        closed = continued = False
+        while position < length:
+            end = text.find("\n", position)
+            end = length if end < 0 else end
+            line = text[position:end]
+            position = end + 1
+            if not continued and (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                closed = True
+                break
+            lines.append(line)
+            trailing = len(line) - len(line.rstrip("\\"))
+            continued = not quoted and trailing % 2 == 1
+        if not closed:
+            return None
+        bodies.append(("\n".join(lines), quoted))
+    return bodies, min(position, length)
 
 
 def call_violation(
@@ -1362,7 +1403,6 @@ def global_directory(options: list[str]) -> Optional[str]:
 def command_violation(command: str, cwd: str) -> Optional[str]:
     """The deny reason for command, or None when it is fine. Raises ReadLimitError, or any
     other error, when the command cannot be read in full."""
-    command = cut_at_nul(command)
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
     shape_text, _ = split_heredocs(command, Budget())
@@ -1406,11 +1446,16 @@ def main() -> int:
         cwd = os.getcwd()
 
     # Only the reading of a command fails closed. A command that mentions git and
-    # cannot be read in full is denied rather than let through unread.
-    try:
-        reason = command_violation(command, cwd)
-    except Exception:
-        reason = UNREADABLE if "git" in command else None
+    # cannot be read in full is denied rather than let through unread. A NUL byte is
+    # not read at all: shells disagree on it, bash drops it from stdin and zsh keeps it
+    # inside the word, so a command holding one that mentions git is denied.
+    if "\x00" in command:
+        reason = UNREADABLE if mentions_git(command) else None
+    else:
+        try:
+            reason = command_violation(command, cwd)
+        except Exception:
+            reason = UNREADABLE if mentions_git(command) else None
     return _common.deny(EVENT, reason) if reason else _common.emit_empty()
 
 

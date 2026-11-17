@@ -956,7 +956,7 @@ class CommandShapeTest(unittest.TestCase):
             [
                 "cat <<EOF > notes.txt\n$(git push origin main)\nEOF",
                 "cat <<'A' <<B > notes.txt\nplain\nA\n$(git push origin main)\nB",
-                "echo $((1 << shift))\ngit push origin main",
+                "echo $((1 << shift))\ngit push origin main\nshift",
             ]
         )
 
@@ -1304,9 +1304,88 @@ class ReadLimitTest(unittest.TestCase):
                 self.assertEqual(verdict, expected, (platform, command[:80]))
                 self.assertLess(seconds, TIME_BOUND_SECONDS, (platform, command[:80]))
 
-    def test_reads_a_word_as_cut_at_a_nul_byte(self):
-        self.assertEqual(self.timed("git push\x00 --force origin feat/thing")[0], "deny")
+    def test_denies_a_command_that_holds_a_nul_byte_and_mentions_git(self):
+        for command in [
+            "git push\x00 --force origin feat/thing",
+            "git push origin ma\x00in",
+            "gi\x00t push origin main",
+            "git branch -D ma\x00in",
+        ]:
+            self.assertEqual(self.timed(command)[0], "deny", repr(command))
         self.assertIsNone(self.timed("echo a\x00b")[0])
+
+    def assert_both_platforms(self, commands: list[str], expected: Optional[str]):
+        for command in commands:
+            for platform in ("linux", "darwin"):
+                verdict, _ = self.timed(command, platform)
+                self.assertEqual(verdict, expected, (platform, command))
+
+    def test_denies_a_command_after_a_quoted_heredoc_whose_body_line_ends_in_a_backslash(self):
+        body = "cat <<'EOF' > /dev/null\nx\\\nEOF\n"
+        self.assert_both_platforms(
+            [
+                body + "git branch -D main",
+                body + "git commit --no-verify -m 'fix: thing'",
+                body + "git push origin main",
+                body + FORCE_PUSH,
+                body + FORCE_PUSH + "\nEOF",
+            ],
+            "deny",
+        )
+        self.assert_both_platforms([body + "git status"], None)
+
+    def test_reads_an_unquoted_heredoc_body_line_that_ends_in_a_backslash(self):
+        closed = "cat <<EOF > notes.txt\nline \\\nmore\nEOF\n"
+        self.assert_both_platforms([closed + FORCE_PUSH], "deny")
+        self.assert_both_platforms([closed + "git status"], None)
+        self.assert_both_platforms(["cat <<EOF > /dev/null\nx\\\nEOF\n" + FORCE_PUSH], "deny")
+        joined = "cat <<EOF > notes.txt\nx\\\nEOF\n" + FORCE_PUSH + "\nEOF\ngit status"
+        self.assert_both_platforms([joined], None)
+
+    def test_denies_a_command_after_a_marker_that_opens_no_heredoc(self):
+        self.assert_both_platforms(
+            [
+                "# see <<EOF\n" + FORCE_PUSH,
+                "echo hi # <<EOF\ngit branch -D main",
+                "(( x = 1 <<y ))\n" + FORCE_PUSH,
+                "echo $[1<<y]\n" + FORCE_PUSH,
+                "echo $((1 << shift))\n" + FORCE_PUSH,
+                "# see <<EOF\n" + FORCE_PUSH + "\nEOF",
+                "(( x = 1 <<y ))\n" + FORCE_PUSH + "\ny",
+                "echo $[1<<y]\n" + FORCE_PUSH + "\ny]",
+                "echo $((1 << shift))\n" + FORCE_PUSH + "\nshift",
+            ],
+            "deny",
+        )
+        self.assert_both_platforms(["# see <<EOF\ngit status", "(( x = 1 <<y ))\ngit status"], None)
+
+    def test_reads_the_body_of_a_heredoc_that_never_closes_as_commands(self):
+        self.assert_both_platforms(
+            [
+                "cat <<EOF\n" + FORCE_PUSH,
+                'cat <<"EOF"\nbody\n"EOF"\n' + FORCE_PUSH,
+                "cat <<-'EOF'\n\tbody\n  EOF\n" + FORCE_PUSH,
+                "cat << 'EOF'\nbody\nEOF \n" + FORCE_PUSH,
+                ": <<EOF\nEOF\n" + FORCE_PUSH,
+                "cat <<E\\OF\nbody\nEOF\n" + FORCE_PUSH,
+                "echo x <<EOF; " + FORCE_PUSH + "\nbody\nEOF",
+            ],
+            "deny",
+        )
+
+    def test_denies_an_unreadable_command_that_spells_git_with_quotes_backslashes_or_case(self):
+        pad = " # " + "a" * 100001
+        self.assert_both_platforms(
+            [
+                "g''it push --force origin feat/thing" + pad,
+                "g\\it push --force origin feat/thing" + pad,
+                "GIT push --force origin feat/thing" + pad,
+                nested_shell("g''it push origin main", 9),
+                nested_shell("g\\it push origin main", 9),
+            ],
+            "deny",
+        )
+        self.assert_both_platforms(["echo hello" + pad], None)
 
 
 class NetworkShapeTest(unittest.TestCase):
