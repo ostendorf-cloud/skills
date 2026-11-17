@@ -4,7 +4,9 @@
 """PreToolUse hook on Bash. Denies a push to the default branch, unless the remote
 carries no branch at all yet, a force push without `--force-with-lease` or one onto the
 default branch, `git push --all` or `--mirror`, a command that bypasses hooks or commit
-signing, and deletion of the default branch, local or remote.
+signing, and deletion of the default branch, local or remote. On macOS it also denies
+a `git fetch`, `git pull` or `git push` that does not stand alone in its call, because
+only a lone command leaves the sandbox (ADR 0005).
 """
 
 import os
@@ -280,6 +282,97 @@ def bypass_violation(part: str) -> Optional[str]:
     return None
 
 
+NETWORK_SUBCOMMANDS = ("fetch", "pull", "push")
+SHELL_OPERATOR = re.compile(r"[<>&]")
+# The only redirections that keep the call outside the sandbox, measured.
+KEPT_REDIRECTION = re.compile(r"(?<=\s)(2>&1|>&2)(?=\s|$)")
+ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+
+RUN_NETWORK_ALONE = (
+    "A git fetch, pull or push leaves the sandbox only when it stands alone in the call, "
+    "without a pipe, chain, cd, -C, env prefix, global option before the subcommand or "
+    "redirection other than 2>&1. Otherwise it runs inside the sandbox and fails with a "
+    "host key error, so run it alone from the worktree directory."
+)
+
+
+def network_shape_violation(
+    command: str,
+    raw_part: str,
+    normalized: str,
+    git_path: Optional[str],
+    scratch_dir: Optional[str] = None,
+) -> Optional[str]:
+    """The deny reason when a `git fetch`, `git pull` or `git push` does not stand alone
+    in its call, None when it does or when the check does not apply.
+
+    The sandbox exclusion that lets these commands reach an SSH remote exists only on
+    macOS (ADR 0005), so the check is gated on it. On Linux and in CI nothing is lost
+    by a pipe or a chain.
+
+    Alone means, measured: one command part (no pipe, chain, newline or leading cd), no
+    `-C` path, no env assignment or `env` before git, no global option between git and
+    the subcommand, and no redirection or `&` outside quotes except a trailing `2>&1`
+    or `>&2`. A `time` prefix is fine.
+
+    A command in the session scratch scope whose remote is itself scratch local is
+    exempt: such a push is a local file copy and works in the sandbox.
+
+    Accepted false positives: an unquoted heredoc body line starting with `git push`
+    reads as a command part, and an escaped `\\&` in an argument reads as an operator.
+    """
+    if sys.platform != "darwin":
+        return None
+
+    words = shell_words_of(raw_part)
+    git_index = next((i for i, w in enumerate(words) if _common.token_name(w) == "git"), None)
+    if git_index is None:
+        return None
+    sub_index = git_subcommand_index(words, git_index)
+    if sub_index is None or words[sub_index] not in NETWORK_SUBCOMMANDS:
+        return None
+
+    if scratch_dir:
+        tokens = words[sub_index + 1 :]
+        if remote_is_scratch_local(push_remote(tokens, scratch_dir), scratch_dir):
+            return None
+
+    prefix_ok = not any(
+        ENV_ASSIGNMENT.match(word) or _common.token_name(word) == "env"
+        for word in words[:git_index]
+    )
+    subcommand_next = sub_index == git_index + 1
+    masked = KEPT_REDIRECTION.sub("", _common.mask_quoted(command))
+    alone = (
+        len(_common.command_parts(command)) == 1
+        and git_path is None
+        and prefix_ok
+        and subcommand_next
+        and not SHELL_OPERATOR.search(masked)
+    )
+    return None if alone else RUN_NETWORK_ALONE
+
+
+GLOBAL_OPTIONS_WITH_VALUE = ("-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path")
+
+
+def git_subcommand_index(words: list[str], git_index: int) -> Optional[int]:
+    """The index of the git subcommand in words, skipping the global options after the
+    git word and the value of those that take one in a separate word."""
+    index = git_index + 1
+    while index < len(words):
+        word = words[index]
+        if not word.startswith("-"):
+            return index
+        index += 2 if word in GLOBAL_OPTIONS_WITH_VALUE else 1
+    return None
+
+
+def shell_words_of(part: str) -> list[str]:
+    """The words of part with their quoting resolved."""
+    return [_common.unquote_word(word) for word in _common.shell_words(part)]
+
+
 def main() -> int:
     payload = _common.read_payload()
     command = (payload.get("tool_input") or {}).get("command") or ""
@@ -309,6 +402,7 @@ def main() -> int:
             bypass_violation(part)
             or push_violation(normalized, part_cwd, default, remote_cache, scratch_dir)
             or branch_delete_violation(normalized, default)
+            or network_shape_violation(command, raw_part, normalized, git_path, scratch_dir)
         )
         if reason:
             return _common.deny(EVENT, reason)
