@@ -84,11 +84,13 @@ Judge one pushed pull request as a different agent than the one that built it.
 ## Guardrails
 
 - Review only: no edit to the code under review, no commit, no merge.
-- A reviewer may write a throwaway probe to settle a claim it cannot settle by reading: a
-  script in the session's scratch directory, or a temporary test file in the worktree. Both
-  forms are deleted in the same task, never left behind.
-- The probe is a file of its own, never the code under review. It is never committed, never
-  staged, never pushed, and the worktree is left exactly as it was found.
+- A reviewer may write a throwaway probe to settle a claim it cannot settle by reading. It is a
+  file of its own, never the code under review, never committed, staged or pushed.
+- It is deleted in the same task, the worktree left as found. A probe that only reads or calls
+  code is a script in the scratch directory or a temporary test file in the worktree.
+- A probe that runs command shapes or real git behaviour follows the baseline: an empty
+  temporary directory with a fake binary first on the path, or a throwaway repository, never
+  the worktree. The review prompt the supervising session writes carries that rule for them.
 - A claim settled only by reading, and not by running something, is named unverified in the
   verdict, with what it rests on instead, whether or not running it was ever attempted.
 - Move the label with the snippet in `~/.claude/skills/README.md`: exactly one
@@ -103,14 +105,12 @@ Judge one pushed pull request as a different agent than the one that built it.
   the current head decides whether it still holds.
 - Every verdict names the commit CI was green on, formal review and comment path alike.
 - A round cap, when set, is a floor for a human decision, never a way to wave through work.
-- A re-review checks the finding list only.
 - A formal review or a `gh pr comment`, never both, for the same round's verdict. Resolving a
   thread never substitutes for stating whether its finding passed in the new verdict.
 - A finding of the shape "does this write happen" is verified by counting the write at its
   source, a reflog entry, a call count on a fake, a log line, never by comparing state before
   and after: an identical write leaves the result identical.
-- `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed or
-  logged.
+- `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed or logged.
 
 ## Config
 
