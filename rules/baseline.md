@@ -37,7 +37,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Language
 
-- Everything written into a repository or a tracker is English: code, comments, commits, documentation, issues, pull requests and review comments.
+- Everything written into a repository or a tracker is English: code, comments, commits, documentation, issues, pull requests and review comments. Page texts of a website are site content and follow `website-conventions`.
 - Answers to the user follow the language the user writes in. A request for another language changes the answers only, never the written artifacts.
 
 ## Work
@@ -82,6 +82,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - Issues, plans, `ai:` labels, reviews: `issue`, `plan`, `implement`, `work-review`.
 - Subagents, models: `agents`.
 - Layout, tooling, scripts, tests, releases: `repo-conventions`, `testing-conventions`, `release-conventions`.
+- Websites, legal pages, theme: `website-conventions`.
 
 ## Changing the baseline
 

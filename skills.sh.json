@@ -3,7 +3,7 @@
     {
       "title": "Conventions",
       "description": "Rules that apply to every repository.",
-      "skills": ["git-conventions", "repo-conventions", "secrets-handling", "writing-style", "website-conventions"]
+      "skills": ["git-conventions", "repo-conventions", "secrets-handling", "writing-style"]
     },
     {
       "title": "Repository",
@@ -34,6 +34,11 @@
       "title": "Containers",
       "description": "Building and publishing container images.",
       "skills": ["container-images"]
+    },
+    {
+      "title": "Web",
+      "description": "Websites, legal pages and the shared web library.",
+      "skills": ["website-conventions"]
     },
     {
       "title": "Infrastructure",
