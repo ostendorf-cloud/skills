@@ -25,6 +25,17 @@ from a config file, `--git-dir` pointing at another repository, config pulled in
 `sh -c "$(printf ...)"`, or a command name the shell builds, such as `$'g\\x69t'` or
 `${x}git`. Branch protection on the remote is the backstop. This hook stops mistakes
 early.
+
+A switch to the default branch, or to a branch the hook cannot name, anywhere in the
+command makes every push in it read as made from the default branch. One exception:
+`git checkout -b <new>` or `git switch -c <new>` makes a later `git push <remote> HEAD`
+read as made from <new>, but only in a command of plain git calls joined by `&&`
+alone, with nothing between them other than calls that keep the branch. A push without
+an explicit HEAD keeps the default branch reading, because config decides where it
+goes. Any other switch, such as `git checkout <branch>`, never lifts that reading, so
+a push after a switch back to a feature branch is still denied. That fails safe.
+Config can still send `git push <remote> HEAD` to another repository through
+`pushInsteadOf` or `pushurl`, and a git hook runs what it likes. Neither is followed.
 """
 
 import os
@@ -935,12 +946,15 @@ class GitCall(NamedTuple):
     raw: the command part the call was found in.
     directory: the directory that part runs in, None when not known.
     behind_xargs: whether xargs runs it, so stdin may add arguments.
+    part: the index of its part in the command itself, -1 when it runs in a text nested
+    inside the command, such as a substitution or a string handed to a shell.
     """
 
     words: list[str]
     raw: str
     directory: Optional[str]
     behind_xargs: bool
+    part: int = -1
 
 
 def mentions_git(text: str) -> bool:
@@ -997,7 +1011,8 @@ def _calls_in(
     calls: list[GitCall] = []
     nested: list[str] = []
     fed_shell = False
-    for (raw, piped), directory in zip(parts, directories):
+    for part_index, ((raw, piped), directory) in enumerate(zip(parts, directories)):
+        part = part_index if depth == 0 else -1
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
@@ -1010,7 +1025,7 @@ def _calls_in(
                 budget.spend("calls", MAX_GIT_CALLS)
                 in_backtick = "`" in words[index].partition("git")[0]
                 call_words, alias_command = git_call_words(words, resolved, index + 1, in_backtick)
-                calls.append(GitCall(call_words, raw, directory, behind_xargs))
+                calls.append(GitCall(call_words, raw, directory, behind_xargs, part))
                 if alias_command:
                     nested.append(alias_command)
         inner, fed = inner_commands(raw, resolved, names, piped)
@@ -1608,6 +1623,7 @@ def subtree_push_violation(arguments: list[str], cwd: Optional[str], default: st
 
 
 BRANCH_CREATE_FLAGS = frozenset({"-b", "-B", "--orphan", "-c", "-C", "--create", "--force-create"})
+TRACK_OPTIONS = frozenset({"-t", "--track", "--no-track"})
 
 
 def branch_switch_target(call: GitCall) -> Optional[str]:
@@ -1637,6 +1653,12 @@ def branch_switch_target(call: GitCall) -> Optional[str]:
 def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
     """The branch `git checkout` or `git switch` with these arguments switches to, read as
     branch_switch_target does. A checkout of paths switches nothing."""
+    options = arguments[: arguments.index("--")] if "--" in arguments else arguments
+    # A track option without a create option creates the branch a remote ref names,
+    # such as main for origin/main, wherever it stands. This hook does not derive it.
+    tracks = any(option in TRACK_OPTIONS or option.startswith("--track=") for option in options)
+    if tracks and not any(option in BRANCH_CREATE_FLAGS for option in options):
+        return ""
     index = 0
     while index < len(arguments):
         argument = arguments[index]
@@ -1654,6 +1676,80 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
             return None
         return named_branch(argument)
     return None
+
+
+# Subcommands that never change the checked out branch, so a push after one of them
+# still runs on the branch created before it. `fetch` is not one: `--upload-pack` runs
+# a command of its own.
+BRANCH_KEEPING_SUBCOMMANDS = frozenset({"add", "commit", "diff", "log", "show", "status"})
+# The options that create a new branch and switch to it, and fail when it exists.
+CREATE_OPTIONS = {"checkout": ("-b", "--orphan"), "switch": ("-c", "--create")}
+QUIET_OPTIONS = ("-q", "--quiet")
+# The options a `git push <remote> HEAD` may carry for a creation to decide it.
+HEAD_PUSH_OPTIONS = ("-u", "--set-upstream", "-q", "--quiet")
+# Outside quotes, these leave the order of a command's parts to the shell: any
+# separator other than `&&`, a group, a comment, a redirection or heredoc, a
+# background `&`, a backslash and a newline.
+UNORDERED_CHARS = re.compile(r"[;|&(){}#<>\\\n]")
+# A substitution runs a command even inside double quotes.
+SUBSTITUTION_CHARS = re.compile(r"\$\(|`")
+
+
+def created_branches(command: str, calls: list[GitCall], cwd: str) -> list[Optional[str]]:
+    """For each call, the branch a branch creation earlier in command switched to, or
+    None when none decides it.
+
+    A creation decides only in a command of plain git calls joined by `&&` and nothing
+    else: one git call per part, git its first word with no global option, no nested
+    call and none of UNORDERED_CHARS outside quotes or SUBSTITUTION_CHARS anywhere.
+    There the creation, `git checkout -b|--orphan <new>` or `git switch -c|--create
+    <new>` with a literal name that is not the default branch, decides a later `git push
+    <remote> HEAD`, see head_push, until a git call other than BRANCH_KEEPING_SUBCOMMANDS.
+    It decides no other call: a push without a refspec follows config such as
+    push.default=upstream. A plain switch never decides: its word can be a path, a
+    commit or an alias of the default branch. The result has one entry per call."""
+    unordered = [None] * len(calls)
+    masked = _common.mask_quoted(command).replace("&&", "")
+    if UNORDERED_CHARS.search(masked) or SUBSTITUTION_CHARS.search(command):
+        return unordered
+    parts = _common.command_parts(command)
+    if [call.part for call in calls] != list(range(len(parts))):
+        return unordered
+    branches: list[Optional[str]] = []
+    created: Optional[str] = None
+    for call, part in zip(calls, parts):
+        words = shell_words_of(part)
+        if not words or words[0] != "git" or git_subcommand_index(call.words, 0) != 1:
+            return unordered
+        branches.append(created if head_push(call.words) else None)
+        if call.words[1] in BRANCH_KEEPING_SUBCOMMANDS:
+            continue
+        created = created_branch(call.words)
+        if created is not None and created.lower() == QUERIES.default_branch(cwd).lower():
+            created = None
+    return branches
+
+
+def head_push(words: list[str]) -> bool:
+    """Whether words are `git push <remote> HEAD`, with no other option than
+    HEAD_PUSH_OPTIONS."""
+    arguments = [word for word in words[2:] if word not in HEAD_PUSH_OPTIONS]
+    return (
+        words[1] == "push"
+        and len(arguments) == 2
+        and not arguments[0].startswith("-")
+        and arguments[1] == "HEAD"
+    )
+
+
+def created_branch(words: list[str]) -> Optional[str]:
+    """The branch `git checkout -b <new>` or `git switch -c <new>` creates, with no other
+    argument than a quiet option, None for any other call."""
+    arguments = [word for word in words[2:] if word not in QUIET_OPTIONS]
+    if len(arguments) != 2 or arguments[0] not in CREATE_OPTIONS.get(words[1], ()):
+        return None
+    name = named_branch(arguments[1])
+    return name if name and not name.startswith("-") else None
 
 
 def named_branch(name: str) -> str:
@@ -1694,7 +1790,9 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     calls = git_calls(command, cwd)
     # A command that switches to the default branch, or to a branch this hook cannot
     # name, may push from it later in the same command. Its pushes are read as made from
-    # the default branch, wherever the switch stands in the command.
+    # the default branch, wherever the switch stands in the command, unless a branch
+    # creation right before a push decides its branch, see created_branches.
+    assumed: Optional[str] = None
     for call in calls:
         target = branch_switch_target(call)
         if target is None:
@@ -1703,8 +1801,10 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
         options = call.words[1:sub_index] if sub_index is not None else []
         default = QUERIES.default_branch(global_directory(options) or cwd)
         if target in ("", default):
-            QUERIES.assumed_branch = default
+            assumed = default
             break
+    QUERIES.assumed_branch = assumed
+    created = created_branches(command, calls, cwd)
     shape_text, _ = split_heredocs(command, Budget())
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
@@ -1712,10 +1812,12 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
-    for call in calls:
+    for call, branch in zip(calls, created):
+        QUERIES.assumed_branch = assumed if branch is None else branch
         reason = call_violation(call, cwd, rewrites_remote, remote_cache)
         if reason:
             return reason
+    QUERIES.assumed_branch = assumed
 
     command_alone = command_stands_alone(shape_text)
     for raw_part, directory in _common.part_dirs(shape_text, cwd):

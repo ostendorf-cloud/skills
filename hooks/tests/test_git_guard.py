@@ -1375,6 +1375,244 @@ class CommandShapeTest(unittest.TestCase):
             ]
         )
 
+    def on_default_branch(self) -> None:
+        """Checks the fixture out on main, where the base reading denies a push of HEAD."""
+        subprocess.run(
+            ["git", "checkout", "-q", "main"], cwd=self.repo, check=True, capture_output=True
+        )
+
+    def test_reads_a_created_branch_after_a_switch_to_the_default_branch(self):
+        self.assert_allowed(
+            [
+                "git checkout main && git checkout -b feat/new && git push -u origin HEAD",
+                "git switch main && git switch -c feat/new && git push -u origin HEAD",
+                "git switch main && git pull --ff-only && git switch --create feat/new && "
+                "git push -q --set-upstream origin HEAD",
+                "git checkout main && git checkout -q -b feat/new && git add README.md && "
+                "git commit -m 'docs: fix typo; and a # sign' && git push origin HEAD",
+                "git checkout main && git checkout --orphan feat/new && "
+                "git commit -m 'chore: init' && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git status && git diff && "
+                "git log && git show && git push --quiet origin HEAD",
+            ]
+        )
+
+    def test_reads_the_default_branch_when_the_last_switch_names_it(self):
+        self.assert_denied(
+            [
+                "git checkout feat/thing && git checkout main && git push origin HEAD",
+                "git checkout feat/thing && git checkout main && git push",
+                "git switch -c feat/new && git switch main && git push -u origin HEAD",
+                "git checkout -b feat/new && git checkout main && git push -u origin HEAD",
+                "git checkout main && git checkout feat/thing && git checkout - && "
+                "git push origin HEAD",
+                "git checkout main && git checkout feat/thing && git checkout main && git push",
+                "git checkout feat/thing; git checkout main\ngit push origin HEAD",
+                "git checkout -b feat/new && git checkout -b main && git push origin HEAD",
+                "git checkout main && git checkout -b Main && git push origin HEAD",
+                "git checkout -b feat/new && git checkout main && git status && git push",
+            ]
+        )
+
+    def test_keeps_the_default_branch_when_no_branch_creation_decides(self):
+        self.assert_denied(
+            [
+                # A plain switch never decides: its word can be a path, a commit or an
+                # alias of the default branch.
+                "git checkout main && git checkout feat/thing && git push origin HEAD",
+                "git checkout main && git switch feat/thing && git push",
+                "git checkout main && git symbolic-ref HEAD refs/heads/feat/thing && git push",
+                "git checkout main && git branch -m feat/renamed && git push -u origin HEAD",
+                # A creation that may reset an existing branch, track a remote ref or
+                # start elsewhere does not decide either.
+                "git checkout main && git checkout -B feat/new && git push origin HEAD",
+                "git checkout main && git switch -C feat/new && git push origin HEAD",
+                "git checkout main && git switch --force-create feat/new && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new origin/main && git push",
+                "git checkout main && git checkout -b feat/new -t origin/main && git push",
+                "git checkout main && git switch -c feat/new --track origin/main && git push",
+                'git checkout main && git checkout -b "$NEW" && git push origin HEAD',
+                # Any separator other than && leaves the order to the shell.
+                "git checkout main; git checkout -b feat/new && git push origin HEAD",
+                "git checkout main\ngit checkout -b feat/new && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new; git push origin HEAD",
+                "git checkout main && git checkout -b feat/new || true && git push origin HEAD",
+                "git checkout main || git checkout -b feat/new && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new | git status && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new & git status && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new & sleep 1 && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new \\&& git push origin HEAD",
+                # The shell reads `\&&` as a literal `&` and a background `&`.
+                "git checkout main && git checkout -b feat/new\\&& git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git push origin HEAD # note",
+                "git checkout main && git checkout -b feat/new \\\n&& git push origin HEAD",
+                "git checkout main && (git checkout -b feat/new) && git push origin HEAD",
+                "{ git checkout main && git checkout -b feat/new && git push origin HEAD; }",
+                # A call between them that may move the branch or the repository.
+                "git checkout main && git checkout -b feat/new && git stash branch main && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git rebase origin/main main && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git pull origin main && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git checkout main && git push",
+                "git checkout main && git checkout -b feat/new && cd ../other && "
+                "git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git -C ../other push origin HEAD",
+                "git checkout main && git checkout -b feat/new && "
+                "env GIT_DIR=../other/.git git push origin HEAD",
+                "git checkout main && sh -c 'git checkout -b feat/new' && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && "
+                'git commit -m "`./to-main.sh`" && git push origin HEAD',
+                "git checkout main && git checkout -b feat/new && "
+                'git commit -m "$(./to-main.sh)" && git push origin HEAD',
+                "git checkout main && git checkout -b feat/new && "
+                "git commit -F <(git checkout main) && git push origin HEAD",
+                # A failed switch leaves the branch as it was, and the push still runs.
+                "git checkout main && git checkout feat/thing; git push origin HEAD",
+                "git checkout main\ngit checkout feat/thing\ngit push origin HEAD",
+                "git checkout main && git checkout feat/thing || true && git push origin HEAD",
+                "git checkout main && true || git checkout feat/thing && git push origin HEAD",
+                "git checkout main && git checkout feat/thing | cat && git push origin HEAD",
+                "git checkout main && git checkout feat/thing & git push origin HEAD",
+                "git checkout main && git checkout feat/thing & sleep 1 && git push origin HEAD",
+                # A switch in a subshell, a group or a conditional does not lift it.
+                "git checkout main && (git checkout feat/thing) && git push origin HEAD",
+                "git checkout main && ( git checkout feat/thing && git push origin HEAD )",
+                "git checkout main && { git checkout feat/thing; } && git push origin HEAD",
+                "(git checkout main; git checkout feat/thing) && git push origin HEAD",
+                "git checkout main && if git checkout feat/thing; then git push origin HEAD; fi",
+                "git checkout main && sh -c 'git checkout feat/thing' && git push origin HEAD",
+                "git checkout main && echo $(git checkout feat/thing) && git push origin HEAD",
+                # Something between the switch and the push may move the branch or the
+                # repository.
+                "git checkout main && git checkout feat/thing && cd ../other && "
+                "git push origin HEAD",
+                "git checkout main && git checkout feat/thing && git rebase origin/main main && "
+                "git push origin HEAD",
+                "git checkout main && git -C ../other checkout feat/thing && git push origin HEAD",
+                "git checkout feat/thing && git push origin HEAD $(git checkout main)",
+                'git checkout feat/thing && git commit -m "$(git checkout main)" && '
+                "git push origin HEAD",
+                # A part the hook reads as two git calls has no single place in the order.
+                "git checkout main && git switch feat/thing && git log git checkout main && "
+                "git push origin HEAD",
+                "git checkout main && git branch -m other feat/thing && git push origin HEAD",
+                "git checkout -t origin/main && git push origin HEAD",
+                "git checkout --track=direct origin/main && git push origin HEAD",
+                "git switch origin/main --no-track && git push origin HEAD",
+            ]
+        )
+
+    def test_reads_a_branch_created_from_the_default_branch(self):
+        self.on_default_branch()
+        self.assert_allowed(
+            [
+                "git checkout -b feat/new && git push -u origin HEAD",
+                "git switch -c feat/new && git push -u origin HEAD",
+                "git checkout -b feat/new && git commit -m x && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git push -q origin HEAD",
+            ]
+        )
+        self.assert_denied(
+            [
+                "git checkout feat/thing && git push origin HEAD",
+                "git checkout -B main && git push",
+                "git checkout -b feat/new || git push origin HEAD",
+                "git checkout -b feat/new; git push origin HEAD",
+                "git checkout -b feat/new && git push origin main",
+                # Without an explicit HEAD, config decides where the push goes, such as
+                # push.default=upstream with branch.autoSetupMerge=inherit.
+                "git checkout -b feat && git commit -q --allow-empty -m 'chore: x' && git push -q",
+                "git switch -c feat && git push",
+                "git checkout -b feat && git push origin",
+                "git checkout -b feat && git push -u",
+                "git checkout -b feat/new && git push origin",
+                "git checkout -b feat/new && git push -u origin",
+                "git checkout -b feat/new && git push origin @",
+                "git checkout -b feat && git push --repo=origin HEAD",
+                "git checkout -b feat && git push -o ci.skip origin HEAD",
+                "git checkout -b feat && git push --push-option=ci.skip origin HEAD",
+                "git checkout -b feat && git push --force-with-lease origin HEAD",
+                "git checkout -b feat && git push origin HEAD:main",
+                "git checkout -b feat && git push origin HEAD main",
+                "git checkout -b feat && git push origin +HEAD",
+                # `:` pushes every matching branch, the default branch among them.
+                "git checkout -b feat && git push origin :",
+                "git checkout -b feat && git push origin HEAD :",
+                "git checkout -b feat && git send-pack origin HEAD",
+                # fetch runs a command of its own with --upload-pack, so it does not
+                # keep the branch.
+                "git checkout -b feat && git fetch -q --upload-pack "
+                "'git checkout -q main; git-upload-pack' . && "
+                "git commit -q --allow-empty -m 'chore: x' && git push -q origin HEAD",
+                "git checkout -b feat && git fetch "
+                "--upload-pack='git checkout main; git-upload-pack' origin && "
+                "git push origin HEAD",
+                "git checkout -b feat && git fetch -u 'git checkout main; git-upload-pack' "
+                "origin && git push origin HEAD",
+                "git checkout -b feat && git fetch origin && git push origin HEAD",
+                # Nested calls are checked as well.
+                "git checkout -b feat/new && git status sh -c 'git branch -D main'",
+                "git checkout -b feat && git log sh -c 'git push --force origin main' && "
+                "git push origin HEAD",
+            ]
+        )
+
+    def test_denies_what_the_base_denied_after_a_switch_that_is_no_creation(self):
+        """Shapes from the review of the first ordered reading. The base reading denies
+        each of them from the default branch, and so must this one."""
+        self.on_default_branch()
+        subprocess.run(
+            ["git", "symbolic-ref", "refs/heads/trunk", "refs/heads/main"],
+            cwd=self.repo,
+            check=True,
+            capture_output=True,
+        )
+        self.assert_denied(
+            [
+                "git checkout . && git push origin HEAD",
+                "git checkout . && git push",
+                "git checkout HEAD && git push",
+                "git checkout @ && git push origin HEAD",
+                "git checkout README.md && git status && git push",
+                "git checkout --theirs README.md && git add README.md && "
+                "git commit --no-edit && git push",
+                "git checkout --ours . && git add . && git commit --no-edit && "
+                "git push origin HEAD",
+                "git checkout -m README.md && git push origin HEAD",
+                "git checkout --merge README.md && git push origin HEAD",
+                "git checkout --conflict=merge README.md && git push origin HEAD",
+                "git checkout --overlay README.md && git push origin HEAD",
+                "git checkout -p README.md && git push origin HEAD",
+                "git checkout -f README.md && git push origin HEAD",
+                "git checkout --pathspec-from-file list && git push origin HEAD",
+                "git symbolic-ref HEAD refs/heads/main && git checkout . && git push origin HEAD",
+                "git checkout feat/thing && git checkout . && git push origin HEAD",
+                "git checkout . && git send-pack origin HEAD",
+                "git checkout . && git subtree push --prefix=x origin HEAD",
+                'git checkout feat/thing && git commit -m "$(git rebase origin/main main)" && '
+                "git push origin HEAD",
+                'git checkout feat/thing && git commit -m "`git rebase origin/main main`" && '
+                "git push origin HEAD",
+                'git checkout feat/thing && git status "$(git rebase origin/main main)" && '
+                "git push origin HEAD",
+                'git checkout feat/thing && git commit -m "$(git stash branch main)" && '
+                "git push origin HEAD",
+                "git checkout feat/thing && git commit -m "
+                "\"$(git -c alias.x='rebase origin/main main' x)\" && git push origin HEAD",
+                "git checkout main # && git checkout feat/thing &&\ngit push origin HEAD",
+                "git status # && git checkout feat/thing &&\ngit push origin HEAD",
+                "git branch -m old && git checkout --no-track origin/main && "
+                "git commit -q --allow-empty -m 'chore: x' && git push -q origin HEAD",
+                "git branch -m old && git switch origin/main --track && "
+                "git commit -q --allow-empty -m 'chore: x' && git push -q origin HEAD",
+                "git checkout trunk && git push origin HEAD",
+            ]
+        )
+
     def test_answers_odd_input_without_failing(self):
         for command in [
             "$(",
