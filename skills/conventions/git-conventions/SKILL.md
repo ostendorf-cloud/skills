@@ -39,6 +39,18 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Commits are atomic. Formatting, refactoring and behaviour go into separate commits.
 - Commit small and often, one change per commit. Never a batch at the end of a session.
 - Reference an issue in the footer with `Refs #123` or `Closes #123`.
+- `GIT_CONFIG_GLOBAL=/dev/null` is the switch for test runs only. Never set it in a shell that
+  makes real commits.
+- A command that writes commits sets `GIT_COMMITTER_EMAIL` in the same command, or runs with
+  the normal git config. Such commands are `git commit`, `rebase`, `cherry-pick`, `merge`,
+  `pull`, `revert` and `am`. Otherwise git takes the email from the host name, also for a
+  `--signoff` line. The name comes from the passwd entry.
+- A command that writes a new commit also sets `GIT_AUTHOR_EMAIL` or `-c user.email`: a new
+  `git commit`, `merge`, `revert`, `pull` and `notes add`. An amend, a rebase, a cherry-pick,
+  `am` and a commit with `-C` keep their author.
+- Before a push, the committer and every `Signed-off-by` line match the author. The `git_guard`
+  hook denies the switch without the emails and warns before a push on a mismatch.
+- The hook does not see an alias such as `git ci`, nor `HOME` pointing nowhere. Same hazard.
 
 ### Pull requests
 

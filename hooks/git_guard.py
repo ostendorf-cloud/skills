@@ -8,6 +8,33 @@ signing, and deletion of the default branch, local or remote. On macOS it also d
 a `git fetch`, `git pull` or `git push` that does not stand alone in its call, because
 only a lone command leaves the sandbox (ADR 0005).
 
+It also denies a `git commit`, `rebase`, `cherry-pick`, `merge`, `pull`, `revert`, `am`,
+`commit-tree` or `notes` that runs with `GIT_CONFIG_GLOBAL` set to the null device, the
+switch for test runs, without `GIT_COMMITTER_EMAIL` or `-c user.email`: git then takes the
+email from the host name. A command that writes a new commit needs `GIT_AUTHOR_EMAIL`,
+`--author` or `-c user.email` as well. A rebase, a cherry-pick, `am`, a pull with
+`--rebase`, a plain amend and a commit that reuses a message keep their author. Nothing is
+needed for `--abort`, `--quit`, `commit --dry-run`, `notes list` and `notes show`. The
+variables are read per part: a prefix, `env`, `local`, `time`, `if`, `then`, `do`, `while`,
+a `case` pattern and `{`, `(`, `!` in front count for their own part, and for a string
+handed to a shell. `export`, `readonly`, `declare -x` and `unset` carry to later parts, a
+bare assignment carries the switch. A pipeline runs in a subshell and keeps nothing, a
+subshell in parentheses is not followed. A string handed to a shell, at any depth, starts
+from the variables of the part that runs it and follows its own `export` and `unset`.
+Not seen: an alias such as `git ci`, a shell function, `pull.rebase` from config, an
+abbreviated pull option such as `--no-reb`, `HOME` pointing nowhere, `tag -a`, and git behind
+a variable. A prefix on `echo "$(git commit)"`
+denies although bash does not pass it to the substitution, which is harmless.
+
+Before a push it adds context, never a deny, when a commit it would send, one that no
+remote tracking branch holds yet, has a committer or `Signed-off-by` email that differs
+from its author email. The push names its refs, HEAD otherwise, and a deletion or a push
+of tags alone checks none. Every git call this hook makes itself runs with
+`core.fsmonitor` off and the log without signatures, so a repository config starts no
+program on a read. It does not reach what other hooks or tools start: `secret_guard` runs
+gitleaks, which runs its own git. `core.sshCommand` still runs for `ls-remote`, as it
+does for the push.
+
 These rules apply to every git call in the command: behind global options, wrappers or
 grouping, inside a command substitution, and in a string handed to a shell or `eval`.
 
@@ -293,7 +320,7 @@ def remote_is_empty(remote: str, cwd: Optional[str], cache: RemoteCache) -> Opti
     if key in cache:
         return cache[key]
 
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="")
+    env = _common.git_env(dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS=""))
     QUERIES.spend()
     try:
         result = subprocess.run(
@@ -948,6 +975,9 @@ class GitCall(NamedTuple):
     behind_xargs: whether xargs runs it, so stdin may add arguments.
     part: the index of its part in the command itself, -1 when it runs in a text nested
     inside the command, such as a substitution or a string handed to a shell.
+    env: the variables the shell holds when it runs the call, the ones exported by an
+    earlier part and the prefix of its own part, through every level of string handed to
+    a shell it sits in. None when not known.
     """
 
     words: list[str]
@@ -955,6 +985,7 @@ class GitCall(NamedTuple):
     directory: Optional[str]
     behind_xargs: bool
     part: int = -1
+    env: Optional[dict[str, str]] = None
 
 
 def mentions_git(text: str) -> bool:
@@ -986,16 +1017,26 @@ def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None)
 
 
 def _calls_in(
-    text: str, cwd: Optional[str], depth: int, seen: set[str], budget: Budget
+    text: str,
+    cwd: Optional[str],
+    depth: int,
+    seen: set[tuple[str, tuple[bool, bool, bool]]],
+    budget: Budget,
+    start: Optional[dict[str, str]] = None,
 ) -> list[GitCall]:
-    """The git calls in text. cwd is the directory text runs in, None when not known."""
-    if text in seen:
+    """The git calls in text. cwd is the directory text runs in, None when not known.
+    start is the environment text starts with: the variables the shell holds where it
+    runs the string, see GitCall.env. The same text is read again under another
+    environment of the three variables that matter, see identity_key."""
+    start = start or {}
+    key = (text, identity_key(start))
+    if key in seen:
         return []
     if depth > NESTING_LIMIT:
         if mentions_git(text):
             raise ReadLimitError("nesting")
         return []
-    seen.add(text)
+    seen.add(key)
     budget.spend("texts", MAX_TEXTS)
     text, bodies = split_heredocs(text, budget)
     text = text.replace("\\\n", "")
@@ -1009,10 +1050,16 @@ def _calls_in(
             directories = [directory for _, directory in pairs]
 
     calls: list[GitCall] = []
-    nested: list[str] = []
+    nested: list[tuple[str, dict[str, str]]] = []
     fed_shell = False
+    states = environments_before(parts, start)
+    fed_env = states[-1]
     for part_index, ((raw, piped), directory) in enumerate(zip(parts, directories)):
         part = part_index if depth == 0 else -1
+        found = part_environment(raw)
+        scope = states[part_index]
+        if found.kind == "prefix":
+            scope = apply_changes(scope, found.changes, found.clears)
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
@@ -1025,29 +1072,32 @@ def _calls_in(
                 budget.spend("calls", MAX_GIT_CALLS)
                 in_backtick = "`" in words[index].partition("git")[0]
                 call_words, alias_command = git_call_words(words, resolved, index + 1, in_backtick)
-                calls.append(GitCall(call_words, raw, directory, behind_xargs, part))
+                calls.append(GitCall(call_words, raw, directory, behind_xargs, part, scope))
                 if alias_command:
-                    nested.append(alias_command)
+                    nested.append((alias_command, scope))
         inner, fed = inner_commands(raw, resolved, names, piped)
-        nested.extend(inner)
+        nested.extend((inner_text, scope) for inner_text in inner)
+        if fed:
+            fed_env = scope
         fed_shell = fed_shell or fed
 
     for body, quoted in bodies:
         if not quoted:
-            nested.extend(substitutions(body))
+            nested.extend((inner_text, states[-1]) for inner_text in substitutions(body))
     if fed_shell:
-        nested.extend(body for body, _ in bodies)
+        nested.extend((body, fed_env) for body, _ in bodies)
+        # The words are what the shell part reads, so its variables apply to them.
         for raw, _ in parts:
             for word in shell_words_of(raw):
                 if any(hint in word for hint in NESTED_WORD_HINTS):
-                    nested.append(word)
+                    nested.append((word, fed_env))
                     # printf and echo -e turn these into a line break and a tab before
                     # the shell reads them.
                     if "\\n" in word or "\\t" in word:
-                        nested.append(word.replace("\\n", "\n").replace("\\t", "\t"))
+                        nested.append((word.replace("\\n", "\n").replace("\\t", "\t"), fed_env))
 
-    for inner_text in nested:
-        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget))
+    for inner_text, inner_env in nested:
+        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget, inner_env))
     return calls
 
 
@@ -1773,6 +1823,417 @@ def global_directory(options: list[str]) -> Optional[str]:
     return path
 
 
+SWITCH_VARIABLE = "GIT_CONFIG_GLOBAL"
+SWITCH_VALUE = "/dev/null"
+# The subcommands that write a commit, a note or a tree with a committer.
+IDENTITY_SUBCOMMANDS = frozenset(
+    {"commit", "rebase", "cherry-pick", "merge", "pull", "revert", "am", "commit-tree", "notes"}
+)
+# Of these, the ones that read --abort and --quit as a stop that writes nothing.
+STOPPABLE_SUBCOMMANDS = frozenset({"rebase", "cherry-pick", "merge", "revert", "am"})
+NO_COMMIT_OPTIONS = frozenset({"--abort", "--quit"})
+# Words that keep the assignments after them for later parts. `env` and `local` pass them
+# to the command of their own part, see part_environment.
+EXPORT_WORDS = frozenset({"export", "readonly"})
+DECLARE_WORDS = frozenset({"declare", "typeset"})
+# `env` options that take a value in the next word or the rest of the cluster.
+ENV_UNSET_LETTER = "u"
+ENV_SKIPPED_LETTERS = "CSP"
+GROUPING_CHARS = "({!"
+# Shell keywords that stand in front of a command and change nothing about it.
+SHELL_KEYWORDS = frozenset({"time", "then", "do", "else", "elif", "if", "while", "until", "coproc"})
+# The commands that keep the author of the commits they replay.
+KEEPS_AUTHOR_SUBCOMMANDS = frozenset({"rebase", "cherry-pick", "am"})
+NOTES_WRITING_VERBS = frozenset({"add", "append", "edit", "copy", "merge", "remove", "prune"})
+NOTES_VERBS = NOTES_WRITING_VERBS | {"list", "show", "get-ref"}
+IDENTITY_SWITCH = (
+    "This runs git with GIT_CONFIG_GLOBAL=/dev/null, which is for test runs, so git takes "
+    "the email of the commit identity from the host name. Set GIT_COMMITTER_EMAIL, and for "
+    "a command that writes a new commit also GIT_AUTHOR_EMAIL or `-c user.email`, in the "
+    "same command, or run it with the normal git config."
+)
+PUSH_IDENTITY_LIMIT = 5
+PUSH_IDENTITY_COMMITS = 200
+PUSH_IDENTITY_DIRECTORIES = 2
+IDENTITY_FORMAT = "%H%x1f%ae%x1f%ce%x1f%(trailers:key=Signed-off-by,valueonly,separator=%x1f)%x1e"
+MAIL_ADDRESS = re.compile(r"<([^<>]*)>")
+
+
+class PartEnvironment(NamedTuple):
+    """What a command part does to the environment in front of its command.
+
+    changes: the variables it sets, in order, a value None meaning unset.
+    clears: it starts from an empty environment, `env -i`.
+    kind: "prefix" when a command follows and the changes apply to it alone, "export"
+    when the part is an `export`, `readonly`, `declare -x` or `unset` that keeps them for
+    later parts, "bare" for assignments with no command.
+    """
+
+    changes: list[tuple[str, Optional[str]]]
+    clears: bool
+    kind: str
+
+
+def env_option_changes(
+    words: list[str], index: int, changes: list[tuple[str, Optional[str]]]
+) -> tuple[int, bool]:
+    """Reads the options of `env` from words[index], appending its `-u` and `--unset`
+    to changes. Returns the index of the first word after them and whether `-i` or `-`
+    clears the environment. The value of `-C`, `-S` and `-P` is skipped."""
+    clears = False
+    while index < len(words):
+        word = _common.unquote_word(words[index])
+        index += 1
+        if word == "--":
+            break
+        if word == "-":
+            clears = True
+        elif word.startswith("--"):
+            name, separator, value = word.partition("=")
+            if name == "--ignore-environment":
+                clears = True
+            elif name == "--unset" and not separator and index < len(words):
+                changes.append((_common.unquote_word(words[index]), None))
+                index += 1
+            elif name == "--unset":
+                changes.append((value, None))
+            elif name in ("--chdir", "--split-string") and not separator:
+                index += 1
+        elif word.startswith("-") and len(word) > 1:
+            for position, letter in enumerate(word[1:], start=1):
+                tail = word[position + 1 :]
+                if letter == "i":
+                    clears = True
+                elif letter == ENV_UNSET_LETTER or letter in ENV_SKIPPED_LETTERS:
+                    value = tail
+                    if not tail and index < len(words):
+                        value = _common.unquote_word(words[index])
+                        index += 1
+                    if letter == ENV_UNSET_LETTER:
+                        changes.append((value, None))
+                    break
+        else:
+            return index - 1, clears
+    return index, clears
+
+
+def part_environment(part: str) -> PartEnvironment:
+    """The environment changes the command part makes in front of its command: leading
+    `NAME=value` words, also behind grouping characters, `env` with its options, `local`,
+    `export`, `readonly` and `declare -x`. An assignment written inside quotes, or after
+    the command word, is an argument and does not count."""
+    words = _common.shell_words(part)
+    changes: list[tuple[str, Optional[str]]] = []
+    clears = False
+    kind = "bare"
+    exported = False
+    index = 0
+    while index < len(words):
+        word = words[index].lstrip(GROUPING_CHARS)
+        if not word:
+            index += 1
+            continue
+        if ENV_ASSIGNMENT.match(word):
+            name, _, value = word.partition("=")
+            changes.append((name, _common.unquote_word(value)))
+            index += 1
+            continue
+        if word.endswith(")") and "(" not in word:
+            # The pattern of a `case` branch, in front of its commands.
+            index += 1
+            continue
+        name = command_name_of(_common.unquote_word(word))
+        if name in SHELL_KEYWORDS:
+            index += 1
+            while name == "time" and index < len(words) and words[index].startswith("-"):
+                index += 1
+        elif name == "case":
+            index += 3
+        elif name in EXPORT_WORDS:
+            exported = True
+            index += 1
+        elif name in DECLARE_WORDS:
+            index += 1
+            while index < len(words) and words[index].startswith(("-", "+")):
+                exported = exported or ("x" in words[index] and words[index].startswith("-"))
+                index += 1
+        elif name == "unset":
+            for word in words[index + 1 :]:
+                if not word.startswith("-"):
+                    changes.append((_common.unquote_word(word), None))
+            return PartEnvironment(changes, clears, "export")
+        elif name == "env":
+            index, cleared = env_option_changes(words, index + 1, changes)
+            clears = clears or cleared
+        elif name == "local":
+            index += 1
+        else:
+            return PartEnvironment(changes, clears, "prefix")
+    if exported:
+        kind = "export"
+    return PartEnvironment(changes, clears, kind)
+
+
+def apply_changes(
+    environment: dict[str, str], changes: list[tuple[str, Optional[str]]], clears: bool
+) -> dict[str, str]:
+    """environment with changes applied in order, a copy. clears empties it first."""
+    result = {} if clears else dict(environment)
+    for name, value in changes:
+        if value is None:
+            result.pop(name, None)
+        else:
+            result[name] = value
+    return result
+
+
+def switch_is_set(value: Optional[str]) -> bool:
+    """Whether a GIT_CONFIG_GLOBAL value names the null device, with repeated or trailing
+    slashes and `.` steps read as the shell and the file system read them."""
+    if not value or not value.startswith("/"):
+        return False
+    return "/" + os.path.normpath(value).lstrip("/") == SWITCH_VALUE
+
+
+def identity_key(environment: dict[str, str]) -> tuple[bool, bool, bool]:
+    """What an environment says about identity: whether the switch is set, and whether
+    the committer and the author email are."""
+    return (
+        switch_is_set(environment.get(SWITCH_VARIABLE)),
+        bool(environment.get("GIT_COMMITTER_EMAIL")),
+        bool(environment.get("GIT_AUTHOR_EMAIL")),
+    )
+
+
+def environments_before(
+    parts: list[tuple[str, bool]], start: Optional[dict[str, str]] = None
+) -> list[dict[str, str]]:
+    """The environment the shell holds before each part of a command, starting from start,
+    and, as the last entry, after all of them: what `export`, `readonly`, `declare -x` and
+    `unset` kept, and the switch from a bare assignment, since a variable exported earlier
+    stays exported. A part in a pipeline runs in a subshell and keeps nothing.
+
+    A subshell written with parentheses is not followed: what it exports reads as kept."""
+    states: list[dict[str, str]] = []
+    environment: dict[str, str] = dict(start or {})
+    for position, (raw, _) in enumerate(parts):
+        states.append(environment)
+        in_pipeline = parts[position][1] or (position + 1 < len(parts) and parts[position + 1][1])
+        if in_pipeline:
+            continue
+        found = part_environment(raw)
+        if found.kind == "export":
+            environment = apply_changes(environment, found.changes, found.clears)
+        elif found.kind == "bare":
+            kept = [change for change in found.changes if change[0] == SWITCH_VARIABLE]
+            environment = apply_changes(environment, kept, False)
+    states.append(environment)
+    return states
+
+
+def identity_needs(call: GitCall) -> tuple[bool, bool]:
+    """Whether a git call writes a commit that needs a committer email, and whether it
+    needs an author email too. Neither when it writes nothing: `--abort`, `--quit`,
+    `commit --dry-run`, `notes list` and `notes show`. Neither when `-c user.email` in
+    front of the subcommand sets both.
+
+    Every new commit needs the author email, measured with git 2.56: a merge, a revert, a
+    pull that merges, `commit-tree` and `notes` take it from the host name too. Not so a
+    rebase, a cherry-pick, `am`, a pull with `--rebase`, a plain amend, and a commit that
+    reuses a message with `-C` or `-c`, which keep the author they replay. `--author`
+    sets it. `--reset-author` asks for a new one."""
+    sub_index = git_subcommand_index(call.words, 0)
+    if sub_index is None or call.words[sub_index] not in IDENTITY_SUBCOMMANDS:
+        return False, False
+    subcommand = call.words[sub_index]
+    arguments = call.words[sub_index + 1 :]
+    if subcommand in STOPPABLE_SUBCOMMANDS and NO_COMMIT_OPTIONS & set(arguments):
+        return False, False
+    if subcommand == "notes" and not notes_write(arguments):
+        return False, False
+    entries = config_entries(call.words[1:sub_index])
+    if any(key.lower() == "user.email" and value for key, value in entries):
+        return False, False
+    options = arguments
+    if subcommand == "commit":
+        options = normalize_options(arguments, OPTION_GRAMMARS["commit"])
+        if "--dry-run" in options:
+            return False, False
+    if subcommand in KEEPS_AUTHOR_SUBCOMMANDS:
+        return True, False
+    if subcommand == "pull":
+        return True, not pull_rebases(options)
+    if subcommand == "commit":
+        reuses = any(
+            option.startswith(("--reuse-message=", "--reedit-message=")) for option in options
+        )
+        keeps = ("--amend" in options or reuses) and "--reset-author" not in options
+        authored = any(option.startswith("--author=") for option in options)
+        return True, not keeps and not authored
+    return True, True
+
+
+def pull_rebases(options: list[str]) -> bool:
+    """Whether a `git pull` with these options rebases, the last of `-r`, `--rebase`,
+    `--rebase=<value>` and `--no-rebase` deciding. `false`, `no`, `off` and `0` as a
+    value mean a merge, as in git. The `pull.rebase` config is not visible to this hook,
+    so a pull without an option reads as a merge."""
+    rebases = False
+    for option in options:
+        if option in ("-r", "--rebase"):
+            rebases = True
+        elif option == "--no-rebase":
+            rebases = False
+        elif option.startswith("--rebase="):
+            rebases = option.partition("=")[2].lower() not in ("", "false", "no", "off", "0")
+    return rebases
+
+
+def notes_write(arguments: list[str]) -> bool:
+    """Whether `git notes` with these arguments writes a note: the first verb among them,
+    a value of `--ref` skipped, is not `list` or `show`. No verb means `list`."""
+    skip = False
+    for argument in arguments:
+        if skip:
+            skip = False
+        elif argument == "--ref":
+            skip = True
+        elif argument in NOTES_VERBS:
+            return argument in NOTES_WRITING_VERBS
+    return False
+
+
+def identity_violation(calls: list[GitCall]) -> Optional[str]:
+    """The deny reason when a git call that writes a commit runs with GIT_CONFIG_GLOBAL
+    set to the null device and without the emails it needs, see identity_needs.
+
+    Each call sees the variables in GitCall.env: the ones earlier parts kept and the
+    prefix of its own part, see environments_before. A call inside a string handed to a
+    shell, at any depth, starts from the variables the part that runs the shell holds,
+    its prefix included, and follows the `export` and `unset` inside the string. A
+    `$(...)` is read the same way, so a prefix on `echo "$(git commit)"` denies although
+    bash does not pass it, which is harmless.
+
+    Not followed: an alias from a config file, a shell function, `pull.rebase` from
+    config, `HOME` pointing nowhere and git run through a variable."""
+    for call in calls:
+        committer, author = identity_needs(call)
+        if not committer:
+            continue
+        environment = call.env or {}
+        if not switch_is_set(environment.get(SWITCH_VARIABLE)):
+            continue
+        if not environment.get("GIT_COMMITTER_EMAIL"):
+            return IDENTITY_SWITCH
+        if author and not environment.get("GIT_AUTHOR_EMAIL"):
+            return IDENTITY_SWITCH
+    return None
+
+
+def pushed_revisions(arguments: list[str]) -> list[str]:
+    """The revisions a `git push` with these arguments (after "push") sends: the source
+    of each refspec after the remote, HEAD for none, for HEAD itself, and for a refspec
+    this hook cannot name, a pattern or a ref built by the shell. None for a deletion,
+    a `--delete` push, and a push of `--tags` alone: they send nothing from HEAD."""
+    options = normalize_options(arguments, OPTION_GRAMMARS["push"])
+    refspecs = [word for word in options if not word.startswith("-")][1:]
+    deletes = "--delete" in options or "-d" in options
+    if not refspecs:
+        return [] if "--tags" in options or deletes else ["HEAD"]
+    revisions: list[str] = []
+    for refspec in refspecs:
+        source = refspec.lstrip("+").partition(":")[0]
+        if not source or deletes:
+            continue
+        if source == "@" or "*" in source or shell_builds(source):
+            source = "HEAD"
+        if not source.startswith("-") and source not in revisions:
+            revisions.append(source)
+    return revisions
+
+
+def identity_mismatches(directory: Optional[str], revisions: list[str]) -> tuple[list[str], bool]:
+    """One line per commit among revisions that no remote tracking branch holds yet,
+    whose committer email or any Signed-off-by email differs from its author email,
+    emails compared without case. Also whether the log hit its size cap, so there may be
+    more. Empty when git cannot answer or the repository has no remote tracking branch.
+
+    The log never reads signatures, so a `gpg.program` or `log.showSignature` of the
+    repository config does not run."""
+    if not _common.run_git(["for-each-ref", "--count=1", "refs/remotes"], directory):
+        return [], False
+    log = _common.run_git(
+        [
+            "log",
+            "--no-show-signature",
+            f"--max-count={PUSH_IDENTITY_COMMITS}",
+            f"--format={IDENTITY_FORMAT}",
+            *revisions,
+            "--not",
+            "--remotes",
+            "--",
+        ],
+        directory,
+    )
+    records = (log or "").split("\x1e")
+    capped = len([record for record in records if record.strip()]) >= PUSH_IDENTITY_COMMITS
+    lines: list[str] = []
+    for record in records:
+        fields = record.strip("\n").split("\x1f")
+        if len(fields) < 3:
+            continue
+        sha, author, committer = fields[0], fields[1].lower(), fields[2].lower()
+        signers = []
+        for trailer in fields[3:]:
+            found = MAIL_ADDRESS.search(trailer)
+            signers.append((found.group(1) if found else trailer.strip()).lower())
+        odd = [f"committer {committer}"] if committer != author else []
+        odd += [f"Signed-off-by {signer}" for signer in signers if signer and signer != author]
+        if odd:
+            lines.append(f"{sha[:8]} author {author}, {', '.join(odd)}")
+    return lines, capped
+
+
+def push_notice(command: str, cwd: str) -> Optional[str]:
+    """The context for a command that pushes: the commits it would send whose committer
+    or Signed-off-by identity differs from the author. None when it pushes nothing or
+    nothing differs. A warning only, a mismatch cannot always be fixed."""
+    checked: set[Optional[str]] = set()
+    for call in git_calls(command, cwd):
+        sub_index = git_subcommand_index(call.words, 0)
+        if sub_index is None or call.words[sub_index] != "push":
+            continue
+        revisions = pushed_revisions(call.words[sub_index + 1 :])
+        if not revisions:
+            continue
+        path = global_directory(call.words[1:sub_index])
+        base = call.directory or cwd
+        directory = _common.resolve_dir(path, base) if path else base
+        # Each directory is asked once, and only a few, so a command with many pushes
+        # stays cheap.
+        if directory in checked:
+            continue
+        if len(checked) >= PUSH_IDENTITY_DIRECTORIES:
+            break
+        checked.add(directory)
+        found, capped = identity_mismatches(directory, revisions)
+        if not found:
+            continue
+        shown = "; ".join(found[:PUSH_IDENTITY_LIMIT])
+        more = len(found) - PUSH_IDENTITY_LIMIT
+        if more > 0:
+            shown += f"; and {more} more"
+        count = f"{len(found)} or more" if capped else str(len(found))
+        return (
+            f"Commit identity check: {count} commit(s) to push carry a committer or "
+            f"Signed-off-by identity other than the author: {shown}. Rewrite them with "
+            "GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL set in the same command, or confirm "
+            "the difference is intended, before pushing. Recheck with "
+            "`git log --format='%h %ae %ce' HEAD --not --remotes`."
+        )
+    return None
+
+
 def command_violation(command: str, cwd: str) -> Optional[str]:
     """The deny reason for command, or None when it is fine. Raises ReadLimitError, or any
     other error, when the command cannot be read in full."""
@@ -1809,6 +2270,9 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
         reason = env_config_violation(sorted(parts))
+        if reason:
+            return reason
+        reason = identity_violation(calls)
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
@@ -1849,6 +2313,7 @@ def main() -> int:
     # cannot be read in full is denied rather than let through unread. A NUL byte is
     # not read at all: shells disagree on it, bash drops it from stdin and zsh keeps it
     # inside the word, so a command holding one that mentions git is denied.
+    notice = None
     if "\x00" in command:
         reason = UNREADABLE if mentions_git(command) else None
     else:
@@ -1860,7 +2325,14 @@ def main() -> int:
             reason = command_violation(command, cwd)
         except Exception:
             reason = UNREADABLE if mentions_git(command) else None
-    return _common.deny(EVENT, reason) if reason else _common.emit_empty()
+        if not reason and "push" in command:
+            try:
+                notice = push_notice(command, cwd)
+            except Exception:
+                notice = None
+    if reason:
+        return _common.deny(EVENT, reason)
+    return _common.context(EVENT, notice) if notice else _common.emit_empty()
 
 
 if __name__ == "__main__":

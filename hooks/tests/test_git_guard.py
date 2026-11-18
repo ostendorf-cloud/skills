@@ -17,7 +17,16 @@ import unittest
 from typing import Any, Optional
 from unittest import mock
 
-from helper import HOOKS_DIR, NO_SCRATCH, bash_payload, decision, reason, run_hook, scratch_env
+from helper import (
+    HOOKS_DIR,
+    NO_SCRATCH,
+    bash_payload,
+    context,
+    decision,
+    reason,
+    run_hook,
+    scratch_env,
+)
 
 # The hook is imported in process for the tests that need to fake sys.platform or to
 # watch one run's cache. Importing it adds the hooks directory to sys.path, so the
@@ -2125,6 +2134,693 @@ class NetworkShapeTest(unittest.TestCase):
         checkout_feature(repo)
         out = self.check("git push origin main | tail -3", repo)
         self.assertIn("default branch", reason(out))
+
+
+def git_in(repo: str, *args: str, env: Optional[dict[str, str]] = None) -> str:
+    """Runs git in the fixture repository, fails the test on an error, returns stdout."""
+    result = subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True, env=env
+    )
+    return result.stdout.strip()
+
+
+def commit_as(repo: str, author: str, committer: str, signoff: Optional[str] = None) -> None:
+    """Makes one commit in the fixture repository with the given author and committer
+    emails, and a Signed-off-by line for signoff when given."""
+    name = "dev"
+    env = dict(
+        os.environ,
+        GIT_AUTHOR_NAME=name,
+        GIT_AUTHOR_EMAIL=author,
+        GIT_COMMITTER_NAME=name,
+        GIT_COMMITTER_EMAIL=committer,
+    )
+    message = "fix: thing"
+    if signoff:
+        message += f"\n\nSigned-off-by: {name} <{signoff}>"
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", message],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+
+class CommitIdentityTest(unittest.TestCase):
+    """A commit, rebase or cherry-pick under GIT_CONFIG_GLOBAL=/dev/null needs an explicit
+    committer, and a push warns about commits whose identity differs from the author."""
+
+    SWITCH = "GIT_CONFIG_GLOBAL=/dev/null"
+    COMMITTER = "GIT_COMMITTER_EMAIL=dev@example.com"
+    AUTHOR = "GIT_AUTHOR_EMAIL=dev@example.com"
+    IDENTITY = f"GIT_COMMITTER_NAME=dev {COMMITTER} {AUTHOR}"
+
+    def setUp(self):
+        self.repo = git_repo()
+        checkout_feature(self.repo)
+
+    def check(self, command: str) -> dict[str, Any]:
+        return run_main_in_process(command, self.repo, "linux")
+
+    def assert_denied(self, commands: list[str]):
+        for command in commands:
+            out = self.check(command)
+            self.assertEqual(decision(out), "deny", command)
+            self.assertIn("GIT_COMMITTER_EMAIL", reason(out), command)
+
+    def assert_allowed(self, commands: list[str]):
+        for command in commands:
+            self.assertEqual(self.check(command), {}, command)
+
+    def test_denies_commit_rebase_and_cherry_pick_under_the_switch(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} git commit --signoff -m 'fix: thing'",
+                f"{self.SWITCH} git commit --amend --no-edit",
+                f"{self.SWITCH} git rebase --signoff origin/main",
+                f"{self.SWITCH} git rebase --continue",
+                f"{self.SWITCH} git cherry-pick abc1234",
+                f"{self.SWITCH} git -c core.pager=cat commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_denies_the_switch_in_every_shape(self):
+        self.assert_denied(
+            [
+                f"export {self.SWITCH} && git commit -m 'fix: thing'",
+                f"export {self.SWITCH}; git rebase origin/main",
+                f"env {self.SWITCH} git rebase origin/main",
+                f"env -i {self.SWITCH} git commit -m 'fix: thing'",
+                f"cd {self.repo} && {self.SWITCH} git commit -m 'fix: thing'",
+                "GIT_CONFIG_GLOBAL='/dev/null' git commit -m 'fix: thing'",
+                "GIT_CONFIG_GLOBAL=\"/dev/null\" git commit -m 'fix: thing'",
+                f"sh -c '{self.SWITCH} git commit -m fix'",
+                f"GIT_COMMITTER_EMAIL= {self.SWITCH} git commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_allows_an_explicit_committer(self):
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} {self.IDENTITY} git commit --signoff -m 'fix: thing'",
+                f"{self.SWITCH} GIT_COMMITTER_EMAIL=dev@example.com git rebase origin/main",
+                f"export {self.SWITCH} {self.IDENTITY} && git commit --amend --no-edit",
+                f"export {self.IDENTITY}; {self.SWITCH} git cherry-pick abc1234",
+                f"env {self.SWITCH} {self.IDENTITY} git rebase --continue",
+                f"{self.SWITCH} git -c user.email=dev@example.com commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_allows_a_command_without_the_switch(self):
+        self.assert_allowed(
+            [
+                "git commit -m 'fix: thing'",
+                "git rebase origin/main",
+                "git cherry-pick abc1234",
+                "GIT_CONFIG_SYSTEM=/dev/null git commit -m 'fix: thing'",
+                "GIT_CONFIG_GLOBAL=/home/dev/.gitconfig git commit -m 'fix: thing'",
+                "GIT_AUTHOR_EMAIL=dev@example.com git commit -m 'fix: thing'",
+            ]
+        )
+
+    def test_allows_the_switch_for_commands_that_write_no_commit(self):
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} git status",
+                f"{self.SWITCH} git log --oneline -3",
+                f"{self.SWITCH} git diff --stat",
+                f"{self.SWITCH} git rebase --abort",
+                f"{self.SWITCH} git cherry-pick --quit",
+            ]
+        )
+
+    def test_allows_a_quoted_string_that_only_names_the_switch(self):
+        self.assert_allowed(
+            [
+                'echo "GIT_CONFIG_GLOBAL=/dev/null git commit"',
+                "echo 'GIT_CONFIG_GLOBAL=/dev/null git rebase origin/main'",
+                'git commit -m "docs: GIT_CONFIG_GLOBAL=/dev/null is for tests"',
+                'echo "GIT_CONFIG_GLOBAL=/dev/null"; git commit -m "fix: thing"',
+                "git commit -m 'fix: thing' -- GIT_CONFIG_GLOBAL=/dev/null",
+            ]
+        )
+
+    def test_a_deny_names_the_remedy(self):
+        out = self.check(f"{self.SWITCH} git commit -m 'fix: thing'")
+        for text in ("GIT_COMMITTER_EMAIL", "GIT_AUTHOR_EMAIL", "user.email", "normal git config"):
+            self.assertIn(text, reason(out))
+        self.assertLessEqual(reason(out).count(". "), 1)
+
+    def test_a_new_commit_needs_an_author_email_besides_the_committer(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} GIT_COMMITTER_EMAIL=me@example.com git commit --signoff -m 'x'",
+                f"{self.SWITCH} GIT_AUTHOR_EMAIL=me@example.com git commit -m 'x'",
+                f"{self.SWITCH} {self.COMMITTER} git commit --amend --reset-author --no-edit",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} {self.COMMITTER} {self.AUTHOR} git commit -m 'x'",
+                f"{self.SWITCH} {self.COMMITTER} git commit --author='Dev <dev@example.com>' -m x",
+                f"{self.SWITCH} {self.COMMITTER} git commit --auth='Dev <dev@example.com>' -m x",
+                f"{self.SWITCH} {self.COMMITTER} git commit --amend --no-edit",
+                f"{self.SWITCH} {self.COMMITTER} git rebase --signoff origin/main",
+                f"{self.SWITCH} {self.COMMITTER} git cherry-pick abc1234",
+                f"{self.SWITCH} git -c user.email=dev@example.com commit -m 'x'",
+            ]
+        )
+
+    def test_denies_the_switch_behind_grouping_and_env_options(self):
+        self.assert_denied(
+            [
+                f"( {self.SWITCH} git commit -m x )",
+                f"({self.SWITCH} git commit -m x)",
+                f"{{ {self.SWITCH} git commit -m x; }}",
+                f"env -u HOME {self.SWITCH} git commit -m x",
+                f"env -uHOME {self.SWITCH} git commit -m x",
+                f"env --unset HOME {self.SWITCH} git commit -m x",
+                f"env --unset=HOME {self.SWITCH} git commit -m x",
+                f"env -C /tmp {self.SWITCH} git commit -m x",
+                f"env --chdir=/tmp {self.SWITCH} git commit -m x",
+                f"env --chdir /tmp {self.SWITCH} git commit -m x",
+                f"env -i -u HOME {self.SWITCH} git commit -m x",
+                f"env -S '{self.SWITCH} git commit -m x'",
+                f"local {self.SWITCH}; git commit -m x",
+                f"declare -x {self.SWITCH} && git commit -m x",
+                f"typeset -x {self.SWITCH} && git commit -m x",
+                f"readonly {self.SWITCH} && git commit -m x",
+                f"{self.SWITCH}; git commit -m x",
+            ]
+        )
+
+    def test_denies_every_command_that_writes_a_commit(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} git merge origin/main",
+                f"{self.SWITCH} git pull --rebase",
+                f"{self.SWITCH} git pull",
+                f"{self.SWITCH} git revert abc1234",
+                f"{self.SWITCH} git am patch.mbox",
+                f"{self.SWITCH} git commit-tree -m x HEAD^{{tree}}",
+                f"{self.SWITCH} git notes add -m x",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} git merge --abort",
+                f"{self.SWITCH} git am --abort",
+                f"{self.SWITCH} git revert --quit",
+                f"{self.SWITCH} {self.COMMITTER} {self.AUTHOR} git merge origin/main",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase",
+                f"{self.SWITCH} {self.COMMITTER} git am patch.mbox",
+            ]
+        )
+
+    def test_every_command_that_writes_a_new_commit_needs_the_author_email(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git revert --no-edit HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git merge --no-ff -m m main",
+                f"{self.SWITCH} {self.COMMITTER} git pull",
+                f"{self.SWITCH} {self.COMMITTER} git pull --no-rebase",
+                f"{self.SWITCH} {self.COMMITTER} git commit-tree -m x HEAD^{{tree}}",
+                f"{self.SWITCH} {self.COMMITTER} git notes add -m x HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git commit -C HEAD --reset-author",
+                f"{self.SWITCH} {self.AUTHOR} git revert --no-edit HEAD",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} {self.IDENTITY} git revert --no-edit HEAD",
+                f"{self.SWITCH} {self.IDENTITY} git merge --no-ff -m m main",
+                f"{self.SWITCH} git -c user.email=dev@example.com merge main",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull -r",
+                f"{self.SWITCH} {self.COMMITTER} git am patch.mbox",
+                f"{self.SWITCH} {self.COMMITTER} git commit -C HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git commit -c HEAD --no-edit",
+                f"{self.SWITCH} {self.COMMITTER} git commit --reuse-message=HEAD",
+            ]
+        )
+
+    def test_writes_nothing_for_a_dry_run_and_the_read_verbs_of_notes(self):
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} git commit --dry-run -m x",
+                f"{self.SWITCH} git notes",
+                f"{self.SWITCH} git notes list",
+                f"{self.SWITCH} git notes show HEAD",
+                f"{self.SWITCH} git notes --ref refs/notes/review list",
+            ]
+        )
+        self.assert_denied(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git notes append -m x HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git notes edit HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git notes copy HEAD~1 HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git notes merge review",
+                f"{self.SWITCH} {self.COMMITTER} git notes remove HEAD",
+                f"{self.SWITCH} {self.COMMITTER} git notes prune",
+                f"{self.SWITCH} {self.COMMITTER} git notes --ref list add -m x HEAD",
+            ]
+        )
+
+    def test_denies_a_commit_in_a_string_handed_to_a_shell(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} sh -c 'git commit -m x'",
+                f"{self.SWITCH} bash -c 'git commit -m x'",
+                f"{self.SWITCH} eval 'git commit -m x'",
+                f"env {self.SWITCH} sh -c 'git rebase origin/main'",
+                f"export {self.SWITCH}; sh -c 'git commit -m x'",
+                f"sh -c '{self.SWITCH} git commit -m x'",
+                f"{self.SWITCH} {self.COMMITTER} sh -c 'git commit -m x'",
+                f"{self.SWITCH} sh <<'EOF'\ngit commit -m x\nEOF",
+                f"echo 'git commit -m x' | {self.SWITCH} sh",
+                f"printf 'git status\\ngit commit -m x' | {self.SWITCH} sh",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "echo 'git commit -m x' | sh",
+                f"echo 'git commit -m x' | {self.SWITCH} {self.IDENTITY} sh",
+                f"export {self.SWITCH} && env --unset=GIT_CONFIG_GLOBAL git commit -m x",
+                f"export {self.SWITCH} && env --unset GIT_CONFIG_GLOBAL git commit -m x",
+                f"{self.SWITCH} sh -c 'git status'",
+                "sh -c 'git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'git commit -m x'",
+                f"{self.SWITCH} sh -c '{self.IDENTITY} git commit -m x'",
+                f"{self.SWITCH} {self.COMMITTER} sh -c 'git rebase origin/main'",
+            ]
+        )
+
+    def test_reads_which_pull_options_rebase(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=false",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=0",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=no",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=off",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=False",
+                f"{self.SWITCH} {self.COMMITTER} git pull --no-rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase --no-rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull -r --rebase=false",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=true",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=merges",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=interactive",
+                f"{self.SWITCH} {self.COMMITTER} git pull -r origin main",
+                f"{self.SWITCH} {self.COMMITTER} git pull --no-rebase --rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=false --rebase",
+            ]
+        )
+
+    def test_follows_export_and_unset_inside_a_string_handed_to_a_shell(self):
+        self.assert_denied(
+            [
+                f"sh -c 'export {self.SWITCH}; git commit -m x'",
+                f"bash -c 'export {self.SWITCH} && git commit -m x'",
+                f"eval 'export {self.SWITCH}; git commit -m x'",
+                f"{self.COMMITTER} sh -c 'export {self.SWITCH}; git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'unset GIT_COMMITTER_EMAIL; git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'unset GIT_AUTHOR_EMAIL; git commit -m x'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"export {self.SWITCH}; sh -c 'unset GIT_CONFIG_GLOBAL; git commit -m x'",
+                f"sh -c 'export {self.SWITCH}; export {self.IDENTITY}; git commit -m x'",
+                f"sh -c 'export {self.SWITCH}; git status; unset GIT_CONFIG_GLOBAL; git commit'",
+            ]
+        )
+
+    def test_chains_the_prefix_through_every_level_of_nesting(self):
+        self.assert_denied(
+            [
+                f"sh -c \"{self.SWITCH} sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} sh -c \"sh -c 'git commit -m x'\"",
+                f"export {self.SWITCH}; sh -c \"bash -c 'git commit -m x'\"",
+                f"sh -c \"sh -c 'export {self.SWITCH}; git commit -m x'\"",
+                f"{self.SWITCH} git -c 'alias.ci=!git commit -m x' ci",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "sh -c \"sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} {self.IDENTITY} sh -c \"sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} {self.IDENTITY} git -c 'alias.ci=!git commit -m x' ci",
+            ]
+        )
+
+    def test_reads_the_same_string_under_each_environment(self):
+        self.assert_denied(
+            [
+                f"sh -c 'git commit -m x'; {self.SWITCH} sh -c 'git commit -m x'",
+                f"{self.COMMITTER} {self.AUTHOR} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} sh -c 'git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} {self.AUTHOR} sh -c 'git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} {self.COMMITTER} sh -c 'git commit -m x'",
+            ]
+        )
+
+    def test_denies_the_switch_behind_coproc(self):
+        self.assert_denied([f"coproc {self.SWITCH} git commit -m x"])
+        self.assert_allowed([f"coproc {self.SWITCH} git status"])
+
+    def test_denies_the_switch_behind_shell_keywords(self):
+        self.assert_denied(
+            [
+                f"time {self.SWITCH} git commit -m x",
+                f"time -p {self.SWITCH} git commit -m x",
+                f"if true; then {self.SWITCH} git commit -m x; fi",
+                f"if true; then :; else {self.SWITCH} git commit -m x; fi",
+                f"if false; then :; elif {self.SWITCH} git commit -m x; then :; fi",
+                f"if {self.SWITCH} git commit -m x; then :; fi",
+                f"for i in 1; do {self.SWITCH} git commit -m x; done",
+                f"while {self.SWITCH} git commit -m x; do :; done",
+                f"until {self.SWITCH} git commit -m x; do :; done",
+                f"case x in x) {self.SWITCH} git commit -m x;; esac",
+                f"case x in a|x) {self.SWITCH} git commit -m x;; esac",
+                f"if true; then export {self.SWITCH}; fi; git commit -m x",
+                f"! {self.SWITCH} git commit -m x",
+                f"env --unset=HOME {self.SWITCH} git commit -m x",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"time {self.SWITCH} {self.IDENTITY} git commit -m x",
+                f"if true; then {self.SWITCH} git status; fi; git commit -m x",
+                f"for i in 1; do {self.SWITCH} git status; done",
+                "case x in x) git commit -m x;; esac",
+            ]
+        )
+
+    def test_reads_abort_only_as_an_option_of_a_command_that_stops(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} git commit -m 'x --abort'",
+                f"{self.SWITCH} git commit -m --abort",
+                f"{self.SWITCH} git rebase -x 'echo --abort' origin/main",
+            ]
+        )
+
+    def test_reads_c_only_among_the_options_in_front_of_the_subcommand(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} git commit -c abc123",
+                f"{self.SWITCH} git commit -c user.email=dev@example.com -m x",
+                f"{self.SWITCH} git -c user.email= commit -m x",
+                f"{self.SWITCH} git -c user.name=dev commit -m x",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} git -c User.Email=dev@example.com commit -m x",
+                f"{self.SWITCH} git -c user.EMAIL=dev@example.com rebase origin/main",
+            ]
+        )
+
+    def test_reads_the_switch_as_the_file_system_does(self):
+        self.assert_denied(
+            [
+                "GIT_CONFIG_GLOBAL=/dev//null git commit -m x",
+                "GIT_CONFIG_GLOBAL=/dev/./null git commit -m x",
+                "GIT_CONFIG_GLOBAL=/dev/null/ git commit -m x",
+                "GIT_CONFIG_GLOBAL=//dev/null git commit -m x",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "GIT_CONFIG_GLOBAL=/dev/nullx git commit -m x",
+                "GIT_CONFIG_GLOBAL=dev/null git commit -m x",
+                "GIT_CONFIG_GLOBAL=/dev git commit -m x",
+                "GIT_CONFIG_GLOBAL= git commit -m x",
+            ]
+        )
+
+    def test_reads_each_part_with_its_own_variables(self):
+        self.assert_denied(
+            [
+                f"{self.COMMITTER} git status && {self.SWITCH} git commit -m x",
+                f"export {self.COMMITTER} GIT_AUTHOR_EMAIL=dev@example.com && unset "
+                f"GIT_COMMITTER_EMAIL && {self.SWITCH} git commit -m x",
+                f"export {self.SWITCH}; git status; git commit -m x",
+                f"export {self.SWITCH} && git commit -m x | cat",
+                f"export {self.SWITCH} && declare {self.IDENTITY} && git commit -m x",
+                f"export {self.SWITCH} && declare -r {self.IDENTITY} && git commit -m x",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"export {self.SWITCH} && declare -x {self.IDENTITY} && git commit -m x",
+                f"git commit -m x && export {self.SWITCH}",
+                f"{self.SWITCH} git status && git commit -m x",
+                f"{self.SWITCH} git log --oneline | head -3; git commit -m x",
+                f"export {self.SWITCH} && unset GIT_CONFIG_GLOBAL && git commit -m x",
+                f"export {self.SWITCH} && env -u GIT_CONFIG_GLOBAL git commit -m x",
+                f"export {self.SWITCH} && env -i git commit -m x",
+                f"export {self.SWITCH} | cat; git commit -m x",
+                f"export {self.SWITCH} && export {self.IDENTITY} && git commit -m x",
+            ]
+        )
+
+    def test_the_hook_process_answers_the_deny_over_stdin(self):
+        payload = bash_payload(f"{self.SWITCH} git commit -m 'fix: thing'", self.repo)
+        self.assertEqual(decision(run_hook("git_guard.py", payload)), "deny")
+
+    def test_warns_before_a_push_with_a_committer_other_than_the_author(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        out = self.check("git push origin feat/thing")
+        self.assertIsNone(decision(out))
+        self.assertIn("dev@host.local", context(out))
+        self.assertIn("committer", context(out))
+
+    def test_warns_before_a_push_with_a_sign_off_other_than_the_author(self):
+        commit_as(self.repo, "dev@example.com", "dev@example.com", signoff="dev@host.local")
+        out = self.check("git push origin feat/thing")
+        self.assertIn("Signed-off-by dev@host.local", context(out))
+
+    def test_warns_for_a_push_through_c_and_in_a_chain(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        for command in (
+            f"git -C {self.repo} push origin feat/thing",
+            "git status && git push origin feat/thing",
+        ):
+            self.assertIn("dev@host.local", context(self.check(command)), command)
+
+    def test_warns_for_a_push_in_another_directory_given_with_c(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        outside = tempfile.mkdtemp(prefix="git-guard-plain-")
+        out = run_main_in_process(f"git -C {self.repo} push origin feat/thing", outside, "linux")
+        self.assertIn("dev@host.local", context(out))
+
+    def test_warns_only_about_commits_the_upstream_lacks(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        push_branch(self.repo, "origin", "feat/thing")
+        set_config(self.repo, "branch.feat/thing.remote", "origin")
+        set_config(self.repo, "branch.feat/thing.merge", "refs/heads/feat/thing")
+        commit_as(self.repo, "dev@example.com", "dev@example.com")
+        self.assertEqual(self.check("git push origin feat/thing"), {})
+
+    def test_a_quoted_word_is_no_assignment_in_front_of_a_command(self):
+        self.assert_allowed(["\"GIT_CONFIG_GLOBAL=/dev/null\" git commit -m 'fix: thing'"])
+
+    def test_no_warning_when_every_identity_matches(self):
+        commit_as(self.repo, "dev@example.com", "DEV@example.com", signoff="dev@example.com")
+        self.assertEqual(self.check("git push origin feat/thing"), {})
+
+    def test_no_warning_for_a_command_that_pushes_nothing(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        for command in (
+            "git status",
+            "git log --oneline",
+            "echo 'git push origin feat/thing'",
+        ):
+            self.assertEqual(self.check(command), {}, command)
+
+    def test_no_warning_for_a_push_outside_a_repository(self):
+        outside = tempfile.mkdtemp(prefix="git-guard-plain-")
+        out = run_main_in_process("git push origin feat/thing", outside, "linux")
+        self.assertEqual(out, {})
+
+    def test_a_denied_push_stays_a_deny_without_the_warning(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        out = self.check("git push origin main")
+        self.assertEqual(decision(out), "deny")
+        self.assertEqual(context(out), "")
+
+    def test_no_warning_for_commits_that_came_in_from_the_default_branch(self):
+        git_in(self.repo, "checkout", "-q", "main")
+        commit_as(self.repo, "dev@example.com", "noreply@github.com")
+        push_branch(self.repo, "origin", "main")
+        git_in(self.repo, "checkout", "-q", "feat/thing")
+        env = dict(os.environ, GIT_COMMITTER_NAME="dev", GIT_COMMITTER_EMAIL="dev@example.com")
+        git_in(self.repo, "merge", "-q", "--no-edit", "main", env=env)
+        commit_as(self.repo, "dev@example.com", "dev@example.com")
+        self.assertEqual(self.check("git push origin feat/thing"), {})
+        git_in(self.repo, "rebase", "-q", "main", env=env)
+        self.assertEqual(self.check("git push --force-with-lease origin feat/thing"), {})
+
+    def test_warns_about_the_branch_a_push_names_and_not_the_one_checked_out(self):
+        git_in(self.repo, "checkout", "-q", "-b", "feat/other")
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        git_in(self.repo, "checkout", "-q", "feat/thing")
+        self.assertEqual(self.check("git push origin feat/thing"), {})
+        self.assertIn("dev@host.local", context(self.check("git push origin feat/other")))
+        refspec = "git push origin feat/other:feat/renamed"
+        self.assertIn("dev@host.local", context(self.check(refspec)))
+
+    def test_names_every_commit_and_says_when_the_log_was_cut(self):
+        for _ in range(3):
+            commit_as(self.repo, "dev@example.com", "dev@host.local")
+        message = context(self.check("git push origin feat/thing"))
+        self.assertIn("3 commit(s)", message)
+        with mock.patch.object(git_guard, "PUSH_IDENTITY_COMMITS", 2):
+            message = context(self.check("git push origin feat/thing"))
+        self.assertIn("2 or more commit(s)", message)
+        self.assertIn("HEAD --not --remotes", message)
+
+    def test_no_warning_in_a_repository_without_a_remote_tracking_branch(self):
+        repo = git_repo(with_remote=False)
+        checkout_feature(repo)
+        commit_as(repo, "dev@example.com", "dev@host.local")
+        out = run_main_in_process("git push origin feat/thing", repo, "linux")
+        self.assertEqual(context(out), "")
+
+    def test_the_first_push_check_runs_git_with_the_file_system_monitor_off(self):
+        seen = []
+        real_run = subprocess.run
+
+        def spy(args, **kwargs):
+            if list(args)[1:2] == ["ls-remote"]:
+                seen.append(kwargs.get("env") or {})
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", spy):
+            self.check("git push origin main")
+        self.assertEqual(len(seen), 1)
+        last = int(seen[0]["GIT_CONFIG_COUNT"]) - 1
+        self.assertEqual(seen[0].get(f"GIT_CONFIG_KEY_{last}"), "core.fsmonitor")
+        self.assertEqual(seen[0].get(f"GIT_CONFIG_VALUE_{last}"), "false")
+
+    def test_no_warning_for_a_push_that_sends_nothing_from_head(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        for command in (
+            "git push origin :feat/old",
+            "git push origin +:feat/old",
+            "git push origin --delete feat/old",
+            "git push -d origin feat/old",
+            "git push --tags",
+            "git push --tags origin",
+        ):
+            self.assertEqual(context(self.check(command)), "", command)
+
+    def test_a_push_that_sends_nothing_does_not_use_up_the_directory(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        command = "git push origin :feat/old; git push origin feat/thing"
+        self.assertIn("dev@host.local", context(self.check(command)))
+
+    def test_reads_the_refs_a_push_sends(self):
+        revisions = git_guard.pushed_revisions
+        self.assertEqual(revisions(["origin"]), ["HEAD"])
+        self.assertEqual(revisions(["origin", "@"]), ["HEAD"])
+        self.assertEqual(revisions(["origin", "HEAD", "@"]), ["HEAD"])
+        self.assertEqual(revisions(["origin", "+feat/a:feat/b", "feat/c"]), ["feat/a", "feat/c"])
+        self.assertEqual(revisions(["origin", "feat/a", ":feat/old"]), ["feat/a"])
+        self.assertEqual(revisions(["origin", "refs/heads/*:refs/heads/*"]), ["HEAD"])
+        self.assertEqual(revisions(["--delete", "origin"]), [])
+        self.assertEqual(revisions(["-d", "origin"]), [])
+        self.assertEqual(revisions(["-d", "origin", "feat/old"]), [])
+        self.assertEqual(revisions(["--tags"]), [])
+        self.assertEqual(revisions(["origin", "--delete", "feat/old"]), [])
+        self.assertEqual(revisions(["--follow-tags", "origin"]), ["HEAD"])
+
+    def test_warns_for_a_push_of_at(self):
+        commit_as(self.repo, "dev@example.com", "dev@host.local")
+        self.assertIn("dev@host.local", context(self.check("git push origin @")))
+
+    def test_a_config_count_that_git_refuses_is_read_as_none(self):
+        for count, expected in (("-1", "1"), ("abc", "1"), ("", "1"), ("0", "1"), ("2", "3")):
+            env = git_guard._common.git_env({"GIT_CONFIG_COUNT": count})
+            self.assertEqual(env["GIT_CONFIG_COUNT"], expected, count)
+            last = int(expected) - 1
+            self.assertEqual(env[f"GIT_CONFIG_KEY_{last}"], "core.fsmonitor", count)
+            self.assertNotIn("GIT_CONFIG_KEY_-1", env)
+
+    def test_no_warning_for_a_commit_without_a_sign_off(self):
+        # The newest commit has no sign-off, and git prints an empty field for it.
+        commit_as(self.repo, "dev@example.com", "dev@example.com", signoff="dev@example.com")
+        commit_as(self.repo, "dev@example.com", "dev@example.com")
+        commit_as(self.repo, "dev@example.com", "dev@example.com")
+        self.assertEqual(self.check("git push origin feat/thing"), {})
+
+    def test_asks_each_directory_once_and_reaches_the_next_one(self):
+        other = git_repo()
+        checkout_feature(other)
+        commit_as(other, "dev@example.com", "dev@host.local")
+        command = f"git push origin feat/thing; git push origin feat/thing; git -C {other} push"
+        self.assertIn("dev@host.local", context(self.check(command)))
+
+    def test_a_repository_config_does_not_run_a_program_during_the_check(self):
+        marker = os.path.join(tempfile.mkdtemp(prefix="git-guard-marker-"), "ran")
+        script = os.path.join(os.path.dirname(marker), "gpg.sh")
+        with open(script, "w", encoding="utf-8") as handle:
+            handle.write(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        os.chmod(script, 0o755)
+        set_config(self.repo, "gpg.program", script)
+        set_config(self.repo, "log.showSignature", "true")
+        tree = git_in(self.repo, "rev-parse", "HEAD^{tree}")
+        head = git_in(self.repo, "rev-parse", "HEAD")
+        body = (
+            f"tree {tree}\nparent {head}\nauthor dev <dev@example.com> 1700000000 +0000\n"
+            "committer dev <dev@host.local> 1700000000 +0000\n"
+            "gpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n"
+            "\nfix: thing\n"
+        )
+        signed = subprocess.run(
+            ["git", "hash-object", "-t", "commit", "-w", "--stdin"],
+            cwd=self.repo,
+            input=body,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        git_in(self.repo, "update-ref", "refs/heads/feat/thing", signed)
+        git_in(self.repo, "log", "-1", "--show-signature")
+        self.assertTrue(os.path.exists(marker), "the fixture must trigger the program")
+        os.remove(marker)
+        # Git writes the signature to a file in $TMPDIR before it calls the program, so
+        # the run needs a directory that exists, one without the repository in it.
+        scratch = tempfile.mkdtemp(prefix="git-guard-scratch-")
+        out = run_main_in_process("git push origin feat/thing", self.repo, "linux", scratch)
+        self.assertIn("dev@host.local", context(out))
+        self.assertFalse(os.path.exists(marker))
+
+    def test_git_reads_run_with_the_file_system_monitor_switched_off(self):
+        env = git_guard._common.git_env({"PATH": "/bin", "GIT_CONFIG_COUNT": "2"})
+        self.assertEqual(env["GIT_CONFIG_COUNT"], "3")
+        self.assertEqual(env["GIT_CONFIG_KEY_2"], "core.fsmonitor")
+        self.assertEqual(env["GIT_CONFIG_VALUE_2"], "false")
+        self.assertEqual(git_guard._common.git_env({})["GIT_CONFIG_COUNT"], "1")
+        marker = os.path.join(tempfile.mkdtemp(prefix="git-guard-marker-"), "ran")
+        script = os.path.join(os.path.dirname(marker), "monitor.sh")
+        with open(script, "w", encoding="utf-8") as handle:
+            handle.write(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+        os.chmod(script, 0o755)
+        set_config(self.repo, "core.fsmonitor", script)
+        git_in(self.repo, "status", "--short")
+        self.assertTrue(os.path.exists(marker), "the fixture must trigger the program")
+        os.remove(marker)
+        git_guard._common.run_git(["status", "--short"], self.repo)
+        self.assertFalse(os.path.exists(marker))
 
 
 if __name__ == "__main__":
