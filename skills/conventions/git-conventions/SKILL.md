@@ -39,6 +39,13 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Commits are atomic. Formatting, refactoring and behaviour go into separate commits.
 - Commit small and often, one change per commit. Never a batch at the end of a session.
 - Reference an issue in the footer with `Refs #123` or `Closes #123`.
+- `GIT_CONFIG_GLOBAL=/dev/null` is the switch for test runs only. Never set it in a shell that
+  makes real commits.
+- A `git commit`, `--amend` or `git rebase` that writes commits sets `GIT_AUTHOR_*` and
+  `GIT_COMMITTER_*` in the same command, or runs with the normal git config. Otherwise git takes
+  the committer, and any `--signoff` line, from the host name.
+- Before a push, the committer and every `Signed-off-by` line match the author. The `git_guard`
+  hook denies the switch without a committer and warns on a mismatch before a push.
 
 ### Pull requests
 

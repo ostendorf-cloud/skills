@@ -8,6 +8,14 @@ signing, and deletion of the default branch, local or remote. On macOS it also d
 a `git fetch`, `git pull` or `git push` that does not stand alone in its call, because
 only a lone command leaves the sandbox (ADR 0005).
 
+It also denies a `git commit`, `git rebase` or `git cherry-pick` that runs with
+`GIT_CONFIG_GLOBAL=/dev/null`, the switch for test runs, while the command sets no
+`GIT_COMMITTER_EMAIL` and no `-c user.email`: git then takes the committer and any
+sign-off from the host name. The switch and the committer count wherever the command sets
+them as a variable in front of a command, an earlier `export` included. Before a push it
+adds context, never a deny, when a commit it would send has a committer or `Signed-off-by`
+email that differs from its author email.
+
 These rules apply to every git call in the command: behind global options, wrappers or
 grouping, inside a command substitution, and in a string handed to a shell or `eval`.
 
@@ -1773,6 +1781,145 @@ def global_directory(options: list[str]) -> Optional[str]:
     return path
 
 
+SWITCH_VARIABLE = "GIT_CONFIG_GLOBAL"
+SWITCH_VALUE = "/dev/null"
+IDENTITY_SUBCOMMANDS = frozenset({"commit", "rebase", "cherry-pick"})
+# Words that may stand between the start of a part and an assignment they pass on.
+ASSIGNMENT_WRAPPERS = frozenset({"export", "env", "declare", "typeset", "readonly"})
+NO_COMMIT_OPTIONS = frozenset({"--abort", "--quit"})
+IDENTITY_SWITCH = (
+    "This commit, rebase or cherry-pick runs with GIT_CONFIG_GLOBAL=/dev/null, which is for "
+    "test runs, and sets no committer. Git then takes the committer and any --signoff line "
+    "from the host name. Set GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME and "
+    "GIT_COMMITTER_EMAIL in the same command, or run it with the normal git config."
+)
+PUSH_IDENTITY_LIMIT = 5
+PUSH_IDENTITY_COMMITS = 200
+PUSH_IDENTITY_DIRECTORIES = 2
+IDENTITY_FORMAT = "%H%x1f%ae%x1f%ce%x1f%(trailers:key=Signed-off-by,valueonly,separator=%x1f)%x1e"
+MAIL_ADDRESS = re.compile(r"<([^<>]*)>")
+
+
+def assignments_of(part: str) -> dict[str, str]:
+    """The variables a command part sets in front of its command: leading `NAME=value`
+    words, also behind `export`, `env` and their flags, with the value unquoted. An
+    assignment written inside quotes, or after the command word, is an argument and does
+    not count."""
+    found: dict[str, str] = {}
+    for word in _common.shell_words(part):
+        if ENV_ASSIGNMENT.match(word):
+            name, _, value = word.partition("=")
+            found[name] = _common.unquote_word(value)
+        elif word.startswith("-") or command_word_name(word) in ASSIGNMENT_WRAPPERS:
+            continue
+        else:
+            break
+    return found
+
+
+def identity_violation(calls: list[GitCall], parts: list[str]) -> Optional[str]:
+    """The deny reason when a `git commit`, `git rebase` or `git cherry-pick` runs with
+    GIT_CONFIG_GLOBAL=/dev/null and no committer is set.
+
+    The switch and the committer count when any part of the command sets them, an
+    earlier `export` included. `-c user.email=<address>` before the subcommand sets the
+    committer too. `rebase --abort` and `--quit` write no commit."""
+    switched = False
+    committer = False
+    for part in parts:
+        variables = assignments_of(part)
+        switched = switched or variables.get(SWITCH_VARIABLE) == SWITCH_VALUE
+        committer = committer or bool(variables.get("GIT_COMMITTER_EMAIL"))
+    if not switched or committer:
+        return None
+    for call in calls:
+        sub_index = git_subcommand_index(call.words, 0)
+        if sub_index is None or call.words[sub_index] not in IDENTITY_SUBCOMMANDS:
+            continue
+        if NO_COMMIT_OPTIONS & set(call.words[sub_index + 1 :]):
+            continue
+        entries = config_entries(call.words[1:sub_index])
+        if any(key.lower() == "user.email" and value for key, value in entries):
+            continue
+        return IDENTITY_SWITCH
+    return None
+
+
+def push_range(directory: Optional[str]) -> Optional[str]:
+    """The commits a push from directory would send, as a revision range: from the
+    upstream branch, else from the remote default branch. None when neither exists."""
+    if _common.run_git(["rev-parse", "--verify", "-q", "@{u}"], directory):
+        return "@{u}..HEAD"
+    base = f"origin/{_common.default_branch(directory)}"
+    if _common.run_git(["rev-parse", "--verify", "-q", base], directory):
+        return f"{base}..HEAD"
+    return None
+
+
+def identity_mismatches(directory: Optional[str]) -> list[str]:
+    """One line per commit a push from directory would send whose committer email or
+    any Signed-off-by email differs from its author email, emails compared without
+    case. Empty when git cannot answer."""
+    revisions = push_range(directory)
+    if revisions is None:
+        return []
+    log = _common.run_git(
+        ["log", f"--max-count={PUSH_IDENTITY_COMMITS}", f"--format={IDENTITY_FORMAT}", revisions],
+        directory,
+    )
+    lines: list[str] = []
+    for record in (log or "").split("\x1e"):
+        fields = record.strip().split("\x1f")
+        if len(fields) < 3:
+            continue
+        sha, author, committer = fields[0], fields[1].lower(), fields[2].lower()
+        signers = []
+        for trailer in fields[3:]:
+            found = MAIL_ADDRESS.search(trailer)
+            signers.append((found.group(1) if found else trailer.strip()).lower())
+        odd = [f"committer {committer}"] if committer != author else []
+        odd += [f"Signed-off-by {signer}" for signer in signers if signer and signer != author]
+        if odd:
+            lines.append(f"{sha[:8]} author {author}, {', '.join(odd)}")
+    return lines
+
+
+def push_notice(command: str, cwd: str) -> Optional[str]:
+    """The context for a command that pushes: the commits it would send whose committer
+    or Signed-off-by identity differs from the author. None when it pushes nothing or
+    nothing differs. A warning only, a mismatch cannot always be fixed."""
+    checked: set[Optional[str]] = set()
+    for call in git_calls(command, cwd):
+        sub_index = git_subcommand_index(call.words, 0)
+        if sub_index is None or call.words[sub_index] != "push":
+            continue
+        path = global_directory(call.words[1:sub_index])
+        base = call.directory or cwd
+        directory = _common.resolve_dir(path, base) if path else base
+        # Each directory is asked once, and only a few, so a command with many pushes
+        # stays cheap.
+        if directory in checked:
+            continue
+        if len(checked) >= PUSH_IDENTITY_DIRECTORIES:
+            break
+        checked.add(directory)
+        found = identity_mismatches(directory)
+        if not found:
+            continue
+        shown = "; ".join(found[:PUSH_IDENTITY_LIMIT])
+        more = len(found) - PUSH_IDENTITY_LIMIT
+        if more > 0:
+            shown += f"; and {more} more"
+        return (
+            f"Commit identity check: {len(found)} commit(s) to push carry a committer or "
+            f"Signed-off-by identity other than the author: {shown}. Rewrite them with "
+            "GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL set in the same command, or confirm "
+            "the difference is intended, before pushing. Recheck with "
+            "`git log --format='%h %ae %ce' @{u}..HEAD`."
+        )
+    return None
+
+
 def command_violation(command: str, cwd: str) -> Optional[str]:
     """The deny reason for command, or None when it is fine. Raises ReadLimitError, or any
     other error, when the command cannot be read in full."""
@@ -1809,6 +1956,9 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
         reason = env_config_violation(sorted(parts))
+        if reason:
+            return reason
+        reason = identity_violation(calls, sorted(parts))
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
@@ -1849,6 +1999,7 @@ def main() -> int:
     # cannot be read in full is denied rather than let through unread. A NUL byte is
     # not read at all: shells disagree on it, bash drops it from stdin and zsh keeps it
     # inside the word, so a command holding one that mentions git is denied.
+    notice = None
     if "\x00" in command:
         reason = UNREADABLE if mentions_git(command) else None
     else:
@@ -1860,7 +2011,14 @@ def main() -> int:
             reason = command_violation(command, cwd)
         except Exception:
             reason = UNREADABLE if mentions_git(command) else None
-    return _common.deny(EVENT, reason) if reason else _common.emit_empty()
+        if not reason and "push" in command:
+            try:
+                notice = push_notice(command, cwd)
+            except Exception:
+                notice = None
+    if reason:
+        return _common.deny(EVENT, reason)
+    return _common.context(EVENT, notice) if notice else _common.emit_empty()
 
 
 if __name__ == "__main__":
