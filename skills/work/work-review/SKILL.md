@@ -37,9 +37,10 @@ Judge one pushed pull request as a different agent than the one that built it.
    each comment's body). A rework round starts from these, not from memory of the first pass.
 4. Read CI from `gh pr checks <number>` or the commit's check-runs via `gh api`, never a branch
    filtered runs list. One `gh` per command. A `## Verification` naming no commit is unverified.
-   To wait for a pending check, run `gh pr checks <number> --watch` as one standalone call: an
-   explicit `timeout` of at most 600000, no pipe, no loop. Read the verdict from the table, not
-   the exit code. A check still pending after the timeout is a hand back reason: name it.
+   To wait for a pending check, run `gh pr checks <number> --watch` as one call with the Bash
+   tool's `timeout` of at most 600000: no pipe, no loop, no other `gh` call in the message.
+   Read the verdict from the table. If the call moves to the background, wait for its notice.
+   Still pending then: post no verdict, keep the label, name the pending check in the report.
 5. Run the verify command from config `verify` against the pushed branch.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.
@@ -79,8 +80,7 @@ Judge one pushed pull request as a different agent than the one that built it.
 16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
     skill's ready condition holds and only a human decision is left, otherwise leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
-18. Changes requested or blocked: point the issue comment at the `implement` skill for the
-    rework round.
+18. Changes requested or blocked: point the issue comment at `implement` for the rework round.
 19. Never merge the pull request. Never approve one implemented in this same session, formal
     review included.
 

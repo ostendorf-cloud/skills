@@ -29,10 +29,10 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
    Call `gh` once per command, never inside a shell loop: several calls in a loop can fail
    reading gh's own configuration, which looks like a permission problem.
    Retry a transient dial error once.
-   To wait for a pending check, run `gh pr checks <number> --watch` as one standalone call: an
-   explicit `timeout` of at most 600000, no pipe, no loop. If the tool moves it to the
-   background, wait for its notification and start no second copy. Read the result from the
-   table, not the exit code.
+   To wait for a pending check, run `gh pr checks <number> --watch` as one call with the Bash
+   tool's `timeout` of at most 600000: no pipe, no loop, no other `gh` call in the message. If
+   the call moves to the background, wait for its notice and start no second copy. Read the
+   result from the table, not the exit code.
 2. Classify the failure before touching anything: a real defect, an environment
    difference (tool version, missing dependency, platform, locale, timezone), a flake
    (timing, network, ordering, shared state), or infrastructure (rate limit, outage,
