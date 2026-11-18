@@ -26,10 +26,13 @@ from a config file, `--git-dir` pointing at another repository, config pulled in
 `${x}git`. Branch protection on the remote is the backstop. This hook stops mistakes
 early.
 
-A branch switch in the command decides the branch of a later push only when the order
-is certain: the switch and the push are plain git calls joined by `&&`. Otherwise a
-switch to the default branch, or to one the hook cannot name, anywhere in the command
-makes every push read as made from the default branch. That fails safe.
+A switch to the default branch, or to a branch the hook cannot name, anywhere in the
+command makes every push in it read as made from the default branch. One exception:
+`git checkout -b <new>` or `git switch -c <new>` makes a later push read as made from
+<new>, but only in a command of plain git calls joined by `&&` alone, with nothing
+between them other than calls that keep the branch. Any other switch, such as `git
+checkout <branch>`, never lifts that reading, so a push after a switch back to a
+feature branch is still denied. That fails safe.
 """
 
 import os
@@ -1060,32 +1063,9 @@ def command_name_of(resolved: str) -> str:
 def command_parts_with_pipes(command: str) -> list[tuple[str, bool]]:
     """The parts _common.command_parts splits command into, each with whether a single
     `|` feeds it. Follows the same quote tracking and separators, so the parts match."""
-    pieces = separated_pieces(command)
-    parts = [
-        (text, index > 0 and pieces[index - 1][1] == "|") for index, (text, _) in enumerate(pieces)
-    ]
-    return [(part.strip(), feeds) for part, feeds in parts if part.strip()]
-
-
-def command_chain(command: str) -> list[tuple[str, str, str]]:
-    """The parts command_parts_with_pipes splits command into, each with the operator
-    before and after it: `&&`, `||`, `;`, `|`, a newline, or "" at either end. An empty
-    piece keeps the operator in front of it, so `a &&` and a newline still join with
-    `&&`, as in the shell."""
-    chain: list[tuple[str, str, str]] = []
-    before = ""
-    for text, after in separated_pieces(command):
-        if text.strip():
-            chain.append((text.strip(), before, after))
-            before = after
-    return chain
-
-
-def separated_pieces(command: str) -> list[tuple[str, str]]:
-    """command split on `&&`, `||`, `;`, `|` and newlines outside quotes, each piece with
-    the separator after it, "" for the last one. Empty pieces are kept."""
-    parts: list[tuple[str, str]] = []
+    parts: list[tuple[str, bool]] = []
     current: list[str] = []
+    piped = False
     quote = ""
     index = 0
     length = len(command)
@@ -1110,14 +1090,15 @@ def separated_pieces(command: str) -> list[tuple[str, str]]:
         elif char in (";", "|"):
             separator = char
         if separator:
-            parts.append(("".join(current), separator))
+            parts.append(("".join(current), piped))
             current = []
+            piped = separator == "|"
             index += len(separator)
             continue
         current.append(char)
         index += 1
-    parts.append(("".join(current), ""))
-    return parts
+    parts.append(("".join(current), piped))
+    return [(part.strip(), feeds) for part, feeds in parts if part.strip()]
 
 
 def git_call_words(
@@ -1639,6 +1620,7 @@ def subtree_push_violation(arguments: list[str], cwd: Optional[str], default: st
 
 
 BRANCH_CREATE_FLAGS = frozenset({"-b", "-B", "--orphan", "-c", "-C", "--create", "--force-create"})
+TRACK_OPTIONS = frozenset({"-t", "--track", "--no-track"})
 
 
 def branch_switch_target(call: GitCall) -> Optional[str]:
@@ -1668,6 +1650,12 @@ def branch_switch_target(call: GitCall) -> Optional[str]:
 def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
     """The branch `git checkout` or `git switch` with these arguments switches to, read as
     branch_switch_target does. A checkout of paths switches nothing."""
+    options = arguments[: arguments.index("--")] if "--" in arguments else arguments
+    # A track option without a create option creates the branch a remote ref names,
+    # such as main for origin/main, wherever it stands. This hook does not derive it.
+    tracks = any(option in TRACK_OPTIONS or option.startswith("--track=") for option in options)
+    if tracks and not any(option in BRANCH_CREATE_FLAGS for option in options):
+        return ""
     index = 0
     while index < len(arguments):
         argument = arguments[index]
@@ -1678,10 +1666,6 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
             return ""
         if argument in BRANCH_CREATE_FLAGS:
             return named_branch(arguments[index] if index < len(arguments) else "")
-        # `--track` without a name creates the branch the remote ref names, such as
-        # main for origin/main, which this hook does not derive.
-        if argument in ("-t", "--track") or argument.startswith("--track="):
-            return ""
         if argument.startswith("-"):
             continue
         rest = arguments[index:]
@@ -1692,76 +1676,60 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
 
 
 # Subcommands that never change the checked out branch, so a push after one of them
-# still runs on the branch of the switch before it.
+# still runs on the branch created before it.
 BRANCH_KEEPING_SUBCOMMANDS = frozenset({"add", "commit", "diff", "fetch", "log", "show", "status"})
-# Characters that group, nest or background a command part, outside quotes.
-GROUPING_CHARS = re.compile(r"[(){}`&]")
+# The options that create a new branch and switch to it, and fail when it exists.
+CREATE_OPTIONS = {"checkout": ("-b", "--orphan"), "switch": ("-c", "--create")}
+QUIET_OPTIONS = ("-q", "--quiet")
+# Outside quotes, these leave the order of a command's parts to the shell: any
+# separator other than `&&`, a group, a comment, a redirection or heredoc, a
+# background `&`, a backslash and a newline.
+UNORDERED_CHARS = re.compile(r"[;|&(){}#<>\\\n]")
+# A substitution runs a command even inside double quotes.
+SUBSTITUTION_CHARS = re.compile(r"\$\(|`")
 
 
-def switched_branch(
-    calls: list[GitCall], index: int, chain: list[tuple[str, str, str]]
-) -> Optional[str]:
-    """The branch the call at index runs on, read from the switch right before it, or
-    None when no such switch decides it.
+def created_branches(command: str, calls: list[GitCall], cwd: str) -> list[Optional[str]]:
+    """For each call, the branch a branch creation earlier in command switched to, or
+    None when none decides it.
 
-    The switch decides only when the shell runs the call if and only if the switch ran
-    and succeeded: both are plain parts of the command, `&&` joins every part from the
-    switch to the call, no `||` or `|` stands right before the switch, every git call in
-    between is one of BRANCH_KEEPING_SUBCOMMANDS, and both act on the same directory.
-    A plain part is one git call, git its first word, with no grouping, substitution or
-    background outside quotes. Anything else leaves the order unknown."""
-    by_part: dict[int, list[GitCall]] = {}
-    for call in calls:
-        if call.part >= 0:
-            by_part.setdefault(call.part, []).append(call)
-
-    def plain(part: int) -> bool:
-        text = chain[part][0]
-        words = shell_words_of(text)
-        masked = KEPT_REDIRECTION.sub("", _common.mask_quoted(text))
-        return (
-            len(by_part.get(part, [])) == 1
-            and bool(words)
-            and words[0] == "git"
-            and not GROUPING_CHARS.search(masked)
-        )
-
-    call = calls[index]
-    part = call.part
-    if part < 0 or part >= len(chain) or not plain(part):
-        return None
-    directory = call_directory(call)
-    while directory is not None and part > 0 and chain[part][1] == "&&":
-        part -= 1
-        if not plain(part):
-            return None
-        earlier = by_part[part][0]
-        target = branch_switch_target(earlier)
-        if target is None:
-            sub_index = git_subcommand_index(earlier.words, 0)
-            if sub_index is None or earlier.words[sub_index] not in BRANCH_KEEPING_SUBCOMMANDS:
-                return None
+    A creation decides only in a command of plain git calls joined by `&&` and nothing
+    else: one git call per part, git its first word with no global option, no nested
+    call and none of UNORDERED_CHARS outside quotes or SUBSTITUTION_CHARS anywhere.
+    There the creation, `git checkout -b|--orphan <new>` or `git switch -c|--create
+    <new>` with a literal name that is not the default branch, decides every later call
+    until a git call other than BRANCH_KEEPING_SUBCOMMANDS. A plain switch never decides:
+    its word can be a path, a commit or an alias of the default branch."""
+    unordered = [None] * len(calls)
+    masked = _common.mask_quoted(command).replace("&&", "")
+    if UNORDERED_CHARS.search(masked) or SUBSTITUTION_CHARS.search(command):
+        return unordered
+    parts = _common.command_parts(command)
+    if [call.part for call in calls] != list(range(len(parts))):
+        return unordered
+    branches: list[Optional[str]] = []
+    created: Optional[str] = None
+    for call, part in zip(calls, parts):
+        words = shell_words_of(part)
+        if not words or words[0] != "git" or git_subcommand_index(call.words, 0) != 1:
+            return unordered
+        branches.append(created)
+        if call.words[1] in BRANCH_KEEPING_SUBCOMMANDS:
             continue
-        if not target or chain[part][1] in ("||", "|") or renames_another_branch(earlier):
-            return None
-        return target if call_directory(earlier) == directory else None
-    return None
+        created = created_branch(call.words)
+        if created is not None and created.lower() == QUERIES.default_branch(cwd).lower():
+            created = None
+    return branches
 
 
-def call_directory(call: GitCall) -> Optional[str]:
-    """The directory call acts on, None when it is not known."""
-    sub_index = git_subcommand_index(call.words, 0)
-    options = call.words[1:sub_index] if sub_index is not None else call.words[1:]
-    return _common.git_part_dir(call.raw, call.directory, global_directory(options))
-
-
-def renames_another_branch(call: GitCall) -> bool:
-    """Whether call is a `git branch -m <old> <new>`, which leaves the checked out branch
-    as it is unless that is old."""
-    sub_index = git_subcommand_index(call.words, 0)
-    if sub_index is None or call.words[sub_index] != "branch":
-        return False
-    return len([word for word in call.words[sub_index + 1 :] if not word.startswith("-")]) > 1
+def created_branch(words: list[str]) -> Optional[str]:
+    """The branch `git checkout -b <new>` or `git switch -c <new>` creates, with no other
+    argument than a quiet option, None for any other call."""
+    arguments = [word for word in words[2:] if word not in QUIET_OPTIONS]
+    if len(arguments) != 2 or arguments[0] not in CREATE_OPTIONS.get(words[1], ()):
+        return None
+    name = named_branch(arguments[1])
+    return name if name and not name.startswith("-") else None
 
 
 def named_branch(name: str) -> str:
@@ -1800,15 +1768,11 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
     """command_violation with the queries of this run in place."""
     remote_cache: RemoteCache = {}
     calls = git_calls(command, cwd)
-    shape_text, _ = split_heredocs(command, Budget())
     # A command that switches to the default branch, or to a branch this hook cannot
     # name, may push from it later in the same command. Its pushes are read as made from
-    # the default branch, wherever the switch stands in the command, unless the switch
-    # right before a push decides its branch, see switched_branch. A switch nested in
-    # a substitution or a string handed to a shell has no known place in that order,
-    # so then no switch decides.
+    # the default branch, wherever the switch stands in the command, unless a branch
+    # creation right before a push decides its branch, see created_branches.
     assumed: Optional[str] = None
-    ordered = True
     for call in calls:
         target = branch_switch_target(call)
         if target is None:
@@ -1817,19 +1781,19 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
         options = call.words[1:sub_index] if sub_index is not None else []
         default = QUERIES.default_branch(global_directory(options) or cwd)
         if target in ("", default):
-            assumed = assumed or default
-            ordered = ordered and call.part >= 0
-    chain = command_chain(shape_text.replace("\\\n", "")) if ordered else []
+            assumed = default
+            break
     QUERIES.assumed_branch = assumed
+    created = created_branches(command, calls, cwd)
+    shape_text, _ = split_heredocs(command, Budget())
     if calls:
         parts = {call.raw for call in calls} | set(_common.command_parts(shape_text))
         reason = env_config_violation(sorted(parts))
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)
-    for index, call in enumerate(calls):
-        switched = switched_branch(calls, index, chain) if chain else None
-        QUERIES.assumed_branch = assumed if switched is None else switched
+    for call, branch in zip(calls, created):
+        QUERIES.assumed_branch = assumed if branch is None else branch
         reason = call_violation(call, cwd, rewrites_remote, remote_cache)
         if reason:
             return reason
