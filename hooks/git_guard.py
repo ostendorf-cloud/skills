@@ -19,8 +19,11 @@ variables are read per part: a prefix, `env`, `local`, `time`, `if`, `then`, `do
 a `case` pattern and `{`, `(`, `!` in front count for their own part, and for a string
 handed to a shell. `export`, `readonly`, `declare -x` and `unset` carry to later parts, a
 bare assignment carries the switch. A pipeline runs in a subshell and keeps nothing, a
-subshell in parentheses is not followed. Not seen: an alias such as `git ci`, `HOME`
-pointing nowhere, `tag -a`, and git behind a variable.
+subshell in parentheses is not followed. A string handed to a shell, at any depth, starts
+from the variables of the part that runs it and follows its own `export` and `unset`.
+Not seen: an alias such as `git ci`, a shell function, `pull.rebase` from config, `HOME`
+pointing nowhere, `tag -a`, and git behind a variable. A prefix on `echo "$(git commit)"`
+denies although bash does not pass it to the substitution, which is harmless.
 
 Before a push it adds context, never a deny, when a commit it would send, one that no
 remote tracking branch holds yet, has a committer or `Signed-off-by` email that differs
@@ -971,8 +974,9 @@ class GitCall(NamedTuple):
     behind_xargs: whether xargs runs it, so stdin may add arguments.
     part: the index of its part in the command itself, -1 when it runs in a text nested
     inside the command, such as a substitution or a string handed to a shell.
-    scope: the index of the part of the command itself whose variables apply to it: its
-    own part, or for a nested call the part holding the string, -1 when not known.
+    env: the variables the shell holds when it runs the call, the ones exported by an
+    earlier part and the prefix of its own part, through every level of string handed to
+    a shell it sits in. None when not known.
     """
 
     words: list[str]
@@ -980,7 +984,7 @@ class GitCall(NamedTuple):
     directory: Optional[str]
     behind_xargs: bool
     part: int = -1
-    scope: int = -1
+    env: Optional[dict[str, str]] = None
 
 
 def mentions_git(text: str) -> bool:
@@ -1012,17 +1016,26 @@ def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None)
 
 
 def _calls_in(
-    text: str, cwd: Optional[str], depth: int, seen: set[str], budget: Budget, origin: int = -1
+    text: str,
+    cwd: Optional[str],
+    depth: int,
+    seen: set[tuple[str, tuple[bool, bool, bool]]],
+    budget: Budget,
+    start: Optional[dict[str, str]] = None,
 ) -> list[GitCall]:
     """The git calls in text. cwd is the directory text runs in, None when not known.
-    origin is the part of the command itself that text was nested in, see GitCall.scope."""
-    if text in seen:
+    start is the environment text starts with: the variables the shell holds where it
+    runs the string, see GitCall.env. The same text is read again under another
+    environment of the three variables that matter, see identity_key."""
+    start = start or {}
+    key = (text, identity_key(start))
+    if key in seen:
         return []
     if depth > NESTING_LIMIT:
         if mentions_git(text):
             raise ReadLimitError("nesting")
         return []
-    seen.add(text)
+    seen.add(key)
     budget.spend("texts", MAX_TEXTS)
     text, bodies = split_heredocs(text, budget)
     text = text.replace("\\\n", "")
@@ -1036,12 +1049,16 @@ def _calls_in(
             directories = [directory for _, directory in pairs]
 
     calls: list[GitCall] = []
-    nested: list[tuple[str, int]] = []
+    nested: list[tuple[str, dict[str, str]]] = []
     fed_shell = False
-    fed_origin = -1
+    states = environments_before(parts, start)
+    fed_env = states[-1]
     for part_index, ((raw, piped), directory) in enumerate(zip(parts, directories)):
         part = part_index if depth == 0 else -1
-        scope = part_index if depth == 0 else origin
+        found = part_environment(raw)
+        scope = states[part_index]
+        if found.kind == "prefix":
+            scope = apply_changes(scope, found.changes, found.clears)
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
@@ -1060,26 +1077,26 @@ def _calls_in(
         inner, fed = inner_commands(raw, resolved, names, piped)
         nested.extend((inner_text, scope) for inner_text in inner)
         if fed:
-            fed_origin = scope
+            fed_env = scope
         fed_shell = fed_shell or fed
 
     for body, quoted in bodies:
         if not quoted:
-            nested.extend((inner_text, -1) for inner_text in substitutions(body))
+            nested.extend((inner_text, states[-1]) for inner_text in substitutions(body))
     if fed_shell:
-        nested.extend((body, fed_origin) for body, _ in bodies)
+        nested.extend((body, fed_env) for body, _ in bodies)
         # The words are what the shell part reads, so its variables apply to them.
         for raw, _ in parts:
             for word in shell_words_of(raw):
                 if any(hint in word for hint in NESTED_WORD_HINTS):
-                    nested.append((word, fed_origin))
+                    nested.append((word, fed_env))
                     # printf and echo -e turn these into a line break and a tab before
                     # the shell reads them.
                     if "\\n" in word or "\\t" in word:
-                        nested.append((word.replace("\\n", "\n").replace("\\t", "\t"), fed_origin))
+                        nested.append((word.replace("\\n", "\n").replace("\\t", "\t"), fed_env))
 
-    for inner_text, inner_origin in nested:
-        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget, inner_origin))
+    for inner_text, inner_env in nested:
+        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget, inner_env))
     return calls
 
 
@@ -1823,7 +1840,7 @@ ENV_UNSET_LETTER = "u"
 ENV_SKIPPED_LETTERS = "CSP"
 GROUPING_CHARS = "({!"
 # Shell keywords that stand in front of a command and change nothing about it.
-SHELL_KEYWORDS = frozenset({"time", "then", "do", "else", "elif", "if", "while", "until"})
+SHELL_KEYWORDS = frozenset({"time", "then", "do", "else", "elif", "if", "while", "until", "coproc"})
 # The commands that keep the author of the commits they replay.
 KEEPS_AUTHOR_SUBCOMMANDS = frozenset({"rebase", "cherry-pick", "am"})
 NOTES_WRITING_VERBS = frozenset({"add", "append", "edit", "copy", "merge", "remove", "prune"})
@@ -1977,15 +1994,27 @@ def switch_is_set(value: Optional[str]) -> bool:
     return "/" + os.path.normpath(value).lstrip("/") == SWITCH_VALUE
 
 
-def environments_before(parts: list[tuple[str, bool]]) -> list[dict[str, str]]:
-    """The environment the shell holds before each part of the command and, as the last
-    entry, after all of them: what `export`, `readonly`, `declare -x` and `unset` kept,
-    and the switch from a bare assignment, since a variable exported earlier stays
-    exported. A part in a pipeline runs in a subshell and keeps nothing.
+def identity_key(environment: dict[str, str]) -> tuple[bool, bool, bool]:
+    """What an environment says about identity: whether the switch is set, and whether
+    the committer and the author email are."""
+    return (
+        switch_is_set(environment.get(SWITCH_VARIABLE)),
+        bool(environment.get("GIT_COMMITTER_EMAIL")),
+        bool(environment.get("GIT_AUTHOR_EMAIL")),
+    )
+
+
+def environments_before(
+    parts: list[tuple[str, bool]], start: Optional[dict[str, str]] = None
+) -> list[dict[str, str]]:
+    """The environment the shell holds before each part of a command, starting from start,
+    and, as the last entry, after all of them: what `export`, `readonly`, `declare -x` and
+    `unset` kept, and the switch from a bare assignment, since a variable exported earlier
+    stays exported. A part in a pipeline runs in a subshell and keeps nothing.
 
     A subshell written with parentheses is not followed: what it exports reads as kept."""
     states: list[dict[str, str]] = []
-    environment: dict[str, str] = {}
+    environment: dict[str, str] = dict(start or {})
     for position, (raw, _) in enumerate(parts):
         states.append(environment)
         in_pipeline = parts[position][1] or (position + 1 < len(parts) and parts[position + 1][1])
@@ -2032,8 +2061,7 @@ def identity_needs(call: GitCall) -> tuple[bool, bool]:
     if subcommand in KEEPS_AUTHOR_SUBCOMMANDS:
         return True, False
     if subcommand == "pull":
-        rebases = any(option == "-r" or option.startswith("--rebase") for option in options)
-        return True, not rebases
+        return True, not pull_rebases(options)
     if subcommand == "commit":
         reuses = any(
             option.startswith(("--reuse-message=", "--reedit-message=")) for option in options
@@ -2042,6 +2070,22 @@ def identity_needs(call: GitCall) -> tuple[bool, bool]:
         authored = any(option.startswith("--author=") for option in options)
         return True, not keeps and not authored
     return True, True
+
+
+def pull_rebases(options: list[str]) -> bool:
+    """Whether a `git pull` with these options rebases, the last of `-r`, `--rebase`,
+    `--rebase=<value>` and `--no-rebase` deciding. `false`, `no`, `off` and `0` as a
+    value mean a merge, as in git. The `pull.rebase` config is not visible to this hook,
+    so a pull without an option reads as a merge."""
+    rebases = False
+    for option in options:
+        if option in ("-r", "--rebase"):
+            rebases = True
+        elif option == "--no-rebase":
+            rebases = False
+        elif option.startswith("--rebase="):
+            rebases = option.partition("=")[2].lower() not in ("", "false", "no", "off", "0")
+    return rebases
 
 
 def notes_write(arguments: list[str]) -> bool:
@@ -2058,30 +2102,24 @@ def notes_write(arguments: list[str]) -> bool:
     return False
 
 
-def identity_violation(calls: list[GitCall], parts: list[tuple[str, bool]]) -> Optional[str]:
+def identity_violation(calls: list[GitCall]) -> Optional[str]:
     """The deny reason when a git call that writes a commit runs with GIT_CONFIG_GLOBAL
     set to the null device and without the emails it needs, see identity_needs.
 
-    Each call sees the variables its own part sets in front of it and the ones earlier
-    parts kept, see environments_before. A call inside a string handed to a shell, or
-    another nested text, also sees the prefix of the part that holds the string, and
-    the variables set inside the string. When the part is not known it sees what the
-    whole command kept. Aliases, `HOME` pointing nowhere and git run through a variable
-    are not followed."""
-    states = environments_before(parts)
+    Each call sees the variables in GitCall.env: the ones earlier parts kept and the
+    prefix of its own part, see environments_before. A call inside a string handed to a
+    shell, at any depth, starts from the variables the part that runs the shell holds,
+    its prefix included, and follows the `export` and `unset` inside the string. A
+    `$(...)` is read the same way, so a prefix on `echo "$(git commit)"` denies although
+    bash does not pass it, which is harmless.
+
+    Not followed: an alias from a config file, a shell function, `pull.rebase` from
+    config, `HOME` pointing nowhere and git run through a variable."""
     for call in calls:
         committer, author = identity_needs(call)
         if not committer:
             continue
-        known = 0 <= call.scope < len(parts)
-        environment = states[call.scope] if known else states[-1]
-        if known:
-            outer = part_environment(parts[call.scope][0])
-            if outer.kind == "prefix":
-                environment = apply_changes(environment, outer.changes, outer.clears)
-        if call.part < 0:
-            found = part_environment(call.raw)
-            environment = apply_changes(environment, found.changes, found.clears)
+        environment = call.env or {}
         if not switch_is_set(environment.get(SWITCH_VARIABLE)):
             continue
         if not environment.get("GIT_COMMITTER_EMAIL"):
@@ -2098,12 +2136,13 @@ def pushed_revisions(arguments: list[str]) -> list[str]:
     a `--delete` push, and a push of `--tags` alone: they send nothing from HEAD."""
     options = normalize_options(arguments, OPTION_GRAMMARS["push"])
     refspecs = [word for word in options if not word.startswith("-")][1:]
+    deletes = "--delete" in options or "-d" in options
     if not refspecs:
-        return [] if "--tags" in options or "--delete" in options else ["HEAD"]
+        return [] if "--tags" in options or deletes else ["HEAD"]
     revisions: list[str] = []
     for refspec in refspecs:
         source = refspec.lstrip("+").partition(":")[0]
-        if not source or "--delete" in options:
+        if not source or deletes:
             continue
         if source == "@" or "*" in source or shell_builds(source):
             source = "HEAD"
@@ -2232,7 +2271,7 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
         reason = env_config_violation(sorted(parts))
         if reason:
             return reason
-        reason = identity_violation(calls, command_parts_with_pipes(shape_text.replace("\\\n", "")))
+        reason = identity_violation(calls)
         if reason:
             return reason
     rewrites_remote = changes_remote_config(shape_text, calls)

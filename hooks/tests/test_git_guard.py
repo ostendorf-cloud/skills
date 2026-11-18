@@ -2416,6 +2416,85 @@ class CommitIdentityTest(unittest.TestCase):
             ]
         )
 
+    def test_reads_which_pull_options_rebase(self):
+        self.assert_denied(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=false",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=0",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=no",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=off",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=False",
+                f"{self.SWITCH} {self.COMMITTER} git pull --no-rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase --no-rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull -r --rebase=false",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=true",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=merges",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=interactive",
+                f"{self.SWITCH} {self.COMMITTER} git pull -r origin main",
+                f"{self.SWITCH} {self.COMMITTER} git pull --no-rebase --rebase",
+                f"{self.SWITCH} {self.COMMITTER} git pull --rebase=false --rebase",
+            ]
+        )
+
+    def test_follows_export_and_unset_inside_a_string_handed_to_a_shell(self):
+        self.assert_denied(
+            [
+                f"sh -c 'export {self.SWITCH}; git commit -m x'",
+                f"bash -c 'export {self.SWITCH} && git commit -m x'",
+                f"eval 'export {self.SWITCH}; git commit -m x'",
+                f"{self.COMMITTER} sh -c 'export {self.SWITCH}; git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'unset GIT_COMMITTER_EMAIL; git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'unset GIT_AUTHOR_EMAIL; git commit -m x'",
+            ]
+        )
+        self.assert_allowed(
+            [
+                f"export {self.SWITCH}; sh -c 'unset GIT_CONFIG_GLOBAL; git commit -m x'",
+                f"sh -c 'export {self.SWITCH}; export {self.IDENTITY}; git commit -m x'",
+                f"sh -c 'export {self.SWITCH}; git status; unset GIT_CONFIG_GLOBAL; git commit'",
+            ]
+        )
+
+    def test_chains_the_prefix_through_every_level_of_nesting(self):
+        self.assert_denied(
+            [
+                f"sh -c \"{self.SWITCH} sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} sh -c \"sh -c 'git commit -m x'\"",
+                f"export {self.SWITCH}; sh -c \"bash -c 'git commit -m x'\"",
+                f"sh -c \"sh -c 'export {self.SWITCH}; git commit -m x'\"",
+                f"{self.SWITCH} git -c 'alias.ci=!git commit -m x' ci",
+            ]
+        )
+        self.assert_allowed(
+            [
+                "sh -c \"sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} {self.IDENTITY} sh -c \"sh -c 'git commit -m x'\"",
+                f"{self.SWITCH} {self.IDENTITY} git -c 'alias.ci=!git commit -m x' ci",
+            ]
+        )
+
+    def test_reads_the_same_string_under_each_environment(self):
+        self.assert_denied(
+            [
+                f"sh -c 'git commit -m x'; {self.SWITCH} sh -c 'git commit -m x'",
+                f"{self.COMMITTER} {self.AUTHOR} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} sh -c 'git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} {self.AUTHOR} sh -c 'git commit -m x'",
+                f"{self.SWITCH} {self.IDENTITY} sh -c 'git commit -m x'; "
+                f"{self.SWITCH} {self.COMMITTER} sh -c 'git commit -m x'",
+            ]
+        )
+
+    def test_denies_the_switch_behind_coproc(self):
+        self.assert_denied([f"coproc {self.SWITCH} git commit -m x"])
+        self.assert_allowed([f"coproc {self.SWITCH} git status"])
+
     def test_denies_the_switch_behind_shell_keywords(self):
         self.assert_denied(
             [
@@ -2638,6 +2717,7 @@ class CommitIdentityTest(unittest.TestCase):
             "git push origin :feat/old",
             "git push origin +:feat/old",
             "git push origin --delete feat/old",
+            "git push -d origin feat/old",
             "git push --tags",
             "git push --tags origin",
         ):
@@ -2657,6 +2737,8 @@ class CommitIdentityTest(unittest.TestCase):
         self.assertEqual(revisions(["origin", "feat/a", ":feat/old"]), ["feat/a"])
         self.assertEqual(revisions(["origin", "refs/heads/*:refs/heads/*"]), ["HEAD"])
         self.assertEqual(revisions(["--delete", "origin"]), [])
+        self.assertEqual(revisions(["-d", "origin"]), [])
+        self.assertEqual(revisions(["-d", "origin", "feat/old"]), [])
         self.assertEqual(revisions(["--tags"]), [])
         self.assertEqual(revisions(["origin", "--delete", "feat/old"]), [])
         self.assertEqual(revisions(["--follow-tags", "origin"]), ["HEAD"])
