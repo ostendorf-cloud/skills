@@ -11,19 +11,24 @@ only a lone command leaves the sandbox (ADR 0005).
 It also denies a `git commit`, `rebase`, `cherry-pick`, `merge`, `pull`, `revert`, `am`,
 `commit-tree` or `notes` that runs with `GIT_CONFIG_GLOBAL` set to the null device, the
 switch for test runs, without `GIT_COMMITTER_EMAIL` or `-c user.email`: git then takes the
-email from the host name. A new commit needs `GIT_AUTHOR_EMAIL`, `--author` or `-c
-user.email` as well, an amend, rebase or cherry-pick keeps its author. The variables are
-read per part: a prefix, `env`, `local` and `{`, `(` in front count for their own part,
-`export`, `readonly`, `declare -x` and `unset` carry to later parts, a bare assignment
-carries the switch. A pipeline runs in a subshell and keeps nothing, a subshell in
-parentheses is not followed. Not seen: an alias such as `git ci`, `HOME` pointing nowhere,
-`tag -a`, and git behind a variable.
+email from the host name. A command that writes a new commit needs `GIT_AUTHOR_EMAIL`,
+`--author` or `-c user.email` as well. A rebase, a cherry-pick, `am`, a pull with
+`--rebase`, a plain amend and a commit that reuses a message keep their author. Nothing is
+needed for `--abort`, `--quit`, `commit --dry-run`, `notes list` and `notes show`. The
+variables are read per part: a prefix, `env`, `local`, `time`, `if`, `then`, `do`, `while`,
+a `case` pattern and `{`, `(`, `!` in front count for their own part, and for a string
+handed to a shell. `export`, `readonly`, `declare -x` and `unset` carry to later parts, a
+bare assignment carries the switch. A pipeline runs in a subshell and keeps nothing, a
+subshell in parentheses is not followed. Not seen: an alias such as `git ci`, `HOME`
+pointing nowhere, `tag -a`, and git behind a variable.
 
 Before a push it adds context, never a deny, when a commit it would send, one that no
 remote tracking branch holds yet, has a committer or `Signed-off-by` email that differs
-from its author email. The push names its refs, HEAD otherwise. Every git call of the
-hook runs with `core.fsmonitor` off and the log without signatures, so a repository
-config starts no program on a read. `core.sshCommand` still runs for `ls-remote`, as it
+from its author email. The push names its refs, HEAD otherwise, and a deletion or a push
+of tags alone checks none. Every git call this hook makes itself runs with
+`core.fsmonitor` off and the log without signatures, so a repository config starts no
+program on a read. It does not reach what other hooks or tools start: `secret_guard` runs
+gitleaks, which runs its own git. `core.sshCommand` still runs for `ls-remote`, as it
 does for the push.
 
 These rules apply to every git call in the command: behind global options, wrappers or
@@ -966,6 +971,8 @@ class GitCall(NamedTuple):
     behind_xargs: whether xargs runs it, so stdin may add arguments.
     part: the index of its part in the command itself, -1 when it runs in a text nested
     inside the command, such as a substitution or a string handed to a shell.
+    scope: the index of the part of the command itself whose variables apply to it: its
+    own part, or for a nested call the part holding the string, -1 when not known.
     """
 
     words: list[str]
@@ -973,6 +980,7 @@ class GitCall(NamedTuple):
     directory: Optional[str]
     behind_xargs: bool
     part: int = -1
+    scope: int = -1
 
 
 def mentions_git(text: str) -> bool:
@@ -1004,9 +1012,10 @@ def git_calls(command: str, cwd: Optional[str], budget: Optional[Budget] = None)
 
 
 def _calls_in(
-    text: str, cwd: Optional[str], depth: int, seen: set[str], budget: Budget
+    text: str, cwd: Optional[str], depth: int, seen: set[str], budget: Budget, origin: int = -1
 ) -> list[GitCall]:
-    """The git calls in text. cwd is the directory text runs in, None when not known."""
+    """The git calls in text. cwd is the directory text runs in, None when not known.
+    origin is the part of the command itself that text was nested in, see GitCall.scope."""
     if text in seen:
         return []
     if depth > NESTING_LIMIT:
@@ -1027,10 +1036,12 @@ def _calls_in(
             directories = [directory for _, directory in pairs]
 
     calls: list[GitCall] = []
-    nested: list[str] = []
+    nested: list[tuple[str, int]] = []
     fed_shell = False
+    fed_origin = -1
     for part_index, ((raw, piped), directory) in enumerate(zip(parts, directories)):
         part = part_index if depth == 0 else -1
+        scope = part_index if depth == 0 else origin
         words = _common.shell_words(raw)
         budget.spend("words", MAX_WORDS, len(words))
         resolved = [_common.unquote_word(word) for word in words]
@@ -1043,29 +1054,32 @@ def _calls_in(
                 budget.spend("calls", MAX_GIT_CALLS)
                 in_backtick = "`" in words[index].partition("git")[0]
                 call_words, alias_command = git_call_words(words, resolved, index + 1, in_backtick)
-                calls.append(GitCall(call_words, raw, directory, behind_xargs, part))
+                calls.append(GitCall(call_words, raw, directory, behind_xargs, part, scope))
                 if alias_command:
-                    nested.append(alias_command)
+                    nested.append((alias_command, scope))
         inner, fed = inner_commands(raw, resolved, names, piped)
-        nested.extend(inner)
+        nested.extend((inner_text, scope) for inner_text in inner)
+        if fed:
+            fed_origin = scope
         fed_shell = fed_shell or fed
 
     for body, quoted in bodies:
         if not quoted:
-            nested.extend(substitutions(body))
+            nested.extend((inner_text, -1) for inner_text in substitutions(body))
     if fed_shell:
-        nested.extend(body for body, _ in bodies)
+        nested.extend((body, fed_origin) for body, _ in bodies)
+        # The words are what the shell part reads, so its variables apply to them.
         for raw, _ in parts:
             for word in shell_words_of(raw):
                 if any(hint in word for hint in NESTED_WORD_HINTS):
-                    nested.append(word)
+                    nested.append((word, fed_origin))
                     # printf and echo -e turn these into a line break and a tab before
                     # the shell reads them.
                     if "\\n" in word or "\\t" in word:
-                        nested.append(word.replace("\\n", "\n").replace("\\t", "\t"))
+                        nested.append((word.replace("\\n", "\n").replace("\\t", "\t"), fed_origin))
 
-    for inner_text in nested:
-        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget))
+    for inner_text, inner_origin in nested:
+        calls.extend(_calls_in(inner_text, None, depth + 1, seen, budget, inner_origin))
     return calls
 
 
@@ -1808,11 +1822,17 @@ DECLARE_WORDS = frozenset({"declare", "typeset"})
 ENV_UNSET_LETTER = "u"
 ENV_SKIPPED_LETTERS = "CSP"
 GROUPING_CHARS = "({!"
+# Shell keywords that stand in front of a command and change nothing about it.
+SHELL_KEYWORDS = frozenset({"time", "then", "do", "else", "elif", "if", "while", "until"})
+# The commands that keep the author of the commits they replay.
+KEEPS_AUTHOR_SUBCOMMANDS = frozenset({"rebase", "cherry-pick", "am"})
+NOTES_WRITING_VERBS = frozenset({"add", "append", "edit", "copy", "merge", "remove", "prune"})
+NOTES_VERBS = NOTES_WRITING_VERBS | {"list", "show", "get-ref"}
 IDENTITY_SWITCH = (
     "This runs git with GIT_CONFIG_GLOBAL=/dev/null, which is for test runs, so git takes "
     "the email of the commit identity from the host name. Set GIT_COMMITTER_EMAIL, and for "
-    "a new commit also GIT_AUTHOR_EMAIL or `-c user.email`, in the same command, or run it "
-    "with the normal git config."
+    "a command that writes a new commit also GIT_AUTHOR_EMAIL or `-c user.email`, in the "
+    "same command, or run it with the normal git config."
 )
 PUSH_IDENTITY_LIMIT = 5
 PUSH_IDENTITY_COMMITS = 200
@@ -1900,8 +1920,18 @@ def part_environment(part: str) -> PartEnvironment:
             changes.append((name, _common.unquote_word(value)))
             index += 1
             continue
+        if word.endswith(")") and "(" not in word:
+            # The pattern of a `case` branch, in front of its commands.
+            index += 1
+            continue
         name = command_name_of(_common.unquote_word(word))
-        if name in EXPORT_WORDS:
+        if name in SHELL_KEYWORDS:
+            index += 1
+            while name == "time" and index < len(words) and words[index].startswith("-"):
+                index += 1
+        elif name == "case":
+            index += 3
+        elif name in EXPORT_WORDS:
             exported = True
             index += 1
         elif name in DECLARE_WORDS:
@@ -1973,9 +2003,15 @@ def environments_before(parts: list[tuple[str, bool]]) -> list[dict[str, str]]:
 
 def identity_needs(call: GitCall) -> tuple[bool, bool]:
     """Whether a git call writes a commit that needs a committer email, and whether it
-    needs an author email too. Neither when it writes nothing, when `-c user.email` in
-    front of the subcommand sets both, or, for the author, when the commit keeps its own
-    author: an amend, a rebase, a cherry-pick."""
+    needs an author email too. Neither when it writes nothing: `--abort`, `--quit`,
+    `commit --dry-run`, `notes list` and `notes show`. Neither when `-c user.email` in
+    front of the subcommand sets both.
+
+    Every new commit needs the author email, measured with git 2.56: a merge, a revert, a
+    pull that merges, `commit-tree` and `notes` take it from the host name too. Not so a
+    rebase, a cherry-pick, `am`, a pull with `--rebase`, a plain amend, and a commit that
+    reuses a message with `-C` or `-c`, which keep the author they replay. `--author`
+    sets it. `--reset-author` asks for a new one."""
     sub_index = git_subcommand_index(call.words, 0)
     if sub_index is None or call.words[sub_index] not in IDENTITY_SUBCOMMANDS:
         return False, False
@@ -1983,15 +2019,43 @@ def identity_needs(call: GitCall) -> tuple[bool, bool]:
     arguments = call.words[sub_index + 1 :]
     if subcommand in STOPPABLE_SUBCOMMANDS and NO_COMMIT_OPTIONS & set(arguments):
         return False, False
+    if subcommand == "notes" and not notes_write(arguments):
+        return False, False
     entries = config_entries(call.words[1:sub_index])
     if any(key.lower() == "user.email" and value for key, value in entries):
         return False, False
-    if subcommand != "commit":
+    options = arguments
+    if subcommand == "commit":
+        options = normalize_options(arguments, OPTION_GRAMMARS["commit"])
+        if "--dry-run" in options:
+            return False, False
+    if subcommand in KEEPS_AUTHOR_SUBCOMMANDS:
         return True, False
-    options = normalize_options(arguments, OPTION_GRAMMARS["commit"])
-    authored = any(option.startswith("--author=") for option in options)
-    new_author = "--amend" not in options or "--reset-author" in options
-    return True, new_author and not authored
+    if subcommand == "pull":
+        rebases = any(option == "-r" or option.startswith("--rebase") for option in options)
+        return True, not rebases
+    if subcommand == "commit":
+        reuses = any(
+            option.startswith(("--reuse-message=", "--reedit-message=")) for option in options
+        )
+        keeps = ("--amend" in options or reuses) and "--reset-author" not in options
+        authored = any(option.startswith("--author=") for option in options)
+        return True, not keeps and not authored
+    return True, True
+
+
+def notes_write(arguments: list[str]) -> bool:
+    """Whether `git notes` with these arguments writes a note: the first verb among them,
+    a value of `--ref` skipped, is not `list` or `show`. No verb means `list`."""
+    skip = False
+    for argument in arguments:
+        if skip:
+            skip = False
+        elif argument == "--ref":
+            skip = True
+        elif argument in NOTES_VERBS:
+            return argument in NOTES_WRITING_VERBS
+    return False
 
 
 def identity_violation(calls: list[GitCall], parts: list[tuple[str, bool]]) -> Optional[str]:
@@ -1999,17 +2063,25 @@ def identity_violation(calls: list[GitCall], parts: list[tuple[str, bool]]) -> O
     set to the null device and without the emails it needs, see identity_needs.
 
     Each call sees the variables its own part sets in front of it and the ones earlier
-    parts kept, see environments_before. A call inside a substitution or a string handed
-    to a shell sees what the whole command kept. Aliases, `HOME` pointing nowhere and
-    git run through a variable are not followed."""
+    parts kept, see environments_before. A call inside a string handed to a shell, or
+    another nested text, also sees the prefix of the part that holds the string, and
+    the variables set inside the string. When the part is not known it sees what the
+    whole command kept. Aliases, `HOME` pointing nowhere and git run through a variable
+    are not followed."""
     states = environments_before(parts)
     for call in calls:
         committer, author = identity_needs(call)
         if not committer:
             continue
-        base = states[call.part] if 0 <= call.part < len(parts) else states[-1]
-        found = part_environment(call.raw)
-        environment = apply_changes(base, found.changes, found.clears)
+        known = 0 <= call.scope < len(parts)
+        environment = states[call.scope] if known else states[-1]
+        if known:
+            outer = part_environment(parts[call.scope][0])
+            if outer.kind == "prefix":
+                environment = apply_changes(environment, outer.changes, outer.clears)
+        if call.part < 0:
+            found = part_environment(call.raw)
+            environment = apply_changes(environment, found.changes, found.clears)
         if not switch_is_set(environment.get(SWITCH_VARIABLE)):
             continue
         if not environment.get("GIT_COMMITTER_EMAIL"):
@@ -2022,17 +2094,22 @@ def identity_violation(calls: list[GitCall], parts: list[tuple[str, bool]]) -> O
 def pushed_revisions(arguments: list[str]) -> list[str]:
     """The revisions a `git push` with these arguments (after "push") sends: the source
     of each refspec after the remote, HEAD for none, for HEAD itself, and for a refspec
-    this hook cannot name, a pattern, a deletion or a ref built by the shell."""
+    this hook cannot name, a pattern or a ref built by the shell. None for a deletion,
+    a `--delete` push, and a push of `--tags` alone: they send nothing from HEAD."""
     options = normalize_options(arguments, OPTION_GRAMMARS["push"])
     refspecs = [word for word in options if not word.startswith("-")][1:]
+    if not refspecs:
+        return [] if "--tags" in options or "--delete" in options else ["HEAD"]
     revisions: list[str] = []
     for refspec in refspecs:
         source = refspec.lstrip("+").partition(":")[0]
-        if source in ("", "@") or "*" in source or shell_builds(source):
+        if not source or "--delete" in options:
+            continue
+        if source == "@" or "*" in source or shell_builds(source):
             source = "HEAD"
         if not source.startswith("-") and source not in revisions:
             revisions.append(source)
-    return revisions or ["HEAD"]
+    return revisions
 
 
 def identity_mismatches(directory: Optional[str], revisions: list[str]) -> tuple[list[str], bool]:
@@ -2086,6 +2163,9 @@ def push_notice(command: str, cwd: str) -> Optional[str]:
         sub_index = git_subcommand_index(call.words, 0)
         if sub_index is None or call.words[sub_index] != "push":
             continue
+        revisions = pushed_revisions(call.words[sub_index + 1 :])
+        if not revisions:
+            continue
         path = global_directory(call.words[1:sub_index])
         base = call.directory or cwd
         directory = _common.resolve_dir(path, base) if path else base
@@ -2096,9 +2176,7 @@ def push_notice(command: str, cwd: str) -> Optional[str]:
         if len(checked) >= PUSH_IDENTITY_DIRECTORIES:
             break
         checked.add(directory)
-        found, capped = identity_mismatches(
-            directory, pushed_revisions(call.words[sub_index + 1 :])
-        )
+        found, capped = identity_mismatches(directory, revisions)
         if not found:
             continue
         shown = "; ".join(found[:PUSH_IDENTITY_LIMIT])

@@ -849,7 +849,9 @@ def git_env(base: Optional[dict[str, str]] = None) -> dict[str, str]:
     remote, as they do for the push itself."""
     env = dict(os.environ if base is None else base)
     try:
-        count = int(env.get("GIT_CONFIG_COUNT", "0"))
+        # A count that is not a number or is negative is read as none: git refuses it, and
+        # the entry below must still reach the repository's `core.fsmonitor`.
+        count = max(0, int(env.get("GIT_CONFIG_COUNT", "0")))
     except ValueError:
         count = 0
     env[f"GIT_CONFIG_KEY_{count}"] = "core.fsmonitor"

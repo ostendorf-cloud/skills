@@ -45,8 +45,9 @@ How branches, commits, pull requests and history stay consistent and reversible.
   the normal git config. Such commands are `git commit`, `rebase`, `cherry-pick`, `merge`,
   `pull`, `revert` and `am`. Otherwise git takes the email from the host name, also for a
   `--signoff` line. The name comes from the passwd entry.
-- A new `git commit` also sets `GIT_AUTHOR_EMAIL` or `-c user.email`. An amend, a rebase and a
-  cherry-pick keep their author.
+- A command that writes a new commit also sets `GIT_AUTHOR_EMAIL` or `-c user.email`: a new
+  `git commit`, `merge`, `revert`, `pull` and `notes add`. An amend, a rebase, a cherry-pick,
+  `am` and a commit with `-C` keep their author.
 - Before a push, the committer and every `Signed-off-by` line match the author. The `git_guard`
   hook denies the switch without the emails and warns before a push on a mismatch.
 - The hook does not see an alias such as `git ci`, nor `HOME` pointing nowhere. Same hazard.
