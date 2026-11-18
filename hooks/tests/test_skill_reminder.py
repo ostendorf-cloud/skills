@@ -241,6 +241,29 @@ class SkillReminderTest(unittest.TestCase):
         for prompt, skill in cases:
             self.assertIn(skill, skill_reminder.matches(prompt), prompt)
 
+    def test_matches_website_tasks(self):
+        cases = [
+            "Impressum fuer die Seite schreiben",
+            "build a new website",
+            "build a website for the club",
+            "write an imprint for this site",
+            "write a privacy policy",
+            "Datenschutzerklaerung schreiben",
+            "Webseite pruefen",
+        ]
+        for prompt in cases:
+            self.assertIn("website-conventions", skill_reminder.matches(prompt), prompt)
+
+    def test_stays_quiet_on_website_talk_that_is_no_task(self):
+        cases = [
+            "the website is down",
+            "check the agbase config",
+            "privacy of the token",
+            "the imprint is long",
+        ]
+        for prompt in cases:
+            self.assertNotIn("website-conventions", skill_reminder.matches(prompt), prompt)
+
     def test_words_the_hint_without_ordering_a_load(self):
         message = context(run_hook("skill_reminder.py", prompt_payload("open a pull request")))
         self.assertEqual(

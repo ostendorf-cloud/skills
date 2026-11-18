@@ -258,6 +258,13 @@ TRIGGERS = (
         r"\b(agent-skills\.json|skills config|konfiguration pr(ü|ue)fen|repo-konfiguration)\b",
     ),
     (
+        "website-conventions",
+        r"\b((new|build|create|review|check) (a |the )?(new )?(website|landing ?page)|"
+        r"(write|create|add|review|check) (an? |the )?(imprint|privacy (page|policy|statement)|"
+        r"terms page)|(impressum|datenschutz\w*|agb)\b.{0,30}\b(schreiben|erstellen|pr(ü|ue)fen)|"
+        r"webseite (bauen|erstellen|pr(ü|ue)fen))\b",
+    ),
+    (
         "agents",
         r"\b(subagent\w*|spawn (an? )?agents?|terminate (the )?agents?|agent routing|"
         r"run this in parallel|clean up the agents|agenten aufr(ä|ae)umen)\b",
