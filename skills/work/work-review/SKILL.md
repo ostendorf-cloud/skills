@@ -86,11 +86,11 @@ Judge one pushed pull request as a different agent than the one that built it.
 - Review only: no edit to the code under review, no commit, no merge.
 - A reviewer may write a throwaway probe to settle a claim it cannot settle by reading. It is a
   file of its own, never the code under review, never committed, staged or pushed.
-- It is deleted in the same task, the worktree left as found. A probe that only reads or calls
-  code is a script in the scratch directory or a temporary test file in the worktree.
-- A probe that runs command shapes or real git behaviour follows the baseline: an empty
+- It is deleted in the same task, the worktree left as found. A probe that starts no process,
+  itself or through the code it calls, may be a temporary test file in the worktree.
+- A probe that executes command shapes or real git behaviour follows the baseline: an empty
   temporary directory with a fake binary first on the path, or a throwaway repository, never
-  the worktree. The review prompt the supervising session writes carries that rule for them.
+  the worktree. A review prompt that asks for such probes carries that rule.
 - A claim settled only by reading, and not by running something, is named unverified in the
   verdict, with what it rests on instead, whether or not running it was ever attempted.
 - Move the label with the snippet in `~/.claude/skills/README.md`: exactly one
