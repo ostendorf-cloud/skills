@@ -34,6 +34,8 @@ alone, with nothing between them other than calls that keep the branch. A push w
 an explicit HEAD keeps the default branch reading, because config decides where it
 goes. Any other switch, such as `git checkout <branch>`, never lifts that reading, so
 a push after a switch back to a feature branch is still denied. That fails safe.
+Config can still send `git push <remote> HEAD` to another repository through
+`pushInsteadOf` or `pushurl`, and a git hook runs what it likes. Neither is followed.
 """
 
 import os
@@ -1725,7 +1727,7 @@ def created_branches(command: str, calls: list[GitCall], cwd: str) -> list[Optio
         created = created_branch(call.words)
         if created is not None and created.lower() == QUERIES.default_branch(cwd).lower():
             created = None
-    return branches if len(branches) == len(calls) else unordered
+    return branches
 
 
 def head_push(words: list[str]) -> bool:
