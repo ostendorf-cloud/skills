@@ -28,11 +28,12 @@ early.
 
 A switch to the default branch, or to a branch the hook cannot name, anywhere in the
 command makes every push in it read as made from the default branch. One exception:
-`git checkout -b <new>` or `git switch -c <new>` makes a later push read as made from
-<new>, but only in a command of plain git calls joined by `&&` alone, with nothing
-between them other than calls that keep the branch. Any other switch, such as `git
-checkout <branch>`, never lifts that reading, so a push after a switch back to a
-feature branch is still denied. That fails safe.
+`git checkout -b <new>` or `git switch -c <new>` makes a later `git push <remote> HEAD`
+read as made from <new>, but only in a command of plain git calls joined by `&&`
+alone, with nothing between them other than calls that keep the branch. A push without
+an explicit HEAD keeps the default branch reading, because config decides where it
+goes. Any other switch, such as `git checkout <branch>`, never lifts that reading, so
+a push after a switch back to a feature branch is still denied. That fails safe.
 """
 
 import os
@@ -1676,11 +1677,14 @@ def checkout_target(subcommand: str, arguments: list[str]) -> Optional[str]:
 
 
 # Subcommands that never change the checked out branch, so a push after one of them
-# still runs on the branch created before it.
-BRANCH_KEEPING_SUBCOMMANDS = frozenset({"add", "commit", "diff", "fetch", "log", "show", "status"})
+# still runs on the branch created before it. `fetch` is not one: `--upload-pack` runs
+# a command of its own.
+BRANCH_KEEPING_SUBCOMMANDS = frozenset({"add", "commit", "diff", "log", "show", "status"})
 # The options that create a new branch and switch to it, and fail when it exists.
 CREATE_OPTIONS = {"checkout": ("-b", "--orphan"), "switch": ("-c", "--create")}
 QUIET_OPTIONS = ("-q", "--quiet")
+# The options a `git push <remote> HEAD` may carry for a creation to decide it.
+HEAD_PUSH_OPTIONS = ("-u", "--set-upstream", "-q", "--quiet")
 # Outside quotes, these leave the order of a command's parts to the shell: any
 # separator other than `&&`, a group, a comment, a redirection or heredoc, a
 # background `&`, a backslash and a newline.
@@ -1697,9 +1701,11 @@ def created_branches(command: str, calls: list[GitCall], cwd: str) -> list[Optio
     else: one git call per part, git its first word with no global option, no nested
     call and none of UNORDERED_CHARS outside quotes or SUBSTITUTION_CHARS anywhere.
     There the creation, `git checkout -b|--orphan <new>` or `git switch -c|--create
-    <new>` with a literal name that is not the default branch, decides every later call
-    until a git call other than BRANCH_KEEPING_SUBCOMMANDS. A plain switch never decides:
-    its word can be a path, a commit or an alias of the default branch."""
+    <new>` with a literal name that is not the default branch, decides a later `git push
+    <remote> HEAD`, see head_push, until a git call other than BRANCH_KEEPING_SUBCOMMANDS.
+    It decides no other call: a push without a refspec follows config such as
+    push.default=upstream. A plain switch never decides: its word can be a path, a
+    commit or an alias of the default branch. The result has one entry per call."""
     unordered = [None] * len(calls)
     masked = _common.mask_quoted(command).replace("&&", "")
     if UNORDERED_CHARS.search(masked) or SUBSTITUTION_CHARS.search(command):
@@ -1713,13 +1719,25 @@ def created_branches(command: str, calls: list[GitCall], cwd: str) -> list[Optio
         words = shell_words_of(part)
         if not words or words[0] != "git" or git_subcommand_index(call.words, 0) != 1:
             return unordered
-        branches.append(created)
+        branches.append(created if head_push(call.words) else None)
         if call.words[1] in BRANCH_KEEPING_SUBCOMMANDS:
             continue
         created = created_branch(call.words)
         if created is not None and created.lower() == QUERIES.default_branch(cwd).lower():
             created = None
-    return branches
+    return branches if len(branches) == len(calls) else unordered
+
+
+def head_push(words: list[str]) -> bool:
+    """Whether words are `git push <remote> HEAD`, with no other option than
+    HEAD_PUSH_OPTIONS."""
+    arguments = [word for word in words[2:] if word not in HEAD_PUSH_OPTIONS]
+    return (
+        words[1] == "push"
+        and len(arguments) == 2
+        and not arguments[0].startswith("-")
+        and arguments[1] == "HEAD"
+    )
 
 
 def created_branch(words: list[str]) -> Optional[str]:

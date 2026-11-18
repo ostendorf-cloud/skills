@@ -1386,13 +1386,14 @@ class CommandShapeTest(unittest.TestCase):
             [
                 "git checkout main && git checkout -b feat/new && git push -u origin HEAD",
                 "git switch main && git switch -c feat/new && git push -u origin HEAD",
-                "git switch main && git pull --ff-only && git switch --create feat/new && git push",
+                "git switch main && git pull --ff-only && git switch --create feat/new && "
+                "git push -q --set-upstream origin HEAD",
                 "git checkout main && git checkout -q -b feat/new && git add README.md && "
                 "git commit -m 'docs: fix typo; and a # sign' && git push origin HEAD",
                 "git checkout main && git checkout --orphan feat/new && "
                 "git commit -m 'chore: init' && git push origin HEAD",
                 "git checkout main && git checkout -b feat/new && git status && git diff && "
-                "git log && git show && git fetch origin && git push",
+                "git log && git show && git push --quiet origin HEAD",
             ]
         )
 
@@ -1454,7 +1455,8 @@ class CommandShapeTest(unittest.TestCase):
                 "git push origin HEAD",
                 "git checkout main && git checkout -b feat/new && git rebase origin/main main && "
                 "git push origin HEAD",
-                "git checkout main && git checkout -b feat/new && git pull origin main && git push",
+                "git checkout main && git checkout -b feat/new && git pull origin main && "
+                "git push origin HEAD",
                 "git checkout main && git checkout -b feat/new && git checkout main && git push",
                 "git checkout main && git checkout -b feat/new && cd ../other && "
                 "git push origin HEAD",
@@ -1510,8 +1512,8 @@ class CommandShapeTest(unittest.TestCase):
             [
                 "git checkout -b feat/new && git push -u origin HEAD",
                 "git switch -c feat/new && git push -u origin HEAD",
-                "git checkout -b feat/new && git commit -m x && git push",
-                "git checkout main && git checkout -b feat/new && git push",
+                "git checkout -b feat/new && git commit -m x && git push origin HEAD",
+                "git checkout main && git checkout -b feat/new && git push -q origin HEAD",
             ]
         )
         self.assert_denied(
@@ -1521,6 +1523,35 @@ class CommandShapeTest(unittest.TestCase):
                 "git checkout -b feat/new || git push origin HEAD",
                 "git checkout -b feat/new; git push origin HEAD",
                 "git checkout -b feat/new && git push origin main",
+                # Without an explicit HEAD, config decides where the push goes, such as
+                # push.default=upstream with branch.autoSetupMerge=inherit.
+                "git checkout -b feat && git commit -q --allow-empty -m 'chore: x' && git push -q",
+                "git switch -c feat && git push",
+                "git checkout -b feat && git push origin",
+                "git checkout -b feat && git push -u",
+                "git checkout -b feat && git push --force-with-lease origin HEAD",
+                "git checkout -b feat && git push origin HEAD:main",
+                "git checkout -b feat && git push origin HEAD main",
+                "git checkout -b feat && git push origin +HEAD",
+                # `:` pushes every matching branch, the default branch among them.
+                "git checkout -b feat && git push origin :",
+                "git checkout -b feat && git push origin HEAD :",
+                "git checkout -b feat && git send-pack origin HEAD",
+                # fetch runs a command of its own with --upload-pack, so it does not
+                # keep the branch.
+                "git checkout -b feat && git fetch -q --upload-pack "
+                "'git checkout -q main; git-upload-pack' . && "
+                "git commit -q --allow-empty -m 'chore: x' && git push -q origin HEAD",
+                "git checkout -b feat && git fetch "
+                "--upload-pack='git checkout main; git-upload-pack' origin && "
+                "git push origin HEAD",
+                "git checkout -b feat && git fetch -u 'git checkout main; git-upload-pack' "
+                "origin && git push origin HEAD",
+                "git checkout -b feat && git fetch origin && git push origin HEAD",
+                # Nested calls are checked as well.
+                "git checkout -b feat/new && git status sh -c 'git branch -D main'",
+                "git checkout -b feat && git log sh -c 'git push --force origin main' && "
+                "git push origin HEAD",
             ]
         )
 
