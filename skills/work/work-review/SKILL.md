@@ -37,6 +37,9 @@ Judge one pushed pull request as a different agent than the one that built it.
    each comment's body). A rework round starts from these, not from memory of the first pass.
 4. Read CI from `gh pr checks <number>` or the commit's check-runs via `gh api`, never a branch
    filtered runs list. One `gh` per command. A `## Verification` naming no commit is unverified.
+   To wait for a pending check, run `gh pr checks <number> --watch` as one standalone call: an
+   explicit `timeout` of at most 600000, no pipe, no loop. Read the verdict from the table, not
+   the exit code. A check still pending after the timeout is a hand back reason: name it.
 5. Run the verify command from config `verify` against the pushed branch.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
    human. For every open thread from step 3, decide whether its finding is now fixed.
@@ -78,8 +81,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 17. Verdict blocked: move the label to `blocked`.
 18. Changes requested or blocked: point the issue comment at the `implement` skill for the
     rework round.
-19. Never merge the pull request.
-20. Never approve a pull request implemented in this same session, formal review included.
+19. Never merge the pull request. Never approve one implemented in this same session, formal
+    review included.
 
 ## Guardrails
 
@@ -91,19 +94,16 @@ Judge one pushed pull request as a different agent than the one that built it.
 - A probe that executes command shapes or real git behaviour follows the baseline: an empty
   temporary directory with a fake binary first on the path, or a throwaway repository, never
   the worktree. A review prompt that asks for such probes carries that rule.
-- A claim settled only by reading, and not by running something, is named unverified in the
-  verdict, with what it rests on instead, whether or not running it was ever attempted.
-- Move the label with the snippet in `~/.claude/skills/README.md`: exactly one
-  `ai:` state label remains after the move.
+- A claim settled only by reading, not by running, is named unverified in the verdict, with
+  what it rests on, whether or not running it was attempted.
+- Move the label with the snippet in `~/.claude/skills/README.md`: one `ai:` label remains.
 - The supervising session picks the model before it spawns this review: `models.reviewBoundary`
   for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
   `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
 - A different agent than the implementer, every time, per Independence.
-- `done` is a real acceptance, and only reachable through an independent review. When unsure,
-  `needs human`, never a rubber stamp.
+- `done` is a real acceptance, only through an independent review. Unsure: `needs human`.
 - A `## Verification` section is a claim, not evidence. The pull request's own CI result for
-  the current head decides whether it still holds.
-- Every verdict names the commit CI was green on, formal review and comment path alike.
+  the current head decides. Every verdict names the commit CI was green on, in both paths.
 - A round cap, when set, is a floor for a human decision, never a way to wave through work.
 - A formal review or a `gh pr comment`, never both, for the same round's verdict. Resolving a
   thread never substitutes for stating whether its finding passed in the new verdict.
