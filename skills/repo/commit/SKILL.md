@@ -39,7 +39,8 @@ Turn the working tree into atomic, well described commits.
 - Never commit on the default branch. Branch first.
 - Never commit a secret, a state file or a credential shaped value. Scan the staged diff for one.
 - Never commit, amend or rebase with `GIT_CONFIG_GLOBAL=/dev/null` set unless the same command
-  sets `GIT_AUTHOR_*` and `GIT_COMMITTER_*`. The switch is for test runs. See `git-conventions`.
+  sets `GIT_COMMITTER_EMAIL`, and `GIT_AUTHOR_EMAIL` for a new commit. The switch is for test
+  runs. See `git-conventions`.
 - Signing stays whatever the repository already has configured. Never disable it.
 - An unfixed security vulnerability in a public repository gets no exploit detail in a commit
   message: see the baseline's security vulnerability rule.

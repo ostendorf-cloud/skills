@@ -9,7 +9,7 @@
       "timeout": 10,
       "onFailure": "block",
       "decision": "deny",
-      "description": "Push to the default branch, unless the remote has no branch yet, force push without lease or onto the default branch, git push --all or --mirror, bypassed hooks or signing, deletion of the default branch, git commit, rebase or cherry-pick under GIT_CONFIG_GLOBAL=/dev/null without GIT_COMMITTER_EMAIL. Adds context before a push whose commits carry a committer or Signed-off-by identity other than the author. On macOS also git fetch, pull or push that does not stand alone in its call."
+      "description": "Push to the default branch, unless the remote has no branch yet, force push without lease or onto the default branch, git push --all or --mirror, bypassed hooks or signing, deletion of the default branch, a git commit, rebase, cherry-pick, merge, pull, revert or am under GIT_CONFIG_GLOBAL=/dev/null without GIT_COMMITTER_EMAIL, and GIT_AUTHOR_EMAIL for a new commit. Adds context before a push whose commits carry a committer or Signed-off-by identity other than the author. On macOS also git fetch, pull or push that does not stand alone in its call."
     },
     {
       "id": "secret-guard",

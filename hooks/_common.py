@@ -840,6 +840,24 @@ def strip_global_git_options(part: str) -> tuple[str, Optional[str]]:
     return " ".join(kept), path
 
 
+def git_env(base: Optional[dict[str, str]] = None) -> dict[str, str]:
+    """base, the process environment by default, with `core.fsmonitor` switched off
+    through git's config environment variables. A repository config can name a program
+    there that git runs on a read, and a hook must not start what the repository says.
+    Given through the environment, not `-c`, so the arguments of a call stay as they are.
+    What stays: `core.sshCommand` and `core.gitProxy` still run for a call that reaches a
+    remote, as they do for the push itself."""
+    env = dict(os.environ if base is None else base)
+    try:
+        count = int(env.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        count = 0
+    env[f"GIT_CONFIG_KEY_{count}"] = "core.fsmonitor"
+    env[f"GIT_CONFIG_VALUE_{count}"] = "false"
+    env["GIT_CONFIG_COUNT"] = str(count + 1)
+    return env
+
+
 def run_git(args: list[str], cwd: Optional[str]) -> Optional[str]:
     """Runs git with args in cwd. Returns stripped stdout, or None on failure."""
     try:
@@ -849,6 +867,7 @@ def run_git(args: list[str], cwd: Optional[str]) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=10,
+            env=git_env(),
         )
     except Exception:
         return None

@@ -41,11 +41,15 @@ How branches, commits, pull requests and history stay consistent and reversible.
 - Reference an issue in the footer with `Refs #123` or `Closes #123`.
 - `GIT_CONFIG_GLOBAL=/dev/null` is the switch for test runs only. Never set it in a shell that
   makes real commits.
-- A `git commit`, `--amend` or `git rebase` that writes commits sets `GIT_AUTHOR_*` and
-  `GIT_COMMITTER_*` in the same command, or runs with the normal git config. Otherwise git takes
-  the committer, and any `--signoff` line, from the host name.
+- A command that writes commits sets `GIT_COMMITTER_EMAIL` in the same command, or runs with
+  the normal git config. Such commands are `git commit`, `rebase`, `cherry-pick`, `merge`,
+  `pull`, `revert` and `am`. Otherwise git takes the email from the host name, also for a
+  `--signoff` line. The name comes from the passwd entry.
+- A new `git commit` also sets `GIT_AUTHOR_EMAIL` or `-c user.email`. An amend, a rebase and a
+  cherry-pick keep their author.
 - Before a push, the committer and every `Signed-off-by` line match the author. The `git_guard`
-  hook denies the switch without a committer and warns on a mismatch before a push.
+  hook denies the switch without the emails and warns before a push on a mismatch.
+- The hook does not see an alias such as `git ci`, nor `HOME` pointing nowhere. Same hazard.
 
 ### Pull requests
 

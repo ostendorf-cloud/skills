@@ -55,7 +55,7 @@ One checkout, one session, without disturbing a branch another session already h
   its termination is confirmed.
 - Never remove a worktree whose branch still has unmerged work without checking first.
 - A commit, amend, rebase or cherry-pick in a worktree follows the same identity rule: no
-  `GIT_CONFIG_GLOBAL=/dev/null` without `GIT_COMMITTER_*` in the same command. See
+  `GIT_CONFIG_GLOBAL=/dev/null` without `GIT_COMMITTER_EMAIL` in the same command. See
   `git-conventions`.
 - `.claude/worktrees/` stays in `.gitignore`. Never commit a worktree's contents from the parent
   checkout.
