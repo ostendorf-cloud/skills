@@ -21,8 +21,9 @@ handed to a shell. `export`, `readonly`, `declare -x` and `unset` carry to later
 bare assignment carries the switch. A pipeline runs in a subshell and keeps nothing, a
 subshell in parentheses is not followed. A string handed to a shell, at any depth, starts
 from the variables of the part that runs it and follows its own `export` and `unset`.
-Not seen: an alias such as `git ci`, a shell function, `pull.rebase` from config, `HOME`
-pointing nowhere, `tag -a`, and git behind a variable. A prefix on `echo "$(git commit)"`
+Not seen: an alias such as `git ci`, a shell function, `pull.rebase` from config, an
+abbreviated pull option such as `--no-reb`, `HOME` pointing nowhere, `tag -a`, and git behind
+a variable. A prefix on `echo "$(git commit)"`
 denies although bash does not pass it to the substitution, which is harmless.
 
 Before a push it adds context, never a deny, when a commit it would send, one that no
