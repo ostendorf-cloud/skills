@@ -3,7 +3,7 @@
     {
       "title": "Conventions",
       "description": "Rules that apply to every repository.",
-      "skills": ["git-conventions", "repo-conventions", "secrets-handling", "writing-style"]
+      "skills": ["git-conventions", "repo-conventions", "secrets-handling", "writing-style", "website-conventions"]
     },
     {
       "title": "Repository",
