@@ -66,6 +66,15 @@
       "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where the repository's release tool (release-me or release-please) is configured, and gh repo rename, set-default, alias or extension."
     },
     {
+      "id": "scratchpad-path",
+      "script": "scratchpad_path.py",
+      "event": "PreToolUse",
+      "matcher": "Bash|Read|Write|Edit|MultiEdit|NotebookEdit",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "A scratchpad path with a dash instead of a slash before the session id, in a Bash command or a file path. The denial shows the corrected path."
+    },
+    {
       "id": "label-move",
       "script": "label_move.py",
       "event": "PreToolUse",
