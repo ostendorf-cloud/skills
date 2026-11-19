@@ -69,7 +69,7 @@
       "id": "scratchpad-path",
       "script": "scratchpad_path.py",
       "event": "PreToolUse",
-      "matcher": "Bash|Read|Write|Edit|MultiEdit|NotebookEdit",
+      "matcher": "Bash|Read|Edit|Write|MultiEdit|NotebookEdit",
       "timeout": 10,
       "decision": "deny",
       "description": "A scratchpad path with a dash instead of a slash before the session id, in a Bash command or a file path. The denial shows the corrected path."

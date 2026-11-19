@@ -80,6 +80,49 @@ class ScratchpadPathTest(unittest.TestCase):
         path = f"{BASE}-{SESSION}0/scratchpad/a.md"
         self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
 
+    def test_allows_session_id_in_a_file_name_under_the_correct_dir(self):
+        path = f"{BASE}/{SESSION}/scratchpad/out-{SESSION}.log"
+        self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
+    def test_allows_project_dir_without_leading_dash(self):
+        path = f"/tmp/claude-501/foo-{SESSION}/a.md"
+        self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
+    def test_allows_wrong_shaped_id_followed_by_more_text(self):
+        for suffix in ("-old", "x"):
+            with self.subTest(suffix=suffix):
+                path = f"{BASE}-{SESSION}{suffix}/a.md"
+                self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
+    def test_allows_non_numeric_or_missing_uid(self):
+        for name in ("claude-cache", "claude-"):
+            with self.subTest(name=name):
+                path = f"/tmp/{name}/-x-{SESSION}/a.md"
+                self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
+    def test_allows_relative_path_ending_in_tmp(self):
+        path = f"./tmp/claude-501/{PROJECT}-{SESSION}/a.md"
+        self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
+    def test_denies_wrong_path_at_start_and_after_a_separator(self):
+        for command in (
+            f"{BASE}-{SESSION}/a.md",
+            f"cat {BASE}-{SESSION}/a.md",
+            f"cat '{BASE}-{SESSION}/a.md'",
+            f'cat "{BASE}-{SESSION}/a.md"',
+            f"FILE={BASE}-{SESSION}/a.md cat",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(decision(run(bash_payload(command))), "deny")
+
+    def test_allows_wrong_path_inside_another_path(self):
+        for path in (
+            f"/private/var/tmp/claude-501/{PROJECT}-{SESSION}/a.md",
+            f"/data/tmp/claude-501/{PROJECT}-{SESSION}/a.md",
+        ):
+            with self.subTest(path=path):
+                self.assertIsNone(decision(run(bash_payload(f"cat {path}"))))
+
     def test_allows_session_id_elsewhere(self):
         self.assertIsNone(decision(run(bash_payload(f"cat /var/log/app-{SESSION}/x"))))
         self.assertIsNone(decision(run(bash_payload(f"cat /private/tmp/other-tool-{SESSION}/x"))))

@@ -12,6 +12,17 @@ exist, so the call fails with "no such file" or writes into a stray directory.
 
 The hook reads only the tool input. It touches no file, starts no process and writes
 nothing. It does not check that the corrected path exists.
+
+Limits:
+- The hook scans the text of a Bash command, so text that merely mentions the bad path
+  is denied too: a commit message, a heredoc or a grep pattern. The workaround is a
+  looser pattern, for example grepping for the session id alone. File content (the
+  Write content, the Edit new_string) is not scanned and never denied.
+- A project directory whose own name ends in a session shaped uuid reads as a slip. The
+  hook would then deny every scratchpad call for that project. Every other failure is
+  open. The escape is to rename the project directory or to remove the hook. The hook
+  does not compare against the payload's session id, because what a subagent payload
+  carries is not verified.
 """
 
 import os
@@ -29,23 +40,22 @@ INPUT_FIELDS = ("command", "file_path", "notebook_path")
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 # The project dir starts with a dash and holds no slash. The session id follows it after
-# a dash, where the real layout has a slash. The lookahead ends the id on a separator, so
-# a longer hex run is not taken for a session id.
+# a dash, where the real layout has a slash. The lookbehind keeps the match from starting
+# inside another path such as /private/var/tmp. The lookahead ends the id on a separator,
+# so a longer hex run is not taken for a session id.
 WRONG_PATH = re.compile(
+    r"(?<![A-Za-z0-9_.-])"
     r"(?P<base>(?:/private)?/tmp/claude-[0-9]+/-[A-Za-z0-9._-]*?)"
     rf"-(?P<session>{UUID})(?![0-9A-Za-z_-])"
 )
 
 
 def corrected_paths(text: str) -> list[str]:
-    """The corrected form of every wrong scratchpad path in text, in order, without
-    repeats. The corrected form ends on the session id, followed by a slash."""
-    found: list[str] = []
-    for match in WRONG_PATH.finditer(text):
-        fixed = f"{match.group('base')}/{match.group('session')}/"
-        if fixed not in found:
-            found.append(fixed)
-    return found
+    """The corrected form of every wrong scratchpad path in text, in order. The
+    corrected form ends on the session id, followed by a slash. May hold repeats."""
+    return [
+        f"{match.group('base')}/{match.group('session')}/" for match in WRONG_PATH.finditer(text)
+    ]
 
 
 def main() -> int:
