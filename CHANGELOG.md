@@ -1,5 +1,21 @@
 # Changelog
 
+## [v0.4.0](https://github.com/ostendorf-cloud/skills/compare/v0.3.0...v0.4.0) (2026-11-19)
+
+### Features
+
+- **hooks:** refuse a scratchpad path with a dash before the session id ([#234](https://github.com/ostendorf-cloud/skills/pull/234))
+- **skills:** add the website conventions skill ([#231](https://github.com/ostendorf-cloud/skills/pull/231))
+- **work-review:** name a sanctioned way to wait for a pending check ([#228](https://github.com/ostendorf-cloud/skills/pull/228))
+
+### Bug Fixes
+
+- **hooks:** guard commit identity under the global config switch ([#229](https://github.com/ostendorf-cloud/skills/pull/229))
+- **work-review:** align the probe guardrail with the baseline ([#226](https://github.com/ostendorf-cloud/skills/pull/226))
+- **hooks:** let the last branch switch decide in git-guard ([#223](https://github.com/ostendorf-cloud/skills/pull/223))
+- **hooks:** harden the git guard ([#217](https://github.com/ostendorf-cloud/skills/pull/217))
+- **hooks:** deny git fetch, pull and push outside a standalone call ([#211](https://github.com/ostendorf-cloud/skills/pull/211))
+
 ## [v0.3.0](https://github.com/ostendorf-cloud/skills/compare/v0.2.0...v0.3.0) (2026-11-15)
 
 ### Features
