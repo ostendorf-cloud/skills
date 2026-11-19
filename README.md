@@ -82,6 +82,7 @@ npx skills add ostendorf-cloud/skills -g
 | `tracker-body` | deny | A `gh` pull request, issue, review or API body carrying the same attribution patterns, from `--body`, a body file or piped stdin. |
 | `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
 | `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where the release tool (release-me or release-please) is configured, and `gh repo` rename, set-default, alias or extension. |
+| `scratchpad-path` | deny | A scratchpad path with a dash instead of a slash before the session id, in a Bash command or a file path. The denial shows the corrected path. |
 | `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |
 | `session-lock` | context | Records the session for the checkout and warns when another live session already works in it. |
 | `session-unlock` | context | Removes the session record at session end. |
