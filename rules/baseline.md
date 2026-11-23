@@ -74,7 +74,7 @@ Applies to every session and every repository. Conventions live in skills and lo
 - A command whose output is a token or a password is never run directly, even to read it.
 - A command the harness denies is a decision. Do not route around it with another tool, agent or spelling.
 - Repository and organisation settings, labels, rulesets and secrets are infrastructure as code. Never change them with a CLI or the web UI. Propose the change in the infrastructure repository.
-- A security vulnerability in a public repository gets no write-up of how it is exploitable before a fix is merged. This covers an issue, a pull request, a comment and a commit message. Use a draft security advisory, or a branch and pull request with a plain message.
+- A security vulnerability in a public repository gets no write-up of how it is exploitable before a fix is merged. This covers an issue, a pull request, a comment and a commit message. Use a draft security advisory, or a branch and pull request with a plain message. A hook denies the common vocabulary; it is a net, not the rule.
 
 ## Where task rules live
 

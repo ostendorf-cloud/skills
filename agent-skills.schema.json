@@ -144,6 +144,36 @@
         "adr": { "type": "string", "default": "docs/adr" },
         "concepts": { "type": "string", "default": "docs/concepts" }
       }
+    },
+    "publicFindings": {
+      "description": "Settings for the public-findings hook, which denies finding write-ups in public repositories.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowWords": {
+          "description": "Words of the finding vocabulary this repository may use, for example a security tool whose own feature issues name them. Absent means none.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "security",
+              "cve",
+              "codeql",
+              "code scanning",
+              "alert",
+              "vulnerab",
+              "exploit",
+              "injection",
+              "xss",
+              "ssrf",
+              "path traversal",
+              "sanitiz",
+              "ghsa"
+            ]
+          },
+          "default": []
+        }
+      }
     }
   }
 }

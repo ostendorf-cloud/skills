@@ -48,6 +48,15 @@
       "description": "gh pr create, gh pr edit, gh pr comment, gh pr review, gh issue create, gh issue edit, gh issue comment or gh api body field whose text carries an attribution trailer, a generated-by marker or a Claude or Anthropic link outside the documentation hosts. A --body-file read from stdin falls back to scanning the raw command text."
     },
     {
+      "id": "public-findings",
+      "script": "public_findings.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 15,
+      "decision": "deny",
+      "description": "Finding write-ups in a public repository: a gh issue, gh pr or gh api write, or a git commit message, whose title, label or text carries the finding vocabulary. A private repository, plain wording and words listed in publicFindings.allowWords of .agent-skills.json are allowed. Unknown visibility counts as public."
+    },
+    {
       "id": "prefer-opentofu",
       "script": "prefer_opentofu.py",
       "event": "PreToolUse",

@@ -80,6 +80,7 @@ npx skills add ostendorf-cloud/skills -g
 | `shell-hygiene` | deny | File content written through the shell: heredoc or redirect into a file, `tee`, `sed -i`. Inline interpreter one liners that span lines or that open a file for writing. |
 | `commit-message` | deny | Commit subject that is not a Conventional Commit, or a commit message carrying an attribution trailer, a "Generated with" line or a vendor link outside the documentation hosts. |
 | `tracker-body` | deny | A `gh` pull request, issue, review or API body carrying the same attribution patterns, from `--body`, a body file or piped stdin. |
+| `public-findings` | deny | A `gh` issue, pull request or API write, or a commit message, in a public repository whose title, label or text describes a finding. Unknown visibility counts as public. `publicFindings.allowWords` in `.agent-skills.json` opts out of words. |
 | `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
 | `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where the release tool (release-me or release-please) is configured, and `gh repo` rename, set-default, alias or extension. |
 | `scratchpad-path` | deny | A scratchpad path with a dash instead of a slash before the session id, in a Bash command or a file path. The denial shows the corrected path. |

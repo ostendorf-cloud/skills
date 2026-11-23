@@ -387,6 +387,22 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "ok")
 
+    def test_the_real_schema_documents_the_public_findings_key(self) -> None:
+        schema_path = Path(__file__).resolve().parents[2] / "agent-skills.schema.json"
+        schema = json.loads(schema_path.read_text())
+        write(
+            self.root / ".agent-skills.json",
+            json.dumps({"publicFindings": {"allowWords": ["alert", "security"]}}),
+        )
+        self.assertEqual(validate.check_config_against_schema(self.root, schema), [])
+        write(
+            self.root / ".agent-skills.json",
+            json.dumps({"publicFindings": {"allowWords": "alert", "other": 1}}),
+        )
+        findings = validate.check_config_against_schema(self.root, schema)
+        self.assertIn(".agent-skills.json.publicFindings: unknown key other", findings)
+        self.assertIn(".agent-skills.json.publicFindings.allowWords: expected array", findings)
+
     def test_detects_adr_numbering_gap(self) -> None:
         write(self.root / "docs" / "adr" / "0001-first.md", "# First\n")
         write(self.root / "docs" / "adr" / "0003-third.md", "# Third\n")
