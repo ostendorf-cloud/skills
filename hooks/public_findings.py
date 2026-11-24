@@ -161,7 +161,7 @@ GRAPHQL_MUTATION = re.compile(
 )
 API_LABEL_ENDPOINT = re.compile(r"(?:^|/)labels(?:/|$)")
 API_LABEL_NAME_KEYS = frozenset({"name", "new_name"})
-NOT_PLAIN_SLUG ="not a plain owner/name"
+NOT_PLAIN_SLUG = "not a plain owner/name"
 NO_SLUG = "no owner/name found"
 REMOTE_SLUG = re.compile(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$")
 VALID_SLUG = re.compile(r"^[\w.][\w.-]*/[\w.][\w.-]*$")
