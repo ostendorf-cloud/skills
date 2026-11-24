@@ -4,6 +4,7 @@
   "effortLevel": "medium",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "pnpm_config_store_dir": "~/.cache/pnpm/store",
     "XDG_RUNTIME_DIR": "/tmp/claude"
   },
   "fileCheckpointingEnabled": true,
@@ -215,7 +216,9 @@
       "go mod download",
       "go mod download *",
       "go mod tidy",
-      "go mod tidy *"
+      "go mod tidy *",
+      "go get",
+      "go get *"
     ],
     "filesystem": {
       "allowRead": [

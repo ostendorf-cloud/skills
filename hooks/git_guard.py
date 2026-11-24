@@ -6,7 +6,8 @@ carries no branch at all yet, a force push without `--force-with-lease` or one o
 default branch, `git push --all` or `--mirror`, a command that bypasses hooks or commit
 signing, and deletion of the default branch, local or remote. On macOS it also denies
 a `git fetch`, `git pull` or `git push` that does not stand alone in its call, because
-only a lone command leaves the sandbox (ADR 0005).
+only a lone command leaves the sandbox (ADR 0005). The same is expected for `go get`
+(ADR 0008): a chained, `cd` prefixed or env prefixed one is denied.
 
 It also denies a `git commit`, `rebase`, `cherry-pick`, `merge`, `pull`, `revert`, `am`,
 `commit-tree` or `notes` that runs with `GIT_CONFIG_GLOBAL` set to the null device, the
@@ -859,6 +860,59 @@ def network_shape_violation(
     subcommand_next = sub_index == git_index + 1
     alone = command_alone and git_path is None and prefix_ok and subcommand_next
     return None if alone else RUN_NETWORK_ALONE
+
+
+RUN_GO_GET_ALONE = (
+    "go get leaves the sandbox only when it stands alone in the call, without a pipe, chain, "
+    "cd, env prefix, redirection or option before the subcommand. Otherwise it runs inside "
+    "the sandbox and fails the TLS check, so run it alone from the module directory, one "
+    "call per directory."
+)
+
+
+def go_get_words(raw_part: str) -> Optional[tuple[list[str], int]]:
+    """The words of raw_part and the index of the `go` word, when the part runs `go get`
+    behind nothing but env assignments, `env` and `time`, None otherwise. The options
+    before the subcommand are skipped, the value of `-C` too."""
+    words = shell_words_of(raw_part)
+    for index, word in enumerate(words):
+        if _common.token_name(word) != "go":
+            continue
+        if not all(
+            ENV_ASSIGNMENT.match(before) or _common.token_name(before) in ("env", "time")
+            for before in words[:index]
+        ):
+            return None
+        position = index + 1
+        while position < len(words) and words[position].startswith("-"):
+            position += 2 if words[position] == "-C" else 1
+        if position < len(words) and words[position] == "get":
+            return words, index
+    return None
+
+
+def go_get_shape_violation(command_alone: bool, raw_part: str) -> Optional[str]:
+    """The deny reason when `go get` does not stand alone in its call, None when it does
+    or when the part is something else.
+
+    Gated on macOS like network_shape_violation: the exclusion exists for the macOS
+    certificate service. That a lone `go get` leaves the sandbox is expected from how the
+    git exclusion behaves, not measured. The hook is an early stop for a clear message,
+    not a security control.
+
+    Alone means one command part, no env assignment or `env` before go and no option
+    between go and the subcommand."""
+    if sys.platform != "darwin":
+        return None
+    found = go_get_words(raw_part)
+    if found is None:
+        return None
+    words, index = found
+    prefix_ok = not any(
+        ENV_ASSIGNMENT.match(word) or _common.token_name(word) == "env" for word in words[:index]
+    )
+    subcommand_next = len(words) > index + 1 and words[index + 1] == "get"
+    return None if command_alone and prefix_ok and subcommand_next else RUN_GO_GET_ALONE
 
 
 def command_stands_alone(command: str) -> bool:
@@ -2285,6 +2339,9 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
 
     command_alone = command_stands_alone(shape_text)
     for raw_part, directory in _common.part_dirs(shape_text, cwd):
+        reason = go_get_shape_violation(command_alone, raw_part)
+        if reason:
+            return reason
         part = _common.normalize_command_part(raw_part)
         if part.split(" ", 1)[0] != "git":
             continue

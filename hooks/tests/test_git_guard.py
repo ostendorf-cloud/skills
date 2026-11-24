@@ -2823,5 +2823,71 @@ class CommitIdentityTest(unittest.TestCase):
         self.assertFalse(os.path.exists(marker))
 
 
+class PackageCommandShapeTest(unittest.TestCase):
+    """go get leaves the sandbox only when it stands alone in the call (ADR 0008). pnpm runs
+    inside the sandbox, so the hook says nothing about it."""
+
+    def setUp(self):
+        self.cwd = tempfile.mkdtemp(prefix="git-guard-package-")
+
+    def check(self, command: str, platform: str = "darwin"):
+        return run_main_in_process(command, self.cwd, platform)
+
+    def test_allows_a_standalone_go_get(self):
+        for command in [
+            "go get github.com/ostendorf-cloud/govue@v0.9.0",
+            "go get ./...",
+            "go get -u ./...",
+            "time go get ./...",
+            "/usr/local/go/bin/go get ./...",
+            "go get ./... 2>&1",
+        ]:
+            self.assertIsNone(decision(self.check(command)), command)
+
+    def test_denies_a_chained_piped_or_cd_prefixed_go_get(self):
+        for command in [
+            "go get github.com/ostendorf-cloud/govue@v0.9.0 && go mod tidy",
+            "cd api && go get ./...",
+            "go get ./... | tail -3",
+            "go get ./... 2>/dev/null",
+        ]:
+            out = self.check(command)
+            self.assertEqual(decision(out), "deny", command)
+            self.assertIn("alone", reason(out))
+            self.assertIn("one call per directory", reason(out))
+
+    def test_denies_an_env_prefix_or_an_option_before_go_get(self):
+        for command in [
+            "GOFLAGS=-mod=mod go get ./...",
+            "env GOPROXY=direct go get ./...",
+            "go -C api get ./...",
+        ]:
+            self.assertEqual(decision(self.check(command)), "deny", command)
+
+    def test_never_touches_pnpm_which_runs_inside_the_sandbox(self):
+        for command in [
+            "pnpm install",
+            "cd web && pnpm install --frozen-lockfile",
+            "pnpm install --lockfile-only | tail -3",
+            "CI=1 pnpm install --frozen-lockfile",
+            "pnpm --dir web install",
+        ]:
+            self.assertEqual(self.check(command), {}, command)
+
+    def test_leaves_other_go_commands_alone(self):
+        for command in [
+            "cd api && go test ./... && go mod tidy",
+            "go mod download | tail -3",
+            "go build ./... && go vet ./...",
+            "echo go get is not run",
+            "grep -rn 'go get' docs | head",
+        ]:
+            self.assertIsNone(decision(self.check(command)), command)
+
+    def test_does_nothing_off_macos(self):
+        for command in ["cd api && go get ./...", "GOFLAGS=-mod=mod go get ./..."]:
+            self.assertEqual(self.check(command, "linux"), {}, command)
+
+
 if __name__ == "__main__":
     unittest.main()
