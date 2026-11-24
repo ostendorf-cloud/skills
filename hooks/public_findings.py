@@ -69,30 +69,52 @@ TTL_FAILURE = 60
 
 SECURITY_LABEL = "security"
 
-INJECTION_KINDS = "sql|command|template|header|prompt|code|html|log|ldap|xpath|os|email"
+INJECTION_KINDS = "sql|command|os|ldap|xpath|html|email|shell"
 
 VOCABULARY = {
     "cve": re.compile(r"CVE-\d", re.IGNORECASE),
     "ghsa": re.compile(r"GHSA-", re.IGNORECASE),
-    "codeql": re.compile(r"CodeQL\s+(?:alerts?|findings?|results?)\b", re.IGNORECASE),
-    "code scanning": re.compile(r"code[\s-]+scanning\s+(?:alerts?|findings?|results?)\b", re.I),
-    "alert": re.compile(r"alert\s*#?\d", re.IGNORECASE),
+    "codeql": re.compile(r"CodeQL\s+(?:alerts?|findings?)\b", re.IGNORECASE),
+    "code scanning": re.compile(r"code[\s-]+scanning\s+(?:alerts?|findings?)\b", re.I),
+    "alert": re.compile(
+        r"\balerts?\s*#\d"
+        r"|\b(?:CodeQL|code[\s-]+scanning|dependabot|secret[\s-]+scanning)\s+alerts?\b",
+        re.IGNORECASE,
+    ),
     "vulnerab": re.compile(
-        r"\b(?:a|an|the|this|that)\s+(?:\w+\s+){0,2}vulnerabilit(?:y|ies)\s+(?:in|of|that)\b"
-        r"|vulnerable\s+to\b|\bis\s+vulnerable\b|vulnerabilities\s+found"
-        r"|security\s+vulnerabilit",
+        r"\b(?:a|an|the|this|that)\s+(?:\w+\s+){0,2}vulnerability\s+(?:in|of|that)\b"
+        r"|vulnerable\s+to\b|\bis\s+vulnerable\b",
         re.IGNORECASE,
     ),
     "exploit": re.compile(r"\bexploit(?:s|able)?\b", re.IGNORECASE),
-    "injection": re.compile(rf"\b(?:{INJECTION_KINDS})[\s-]+injection\b", re.IGNORECASE),
-    "xss": re.compile(r"\bXSS\b", re.IGNORECASE),
+    "injection": re.compile(rf"\b(?:{INJECTION_KINDS})[\s-]+injection\b|\bSQLi\b", re.IGNORECASE),
+    "xss": re.compile(r"\bXSS\b|\bcross[\s-]+site\s+scripting\b", re.IGNORECASE),
     "ssrf": re.compile(r"\bSSRF\b", re.IGNORECASE),
-    "path traversal": re.compile(r"path\s+traversal", re.IGNORECASE),
+    "path traversal": re.compile(r"path\s+traversal|directory\s+traversal", re.IGNORECASE),
     "sanitiz": re.compile(
         r"\bun-?sanitiz?s?ed\b"
         r"|\b(?:missing|incomplete|insufficient|bad|improper|no)\s+(?:\w+\s+)?saniti[sz]ation",
         re.IGNORECASE,
     ),
+    "csrf": re.compile(r"\bCSRF\b", re.IGNORECASE),
+    "open redirect": re.compile(r"\bopen\s+redirects?\b", re.IGNORECASE),
+    "rce": re.compile(
+        r"\bRCE\b|\bremote\s+code\s+execution\b|\barbitrary\s+code\s+execution\b",
+        re.IGNORECASE,
+    ),
+    "privilege escalation": re.compile(r"\bprivilege\s+escalation\b", re.IGNORECASE),
+    "zip slip": re.compile(r"\bzip[\s-]+slip\b", re.IGNORECASE),
+    "xxe": re.compile(r"\bXXE\b", re.IGNORECASE),
+    "deserialization": re.compile(r"\binsecure\s+deseriali[sz]ation\b", re.IGNORECASE),
+    "prototype pollution": re.compile(r"\bprototype\s+pollution\b", re.IGNORECASE),
+    "auth bypass": re.compile(
+        r"\bauth(?:entication)?\s+bypass(?:es)?\b|\bbypass(?:es)?\s+authentication\b",
+        re.IGNORECASE,
+    ),
+    "hardcoded credentials": re.compile(
+        r"\bhard-?coded\s+(?:password|credential)s?\b", re.IGNORECASE
+    ),
+    "cwe": re.compile(r"\bCWE-\d", re.IGNORECASE),
 }
 
 PR_SUBCOMMANDS = frozenset({"create", "edit", "comment", "review"})
@@ -134,8 +156,13 @@ API_TEXT_KEYS = frozenset({"title", "body", "labels", "labels[]"})
 API_ENDPOINT_REPO = re.compile(r"^/?repos/([^/\s]+)/([^/\s]+)")
 GRAPHQL_MUTATION = re.compile(
     r"\b(?:addComment|createIssue|updateIssue|addPullRequestReview|"
-    r"addPullRequestReviewComment|updatePullRequest|createPullRequest)\b"
+    r"addPullRequestReviewComment|updatePullRequest|createPullRequest|updateIssueComment|"
+    r"updatePullRequestReviewComment|addDiscussionComment|createDiscussion)\b"
 )
+API_LABEL_ENDPOINT = re.compile(r"(?:^|/)labels(?:/|$)")
+API_LABEL_NAME_KEYS = frozenset({"name", "new_name"})
+NOT_PLAIN_SLUG ="not a plain owner/name"
+NO_SLUG = "no owner/name found"
 REMOTE_SLUG = re.compile(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$")
 VALID_SLUG = re.compile(r"^[\w.][\w.-]*/[\w.][\w.-]*$")
 
@@ -147,7 +174,7 @@ DENY_PUBLIC = (
 )
 DENY_UNKNOWN = (
     "The visibility of {slug} could not be read ({error}), and an unknown repository counts "
-    "as public. Retry, or write a plain title and body with no finding detail (matched: "
+    "as public. {hint}, or write a plain title and body with no finding detail (matched: "
     "{words})."
 )
 
@@ -323,9 +350,9 @@ def visibility(slug: str, session: str) -> tuple[Optional[bool], str]:
     """(private, error) for slug, from the cache or the lookup. A slug that is not a plain
     owner/name is never looked up."""
     if not slug:
-        return None, "no owner/name found"
+        return None, NO_SLUG
     if not VALID_SLUG.match(slug):
-        return None, "not a plain owner/name"
+        return None, NOT_PLAIN_SLUG
     key = cache_key(session, slug)
     cached = entry_answer(read_cache().get(key), time.time())
     if cached is not None:
@@ -391,7 +418,9 @@ def api_write(
     if endpoint == "graphql":
         return graphql_write(fields, inputs, full_command, cwd, repo)
 
-    if not API_TRACKER_ENDPOINT.search(endpoint.split("?", 1)[0]):
+    path = endpoint.split("?", 1)[0]
+    is_label_endpoint = bool(API_LABEL_ENDPOINT.search(path))
+    if not API_TRACKER_ENDPOINT.search(path) and not is_label_endpoint:
         return None
 
     methods = [value.upper() for value in values_of(tokens, METHOD_FLAGS)]
@@ -405,7 +434,12 @@ def api_write(
     labels: list[str] = []
     for value in fields:
         key, separator, rest = value.partition("=")
-        if not separator or key not in API_TEXT_KEYS:
+        if not separator:
+            continue
+        if is_label_endpoint and key in API_LABEL_NAME_KEYS:
+            labels.append(rest)
+            continue
+        if key not in API_TEXT_KEYS and not (is_label_endpoint and key == "description"):
             continue
         if rest.startswith("@") and len(rest) > 1:
             texts.extend(file_texts([rest[1:]], full_command, cwd))
@@ -440,13 +474,16 @@ def graphql_write(
     return texts, [], repo
 
 
-def commit_texts(tokens: list[str], command: str, cwd: Optional[str]) -> list[str]:
-    """The message texts a `git commit` token list would write: every -m, --message,
-    -F and --file value, also inside a short flag cluster such as `-am`. Standard input
-    falls back to the heredoc that feeds it. An unreadable file adds nothing."""
+def commit_texts(
+    tokens: list[str], command: str, cwd: Optional[str], verb: str = "commit"
+) -> list[str]:
+    """The message texts a `git commit` or `git tag` token list would write: every -m,
+    --message, -F and --file value, also inside a short flag cluster such as `-am`.
+    Standard input falls back to the heredoc that feeds it. An unreadable file adds
+    nothing."""
     texts: list[str] = []
     files: list[str] = []
-    index = tokens.index("commit") + 1
+    index = tokens.index(verb) + 1
     while index < len(tokens):
         token = tokens[index]
         index += 1
@@ -496,12 +533,19 @@ def deny_reason(
     found = finding_words(texts, labels, allow)
     if not found:
         return None
+    if not slug and _common.run_git(["remote"], directory) == "":
+        return None
     private, error = visibility(slug, session)
     words = ", ".join(found)
     if private is True:
         return None
     if private is None:
-        return DENY_UNKNOWN.format(slug=slug or "this repository", error=error, words=words)
+        hint = "Retry"
+        if error in (NOT_PLAIN_SLUG, NO_SLUG):
+            hint = "fix the repository argument"
+        return DENY_UNKNOWN.format(
+            slug=slug or "this repository", error=error, words=words, hint=hint
+        )
     return DENY_PUBLIC.format(words=words)
 
 
@@ -535,13 +579,13 @@ def main() -> int:
             tokens = shlex.split(stripped)
         except ValueError:
             continue
-        if len(tokens) < 2 or tokens[0] != "git" or tokens[1] != "commit":
+        if len(tokens) < 2 or tokens[0] != "git" or tokens[1] not in ("commit", "tag"):
             continue
         commit_dir = _common.git_part_dir(raw_part, directory, path)
         if _common.in_scratch(commit_dir):
             continue
         target = commit_dir or where
-        texts = commit_texts(tokens, command, target)
+        texts = commit_texts(tokens, command, target, tokens[1])
         if not texts:
             continue
         reason = deny_reason(texts, [], slug_from_remote(target), target, session)

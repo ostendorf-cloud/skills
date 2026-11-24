@@ -5,5 +5,25 @@
   "pr": {
     "base": "main",
     "draft": true
+  },
+  "publicFindings": {
+    "allowWords": [
+      "xss",
+      "ssrf",
+      "path traversal",
+      "injection",
+      "csrf",
+      "rce",
+      "open redirect",
+      "xxe",
+      "deserialization",
+      "privilege escalation",
+      "prototype pollution",
+      "auth bypass",
+      "hardcoded credentials",
+      "exploit",
+      "sanitiz",
+      "vulnerab"
+    ]
   }
 }

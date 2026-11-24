@@ -168,7 +168,18 @@
               "ssrf",
               "path traversal",
               "sanitiz",
-              "ghsa"
+              "ghsa",
+              "csrf",
+              "open redirect",
+              "rce",
+              "privilege escalation",
+              "zip slip",
+              "xxe",
+              "deserialization",
+              "prototype pollution",
+              "auth bypass",
+              "hardcoded credentials",
+              "cwe"
             ]
           },
           "default": []

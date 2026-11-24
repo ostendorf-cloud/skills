@@ -44,6 +44,41 @@ ALLOWED_TEXTS = [
     "feat: add an alert rule for disk usage",
     "docs: see the code scanning view",
     PLAIN_TITLE,
+    "chore(deps): update dependency x to v2",
+    "update trivy vulnerability database action",
+    "docs: explain injection of the theme",
+    "feat: security headers",
+    "docs: security policy",
+    "fix(security-review): wording",
+    "lgtm, merge",
+    "ci: upload CodeQL results as SARIF",
+    "ci: upload code scanning results from trivy",
+    "feat(alerting): alert 5xx rate above 1 percent",
+    "fix(alertmanager): route alert 2 severity to pager",
+    "feat: grafana alert 1 for latency",
+    "feat(hooks): flag prompt injection in tool output",
+    "docs: name prompt injection in the baseline",
+    "feat(helm): add header injection of the tenant id",
+    "fix(log): add log injection of request ids",
+    "refactor(di): code injection via constructor",
+    "release: v1.4.0 fixes the vulnerabilities in the base image",
+    "chore(docker): bump alpine to reduce the vulnerabilities in the image",
+    "chore: run trivy and record vulnerabilities found",
+    "docs: explain how to report a security vulnerability",
+    "feat: add cross-site cookie support",
+    "feat: add redirect rules for the old docs url",
+    "refactor: move the source resource into force mode",
+    "docs: describe the remote code review process",
+    "feat: add privilege dropping to the runner",
+    "feat: walk the directory tree",
+    "feat: add zip support",
+    "docs: add xxl sizes",
+    "feat: add deserialization of the config",
+    "docs: explain the prototype pattern",
+    "feat: add a sqlite driver",
+    "feat: add auth middleware",
+    "refactor: replace hardcoded paths",
+    "docs: link the cweb page",
 ]
 
 DENIED_TEXTS = {
@@ -59,17 +94,40 @@ DENIED_TEXTS = {
     "ssrf": "SSRF through the webhook url",
     "path traversal": "Path traversal in the upload handler",
     "sanitiz": "Unsanitized input reaches the shell",
+    "csrf": "Missing CSRF check on the form",
+    "open redirect": "Open redirect in the login page",
+    "rce": "RCE in the upload handler",
+    "privilege escalation": "Privilege escalation through the sudo rule",
+    "zip slip": "Zip slip in the archive reader",
+    "xxe": "XXE in the xml parser",
+    "deserialization": "Insecure deserialization of the session",
+    "prototype pollution": "Prototype pollution in merge",
+    "auth bypass": "Auth bypass on the admin route",
+    "hardcoded credentials": "Hardcoded credentials in the script",
+    "cwe": "Maps to CWE-79",
 }
 
 MORE_DENIED_TEXTS = [
     "CodeQL alert #5",
+    "dependabot alert for lodash",
+    "secret scanning alert in the repo",
     "command injection in the runner",
-    "template injection in the renderer",
+    "shell injection in the runner",
+    "SQLi in the search",
+    "cross-site scripting in the preview",
+    "Cross Site Scripting in the preview",
+    "remote code execution on upload",
+    "arbitrary code execution on upload",
+    "directory traversal in the upload handler",
+    "zip-slip in the unpacker",
+    "authentication bypass on login",
+    "it bypasses authentication",
+    "hard-coded password in the repo",
     "the service is vulnerable to replay",
     "this parser is vulnerable",
-    "vulnerabilities found in the image",
-    "a security vulnerability",
     "the vulnerability of the parser",
+    "a vulnerability in the login handler",
+    "the parser is vulnerable to SQL injection",
     "it is exploitable",
     "exploits for the parser",
     "incomplete sanitization of paths",
@@ -205,9 +263,78 @@ class PublicFindingsTest(unittest.TestCase):
         self.assertIn("FileNotFoundError", text)
 
     def test_denies_when_the_repository_is_not_known(self):
+        other = tempfile.mkdtemp(prefix="other-", dir=self.root)
+        subprocess.run(["git", "init", "-q", other], check=True)
+        subprocess.run(
+            ["git", "-C", other, "remote", "add", "upstream", "https://github.com/acme/x.git"],
+            check=True,
+        )
+        self.assert_unknown(comment("a vulnerability in the parser"), other)
+        self.assert_unknown("git commit -m 'fix: close SQL injection'", other)
+
+    def test_allows_a_commit_in_a_repository_without_any_remote(self):
         bare = tempfile.mkdtemp(prefix="bare-", dir=self.root)
         subprocess.run(["git", "init", "-q", bare], check=True)
-        self.assert_unknown(comment("a vulnerability in the parser"), bare)
+        self.assert_allowed("git commit -m 'fix: close SQL injection'", bare)
+        self.assert_allowed("git tag -a v1 -m 'fix: close SQL injection'", bare)
+
+    def test_the_unknown_deny_says_retry_only_for_a_lookup_failure(self):
+        text = "a vulnerability in the parser"
+        flaky = make_repo(self.root, "https://github.com/acme/flaky.git")
+        self.assertIn("Retry", self.assert_unknown(comment(text), flaky))
+        invalid = f"gh issue comment 5 -R 'acme/web;rm' --body {shlex.quote(text)}"
+        message = self.assert_unknown(invalid)
+        self.assertIn("fix the repository argument", message)
+        self.assertNotIn("Retry", message)
+
+    def test_denies_a_tag_message_like_a_commit_message(self):
+        for command in (
+            "git tag -a v1.2.0 -m 'fix: close SQL injection'",
+            "git tag -am 'fix: close SQL injection' v1.2.0",
+            "git tag v1.2.0 --message='fix: close SQL injection'",
+        ):
+            with self.subTest(command=command):
+                self.assert_denied(command)
+        self.assert_allowed(f"git tag -a v1.2.0 -m '{PLAIN_TITLE}'")
+        self.assert_allowed("git tag v1.2.0")
+        self.assert_allowed("git tag -l 'SQL injection*'")
+
+    def test_denies_creating_the_security_label_through_the_rest_api(self):
+        for flag in ("-f", "--field", "-F", "--raw-field"):
+            with self.subTest(flag=flag):
+                self.assert_denied(f"gh api repos/acme/widgets/labels {flag} name=security")
+        self.assert_denied("gh api repos/acme/widgets/labels -f name=bug -f description='XSS'")
+        self.assert_allowed("gh api repos/acme/widgets/labels -f name=bug -f color=ff0000")
+        self.assert_allowed("gh api repos/acme/widgets/labels")
+
+    def test_denies_the_remaining_graphql_mutations(self):
+        for mutation in (
+            "updateIssueComment",
+            "updatePullRequestReviewComment",
+            "addDiscussionComment",
+            "createDiscussion",
+        ):
+            with self.subTest(mutation=mutation):
+                query = "mutation { " + mutation + '(input: {body: "SQL injection"}) { id } }'
+                self.assert_denied(f"gh api graphql -f query={shlex.quote(query)}")
+
+    def test_this_repository_config_allows_its_own_subject_only_here(self):
+        path = os.path.join(HOOKS_DIR, "..", ".agent-skills.json")
+        with open(path, encoding="utf-8") as handle:
+            config = json.load(handle)
+        repo = make_repo(self.root, "https://github.com/acme/skills.git", config)
+        texts = [
+            "docs(security-review): add SSRF and path traversal checks",
+            "test(hooks): cover XSS and SSRF in the public findings hook",
+        ]
+        for text in texts:
+            with self.subTest(text=text):
+                self.assert_allowed(f"git commit -m {shlex.quote(text)}", repo)
+                self.assert_denied(f"git commit -m {shlex.quote(text)}", self.public)
+                self.assert_denied(
+                    f"gh issue comment 5 -R acme/other --body {shlex.quote(text)}", repo
+                )
+        self.assert_denied("git commit -m 'fix: CVE-2026-1234'", repo)
 
     def test_repo_flag_selects_the_target_repository(self):
         text = "a vulnerability in the parser"
