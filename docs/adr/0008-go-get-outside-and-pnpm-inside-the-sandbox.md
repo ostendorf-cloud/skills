@@ -88,6 +88,16 @@ Date: 2026-11-24
 - Store consideration for pnpm: a separate store under `~/.cache/pnpm/store` keeps the sandbox
   away from the stores of the owner's own projects. A store shared through `~/Library/pnpm`
   would let an agent poison content that later projects outside the sandbox link to.
+- Residual risk of the store: a file the agent writes in a project, such as a repository
+  `.npmrc` with `store-dir=~/.cache/pnpm/store` or a `storeDir` in `pnpm-workspace.yaml`, can
+  point the owner's own terminal pnpm at the agent's store. The risk is small, because such a
+  file can already run scripts in that project, but it is not zero. Review those files before
+  an install outside a session.
+- A `go` directive that needs a newer toolchain makes `go get` download and run that toolchain
+  outside the sandbox. It is checksum verified, the same class as the toolchain switch above.
+- The absolute path form `/usr/local/go/bin/go get` and a `time` prefix are allowed by the hook
+  on the assumption that the `go get *` prefix match accepts them. The `time` prefix follows
+  the git measurement in ADR 0005. The absolute path is not measured.
 - The cost of a separate store: a first install downloads again, and pnpm links the files with
   hardlinks, so a project must sit on the same volume as `~/.cache`.
 - The standalone only behaviour was measured for git in ADR 0005. For `go get` it is expected,
