@@ -2824,11 +2824,8 @@ class CommitIdentityTest(unittest.TestCase):
 
 
 class PackageCommandShapeTest(unittest.TestCase):
-    """go get and the two exact pnpm install forms leave the sandbox only when they stand
-    alone in the call (ADR 0008). Any other pnpm install gets context, never a deny."""
-
-    FROZEN = "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile"
-    LOCKFILE_ONLY = "pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile"
+    """go get leaves the sandbox only when it stands alone in the call (ADR 0008). pnpm runs
+    inside the sandbox, so the hook says nothing about it."""
 
     def setUp(self):
         self.cwd = tempfile.mkdtemp(prefix="git-guard-package-")
@@ -2836,12 +2833,14 @@ class PackageCommandShapeTest(unittest.TestCase):
     def check(self, command: str, platform: str = "darwin"):
         return run_main_in_process(command, self.cwd, platform)
 
-    def test_allows_a_standalone_go_get_and_the_exact_pnpm_forms(self):
+    def test_allows_a_standalone_go_get(self):
         for command in [
             "go get github.com/ostendorf-cloud/govue@v0.9.0",
             "go get ./...",
-            self.FROZEN,
-            self.LOCKFILE_ONLY,
+            "go get -u ./...",
+            "time go get ./...",
+            "/usr/local/go/bin/go get ./...",
+            "go get ./... 2>&1",
         ]:
             self.assertIsNone(decision(self.check(command)), command)
 
@@ -2865,46 +2864,28 @@ class PackageCommandShapeTest(unittest.TestCase):
         ]:
             self.assertEqual(decision(self.check(command)), "deny", command)
 
-    def test_denies_the_exact_pnpm_forms_when_they_do_not_stand_alone(self):
-        for command in [
-            f"cd web && {self.FROZEN}",
-            f"{self.FROZEN} && pnpm build",
-            f"{self.LOCKFILE_ONLY} | tail -3",
-            f"CI=1 {self.FROZEN}",
-        ]:
-            self.assertEqual(decision(self.check(command)), "deny", command)
-
-    def test_adds_context_for_a_pnpm_install_outside_the_exact_forms(self):
+    def test_never_touches_pnpm_which_runs_inside_the_sandbox(self):
         for command in [
             "pnpm install",
-            "pnpm install --frozen-lockfile",
-            "pnpm install --dir web --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
-            "pnpm --dir web install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
-            "cd web && pnpm install --offline",
-            "pnpm install left-pad",
-            f"{self.FROZEN} 2>&1",
+            "cd web && pnpm install --frozen-lockfile",
+            "pnpm install --lockfile-only | tail -3",
+            "CI=1 pnpm install --frozen-lockfile",
+            "pnpm --dir web install",
         ]:
-            out = self.check(command)
-            self.assertIsNone(decision(out), command)
-            self.assertIn("inside the sandbox", context(out), command)
+            self.assertEqual(self.check(command), {}, command)
 
-    def test_adds_no_context_for_the_exact_forms_or_other_commands(self):
-        for command in [self.FROZEN, self.LOCKFILE_ONLY, "pnpm build", "go test ./...", "ls"]:
-            out = self.check(command)
-            self.assertIsNone(decision(out), command)
-            self.assertEqual(out, {}, command)
-
-    def test_leaves_other_go_and_pnpm_commands_alone(self):
+    def test_leaves_other_go_commands_alone(self):
         for command in [
             "cd api && go test ./... && go mod tidy",
-            "pnpm rebuild && pnpm build",
             "go mod download | tail -3",
+            "go build ./... && go vet ./...",
             "echo go get is not run",
+            "grep -rn 'go get' docs | head",
         ]:
             self.assertIsNone(decision(self.check(command)), command)
 
     def test_does_nothing_off_macos(self):
-        for command in ["cd api && go get ./...", f"cd web && {self.FROZEN}", "pnpm install"]:
+        for command in ["cd api && go get ./...", "GOFLAGS=-mod=mod go get ./..."]:
             self.assertEqual(self.check(command, "linux"), {}, command)
 
 

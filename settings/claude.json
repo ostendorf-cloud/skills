@@ -4,6 +4,7 @@
   "effortLevel": "medium",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "pnpm_config_store_dir": "~/.cache/pnpm/store",
     "XDG_RUNTIME_DIR": "/tmp/claude"
   },
   "fileCheckpointingEnabled": true,
@@ -217,9 +218,7 @@
       "go mod tidy",
       "go mod tidy *",
       "go get",
-      "go get *",
-      "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
-      "pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile"
+      "go get *"
     ],
     "filesystem": {
       "allowRead": [
