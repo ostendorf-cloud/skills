@@ -86,14 +86,14 @@ VOCABULARY = {
         r"|vulnerable\s+to\b|\bis\s+vulnerable\b",
         re.IGNORECASE,
     ),
-    "exploit": re.compile(r"\bexploit(?:s|able)?\b", re.IGNORECASE),
+    "exploit": re.compile(r"\bexploit(?:s|able|ation)?\b(?!-)", re.IGNORECASE),
     "injection": re.compile(rf"\b(?:{INJECTION_KINDS})[\s-]+injection\b|\bSQLi\b", re.IGNORECASE),
     "xss": re.compile(r"\bXSS\b|\bcross[\s-]+site\s+scripting\b", re.IGNORECASE),
     "ssrf": re.compile(r"\bSSRF\b", re.IGNORECASE),
     "path traversal": re.compile(r"path\s+traversal|directory\s+traversal", re.IGNORECASE),
     "sanitiz": re.compile(
         r"\bun-?sanitiz?s?ed\b"
-        r"|\b(?:missing|incomplete|insufficient|bad|improper|no)\s+(?:\w+\s+)?saniti[sz]ation",
+        r"|\b(?:missing|incomplete|insufficient|bad|improper|lacks?|lacking)\s+(?:\w+\s+)?saniti[sz]ation",
         re.IGNORECASE,
     ),
     "csrf": re.compile(r"\bCSRF\b", re.IGNORECASE),
@@ -163,6 +163,7 @@ API_LABEL_ENDPOINT = re.compile(r"(?:^|/)labels(?:/|$)")
 API_LABEL_NAME_KEYS = frozenset({"name", "new_name"})
 NOT_PLAIN_SLUG = "not a plain owner/name"
 NO_SLUG = "no owner/name found"
+NETWORK_REMOTE = re.compile(r"^(?:(?:https?|ssh|git\+ssh)://|[\w.-]+@[\w.-]+:)", re.IGNORECASE)
 REMOTE_SLUG = re.compile(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$")
 VALID_SLUG = re.compile(r"^[\w.][\w.-]*/[\w.][\w.-]*$")
 
@@ -175,7 +176,8 @@ DENY_PUBLIC = (
 DENY_UNKNOWN = (
     "The visibility of {slug} could not be read ({error}), and an unknown repository counts "
     "as public. {hint}, or write a plain title and body with no finding detail (matched: "
-    "{words})."
+    "{words}). Use a draft security advisory for a real finding, or publicFindings.allowWords "
+    "in .agent-skills.json when the repository's own subject is this vocabulary."
 )
 
 
@@ -258,10 +260,23 @@ def values_of(tokens: list[str], flags: tuple[tuple[str, ...], tuple[str, ...]])
 def slug_from_remote(directory: Optional[str]) -> str:
     """owner/name from the origin remote of directory, "" when unknown."""
     url = _common.run_git(["remote", "get-url", "origin"], directory)
-    if not url:
+    if not url or not NETWORK_REMOTE.match(url.strip()):
         return ""
     match = REMOTE_SLUG.search(url.strip())
     return f"{match.group(1)}/{match.group(2)}" if match else ""
+
+
+def has_network_remote(directory: Optional[str]) -> bool:
+    """Whether any remote of directory is a network URL, or the remotes cannot be read.
+    A repository with no remote, or only local path remotes, is not public."""
+    names = _common.run_git(["remote"], directory)
+    if names is None:
+        return True
+    for name in names.split():
+        url = _common.run_git(["remote", "get-url", name], directory)
+        if url is None or NETWORK_REMOTE.match(url.strip()):
+            return True
+    return False
 
 
 def cache_path() -> str:
@@ -533,7 +548,7 @@ def deny_reason(
     found = finding_words(texts, labels, allow)
     if not found:
         return None
-    if not slug and _common.run_git(["remote"], directory) == "":
+    if not slug and not has_network_remote(directory):
         return None
     private, error = visibility(slug, session)
     words = ", ".join(found)

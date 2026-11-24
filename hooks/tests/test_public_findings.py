@@ -40,7 +40,8 @@ ALLOWED_TEXTS = [
     "refactor: use dependency injection",
     "feat(logging): sanitize tokens from log lines",
     "chore(deps): update trivy vulnerability database action",
-    "docs: explain the exploitation of the cache",
+    "ci: run exploit-db sync",
+    "feat: no sanitization needed for ints",
     "feat: add an alert rule for disk usage",
     "docs: see the code scanning view",
     PLAIN_TITLE,
@@ -132,7 +133,10 @@ MORE_DENIED_TEXTS = [
     "exploits for the parser",
     "incomplete sanitization of paths",
     "bad code sanitization",
-    "no sanitisation at all",
+    "missing sanitisation",
+    "the parser lacks sanitization",
+    "the exploitation of the cache",
+    "exploits",
     "an un-sanitized value",
 ]
 
@@ -184,7 +188,6 @@ class PublicFindingsTest(unittest.TestCase):
         output = self.run_in(command, cwd, **extra)
         self.assertEqual(decision(output), "deny", command)
         self.assertIn("could not be read", reason(output))
-        self.assertNotIn("draft security advisory", reason(output))
         return reason(output)
 
     def assert_allowed(self, command, cwd=None, **extra):
@@ -271,6 +274,29 @@ class PublicFindingsTest(unittest.TestCase):
         )
         self.assert_unknown(comment("a vulnerability in the parser"), other)
         self.assert_unknown("git commit -m 'fix: close SQL injection'", other)
+
+    def test_the_unknown_deny_names_the_advisory_and_the_opt_out(self):
+        flaky = make_repo(self.root, "https://github.com/acme/flaky.git")
+        output = self.run_in(comment("a vulnerability in the parser"), flaky)
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("could not be read", reason(output))
+        self.assertIn("draft security advisory", reason(output))
+        self.assertIn("publicFindings.allowWords", reason(output))
+
+    def test_allows_a_repository_whose_remotes_are_not_network_urls(self):
+        for remote in ("/srv/git/bar.git", "file:///srv/git/bar.git", "../bar"):
+            with self.subTest(remote=remote):
+                repo = make_repo(self.root, remote)
+                self.assertEqual(public_findings.slug_from_remote(repo), "")
+                self.assert_allowed("git commit -m 'fix: close SQL injection'", repo)
+
+    def test_a_scp_style_remote_still_gives_a_slug(self):
+        repo = make_repo(self.root, "git@github.com:acme/widgets.git")
+        self.assertEqual(public_findings.slug_from_remote(repo), "acme/widgets")
+        self.assertEqual(
+            public_findings.slug_from_remote(make_repo(self.root, "ssh://git@github.com/a/b")),
+            "a/b",
+        )
 
     def test_allows_a_commit_in_a_repository_without_any_remote(self):
         bare = tempfile.mkdtemp(prefix="bare-", dir=self.root)
