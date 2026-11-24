@@ -42,6 +42,7 @@ is allowed. Standard input falls back to scanning the raw command text, as in tr
 and for a commit to the heredoc that feeds it.
 """
 
+import contextlib
 import json
 import os
 import re
@@ -271,8 +272,10 @@ def entry_answer(entry: Any, now: float) -> Optional[tuple[Optional[bool], str]]
         return None
     if private is None:
         ttl = TTL_FAILURE
+    elif private:
+        ttl = TTL_PRIVATE
     else:
-        ttl = TTL_PRIVATE if private else TTL_PUBLIC
+        ttl = TTL_PUBLIC
     age = now - stamp
     if age < 0 or age >= ttl:
         return None
@@ -285,11 +288,8 @@ def write_cache(key: str, private: Optional[bool], error: str) -> None:
     now = time.time()
     data = {k: v for k, v in read_cache().items() if entry_answer(v, now) is not None}
     data[key] = {"at": now, "private": private, "error": error}
-    try:
-        with open(cache_path(), "w", encoding="utf-8") as handle:
-            json.dump(data, handle)
-    except OSError:
-        pass
+    with contextlib.suppress(OSError), open(cache_path(), "w", encoding="utf-8") as handle:
+        json.dump(data, handle)
 
 
 def lookup_private(slug: str) -> tuple[Optional[bool], str]:

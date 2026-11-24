@@ -116,20 +116,20 @@ class PublicFindingsTest(unittest.TestCase):
             payload["session_id"] = session
         return run_hook("public_findings.py", payload, env=self.env(**extra))
 
-    def assertDenied(self, command, cwd=None, **extra):
+    def assert_denied(self, command, cwd=None, **extra):
         output = self.run_in(command, cwd, **extra)
         self.assertEqual(decision(output), "deny", command)
         self.assertIn("draft security advisory", reason(output))
         return reason(output)
 
-    def assertUnknown(self, command, cwd=None, **extra):
+    def assert_unknown(self, command, cwd=None, **extra):
         output = self.run_in(command, cwd, **extra)
         self.assertEqual(decision(output), "deny", command)
         self.assertIn("could not be read", reason(output))
         self.assertNotIn("draft security advisory", reason(output))
         return reason(output)
 
-    def assertAllowed(self, command, cwd=None, **extra):
+    def assert_allowed(self, command, cwd=None, **extra):
         self.assertIsNone(decision(self.run_in(command, cwd, **extra)), command)
 
     def test_denies_each_command_shape_in_a_public_repository(self):
@@ -145,40 +145,40 @@ class PublicFindingsTest(unittest.TestCase):
         ]
         for command in shapes:
             with self.subTest(command=command):
-                self.assertDenied(command)
+                self.assert_denied(command)
 
     def test_denies_each_vocabulary_group(self):
         for name, text in DENIED_TEXTS.items():
             with self.subTest(group=name):
-                self.assertIn(name, self.assertDenied(comment(text)))
+                self.assertIn(name, self.assert_denied(comment(text)))
 
     def test_denies_the_finding_shapes(self):
         for text in MORE_DENIED_TEXTS:
             with self.subTest(text=text):
-                self.assertDenied(comment(text))
+                self.assert_denied(comment(text))
 
     def test_allows_normal_work_that_uses_a_vocabulary_word(self):
         for text in ALLOWED_TEXTS:
             with self.subTest(text=text):
-                self.assertAllowed(comment(text))
-                self.assertAllowed(f"git commit -m {shlex.quote(text)}")
-                self.assertAllowed(f"gh pr create --title {shlex.quote(text)} --body 'x'")
+                self.assert_allowed(comment(text))
+                self.assert_allowed(f"git commit -m {shlex.quote(text)}")
+                self.assert_allowed(f"gh pr create --title {shlex.quote(text)} --body 'x'")
 
     def test_denies_the_security_label(self):
-        self.assertDenied("gh issue create --title 'Update parser' --body 'later' --label security")
-        self.assertDenied("gh issue edit 4 --add-label bug,Security")
-        self.assertDenied("gh issue create --title 'Update parser' --body 'later' -l security")
+        self.assert_denied("gh issue create --title 'Update' --body 'later' --label security")
+        self.assert_denied("gh issue edit 4 --add-label bug,Security")
+        self.assert_denied("gh issue create --title 'Update parser' --body 'later' -l security")
 
     def test_denies_creating_the_security_label(self):
-        self.assertDenied("gh label create security --color ff0000 --description 'Findings'")
-        self.assertDenied("gh label edit security --name security")
-        self.assertAllowed("gh label create bug --color ff0000")
+        self.assert_denied("gh label create security --color ff0000 --description 'Findings'")
+        self.assert_denied("gh label edit security --name security")
+        self.assert_allowed("gh label create bug --color ff0000")
 
     def test_allows_pr_create_with_fill(self):
-        self.assertAllowed("gh pr create --fill")
+        self.assert_allowed("gh pr create --fill")
 
     def test_the_deny_names_the_matched_words_and_the_opt_out(self):
-        text = self.assertDenied(comment("CVE-2026-1234 and CodeQL alert #5 details"))
+        text = self.assert_denied(comment("CVE-2026-1234 and CodeQL alert #5 details"))
         self.assertIn("cve", text)
         self.assertIn("codeql", text)
         self.assertNotIn("details", text)
@@ -186,19 +186,19 @@ class PublicFindingsTest(unittest.TestCase):
 
     def test_allows_a_private_repository(self):
         text = "CodeQL alert #3 is a vulnerability in the parser"
-        self.assertAllowed(comment(text), self.private)
-        self.assertAllowed("git commit -m 'fix: close SQL injection'", self.private)
+        self.assert_allowed(comment(text), self.private)
+        self.assert_allowed("git commit -m 'fix: close SQL injection'", self.private)
 
     def test_reports_the_reason_when_the_visibility_cannot_be_read(self):
         flaky = make_repo(self.root, "https://github.com/acme/flaky.git")
         garbled = make_repo(self.root, "https://github.com/acme/garbled.git")
         text = comment("a vulnerability in the parser")
-        self.assertIn("auth failed for the fake host", self.assertUnknown(text, flaky))
-        self.assertIn("acme/flaky", self.assertUnknown(text, flaky))
-        self.assertIn("unexpected answer", self.assertUnknown(text, garbled))
+        self.assertIn("auth failed for the fake host", self.assert_unknown(text, flaky))
+        self.assertIn("acme/flaky", self.assert_unknown(text, flaky))
+        self.assertIn("unexpected answer", self.assert_unknown(text, garbled))
 
     def test_denies_when_the_lookup_command_is_missing(self):
-        text = self.assertUnknown(
+        text = self.assert_unknown(
             comment("a vulnerability in the parser"),
             AGENT_SKILLS_VISIBILITY_CMD=os.path.join(self.root, "missing"),
         )
@@ -207,21 +207,21 @@ class PublicFindingsTest(unittest.TestCase):
     def test_denies_when_the_repository_is_not_known(self):
         bare = tempfile.mkdtemp(prefix="bare-", dir=self.root)
         subprocess.run(["git", "init", "-q", bare], check=True)
-        self.assertUnknown(comment("a vulnerability in the parser"), bare)
+        self.assert_unknown(comment("a vulnerability in the parser"), bare)
 
     def test_repo_flag_selects_the_target_repository(self):
         text = "a vulnerability in the parser"
-        self.assertAllowed(
+        self.assert_allowed(
             f"gh issue comment 5 --repo acme/internal-tools --body {shlex.quote(text)}"
         )
         other = f"gh issue comment 5 -R acme/widgets --body {shlex.quote(text)}"
-        self.assertDenied(other, self.private)
+        self.assert_denied(other, self.private)
 
     def test_a_repo_flag_that_is_not_owner_and_name_is_unknown(self):
         log = os.path.join(self.root, "lookups.log")
         for flag in ("-R '../etc/passwd'", "-R '--json'", "-R host.example/acme/widgets"):
             with self.subTest(flag=flag):
-                self.assertUnknown(
+                self.assert_unknown(
                     f"gh issue comment 5 {flag} --body 'a vulnerability in the parser'",
                     FAKE_LOOKUP_LOG=log,
                 )
@@ -234,9 +234,9 @@ class PublicFindingsTest(unittest.TestCase):
             {"publicFindings": {"allowWords": ["Injection", "xss"]}},
         )
         title = "Detect SQL injection and XSS"
-        self.assertAllowed(f"gh issue create --title '{title}' --body 'x'", repo)
-        self.assertDenied("gh issue create --title 'Detect SSRF' --body 'x'", repo)
-        self.assertDenied("gh issue create --title 'SQL injection' --body 'a CVE-2026-1'", repo)
+        self.assert_allowed(f"gh issue create --title '{title}' --body 'x'", repo)
+        self.assert_denied("gh issue create --title 'Detect SSRF' --body 'x'", repo)
+        self.assert_denied("gh issue create --title 'SQL injection' --body 'a CVE-2026-1'", repo)
 
     def test_allow_words_apply_only_to_the_repository_of_the_working_directory(self):
         repo = make_repo(
@@ -245,9 +245,9 @@ class PublicFindingsTest(unittest.TestCase):
             {"publicFindings": {"allowWords": ["injection"]}},
         )
         allowed = "gh issue create --title 'Detect SQL injection' --body 'x'"
-        self.assertAllowed(allowed, repo)
-        self.assertAllowed(allowed + " -R ACME/Scanner", repo)
-        self.assertDenied(allowed + " -R acme/other", repo)
+        self.assert_allowed(allowed, repo)
+        self.assert_allowed(allowed + " -R ACME/Scanner", repo)
+        self.assert_denied(allowed + " -R acme/other", repo)
 
     def test_allow_words_can_opt_out_of_the_security_label(self):
         repo = make_repo(
@@ -255,7 +255,7 @@ class PublicFindingsTest(unittest.TestCase):
             "https://github.com/acme/scanner.git",
             {"publicFindings": {"allowWords": ["security"]}},
         )
-        self.assertAllowed("gh issue create --title 'Add feed' --body 'x' --label security", repo)
+        self.assert_allowed("gh issue create --title 'Add feed' --body 'x' --label security", repo)
 
     def test_ignores_an_invalid_allow_words_value(self):
         repo = make_repo(
@@ -263,38 +263,38 @@ class PublicFindingsTest(unittest.TestCase):
             "https://github.com/acme/scanner.git",
             {"publicFindings": {"allowWords": "vulnerab"}},
         )
-        self.assertDenied(comment("a vulnerability in the parser"), repo)
+        self.assert_denied(comment("a vulnerability in the parser"), repo)
 
     def test_denies_a_commit_message_read_from_a_file(self):
         path = os.path.join(self.public, "msg.txt")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("fix: patch the parser\n\nCloses a path traversal.\n")
-        self.assertDenied("git commit -F msg.txt")
-        self.assertDenied(f"git commit --file {path}")
-        self.assertDenied(f"git commit -sF {path}")
+        self.assert_denied("git commit -F msg.txt")
+        self.assert_denied(f"git commit --file {path}")
+        self.assert_denied(f"git commit -sF {path}")
 
     def test_allows_a_plain_commit_message_file(self):
         path = os.path.join(self.public, "msg.txt")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(f"fix: {PLAIN_TITLE}\n")
-        self.assertAllowed("git commit -s -F msg.txt")
+        self.assert_allowed("git commit -s -F msg.txt")
 
     def test_allows_a_message_file_that_does_not_exist(self):
-        self.assertAllowed("git commit -F missing-message.txt")
-        self.assertAllowed("gh issue comment 5 --body-file missing-body.md")
+        self.assert_allowed("git commit -F missing-message.txt")
+        self.assert_allowed("gh issue comment 5 --body-file missing-body.md")
 
     def test_allows_a_message_file_outside_the_readable_scope(self):
         outside = tempfile.mkdtemp(prefix="outside-")
         path = os.path.join(outside, "msg.txt")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("fix: close SQL injection\n")
-        self.assertAllowed(f"git commit -F {path}")
+        self.assert_allowed(f"git commit -F {path}")
 
     def test_denies_a_body_file_in_the_working_directory(self):
         path = os.path.join(self.public, "body.md")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("Reported by a CodeQL alert #4.\n")
-        self.assertDenied("gh pr comment 9 --body-file body.md")
+        self.assert_denied("gh pr comment 9 --body-file body.md")
 
     def test_denies_a_body_file_in_the_session_scratch_scope(self):
         scratch = tempfile.mkdtemp(prefix="scratch-")
@@ -309,11 +309,11 @@ class PublicFindingsTest(unittest.TestCase):
         self.assertEqual(decision(output), "deny")
 
     def test_denies_a_piped_body_through_stdin(self):
-        self.assertDenied("printf 'a vulnerability in the parser' | gh pr comment 9 --body-file -")
+        self.assert_denied("printf 'a vulnerability in the parser' | gh pr comment 9 --body-file -")
 
     def test_denies_a_commit_message_from_a_stdin_heredoc(self):
         command = "git commit -F - <<'EOF'\nfix: close SQL injection\nEOF"
-        self.assertDenied(command)
+        self.assert_denied(command)
 
     def test_skips_a_commit_in_a_fixture_under_the_session_scratch_scope(self):
         scratch = tempfile.mkdtemp(prefix="scratch-")
@@ -338,40 +338,40 @@ class PublicFindingsTest(unittest.TestCase):
         ]
         for command in commands:
             with self.subTest(command=command):
-                self.assertDenied(command)
+                self.assert_denied(command)
 
     def test_allows_commit_flag_shapes_with_plain_wording(self):
-        self.assertAllowed(f"git commit -am 'fix: {PLAIN_TITLE}'")
-        self.assertAllowed("git commit --amend --no-edit")
-        self.assertAllowed("git commit -a")
+        self.assert_allowed(f"git commit -am 'fix: {PLAIN_TITLE}'")
+        self.assert_allowed("git commit --amend --no-edit")
+        self.assert_allowed("git commit -a")
 
     def test_a_relative_git_c_path_is_read_against_the_payload_directory(self):
         name = os.path.basename(self.private)
         command = f"git -C ../{name} commit -m 'fix: close SQL injection'"
-        self.assertAllowed(command, self.public)
+        self.assert_allowed(command, self.public)
         name = os.path.basename(self.public)
-        self.assertDenied(f"git -C ../{name} commit -m 'fix: close SQL injection'", self.private)
+        self.assert_denied(f"git -C ../{name} commit -m 'fix: close SQL injection'", self.private)
 
     def test_denies_gh_api_post_to_an_issue_comment(self):
-        self.assertDenied(
+        self.assert_denied(
             "gh api repos/acme/widgets/issues/12/comments -f body='a path traversal in upload'"
         )
-        self.assertDenied(
+        self.assert_denied(
             "gh api --method POST repos/acme/widgets/issues -f title='Fix' -f body='CVE-2026-9'"
         )
-        self.assertDenied("gh api -X PATCH repos/acme/widgets/pulls/3 -f body='exploit details'")
-        self.assertDenied("gh api repos/acme/widgets/issues -f title='Fix' -f 'labels[]=security'")
+        self.assert_denied("gh api -X PATCH repos/acme/widgets/pulls/3 -f body='exploit details'")
+        self.assert_denied("gh api repos/acme/widgets/issues -f title='Fix' -f 'labels[]=security'")
 
     def test_gh_api_target_repository_comes_from_the_endpoint(self):
-        self.assertAllowed(
+        self.assert_allowed(
             "gh api repos/acme/internal-tools/issues/2/comments -f body='SQL injection'"
         )
 
     def test_gh_api_placeholders_stand_for_the_origin_remote(self):
         body = "-f body='SQL injection in the parser'"
         endpoint = "repos/{owner}/{repo}/issues/2/comments"
-        self.assertDenied(f"gh api {endpoint} {body}", self.public)
-        self.assertAllowed(f"gh api {endpoint} {body}", self.private)
+        self.assert_denied(f"gh api {endpoint} {body}", self.public)
+        self.assert_allowed(f"gh api {endpoint} {body}", self.private)
 
     def test_denies_graphql_mutations_that_write_text(self):
         for mutation in (
@@ -385,44 +385,44 @@ class PublicFindingsTest(unittest.TestCase):
         ):
             with self.subTest(mutation=mutation):
                 query = "mutation { " + mutation + '(input: {body: "SQL injection"}) { id } }'
-                self.assertDenied(f"gh api graphql -f query={shlex.quote(query)}")
-        self.assertDenied(
+                self.assert_denied(f"gh api graphql -f query={shlex.quote(query)}")
+        self.assert_denied(
             "gh api graphql -f query='mutation($b: String!) { addComment(input: {body: $b}) "
             "{ clientMutationId } }' -f b='a CodeQL alert #5'"
         )
 
     def test_allows_graphql_reads_and_plain_mutations(self):
-        self.assertAllowed("gh api graphql -f query='query { viewer { login } }'")
+        self.assert_allowed("gh api graphql -f query='query { viewer { login } }'")
         query = 'mutation { addComment(input: {body: "resolve static analysis findings"}) { id } }'
-        self.assertAllowed(f"gh api graphql -f query={shlex.quote(query)}")
+        self.assert_allowed(f"gh api graphql -f query={shlex.quote(query)}")
         other = 'mutation { addStar(input: {starrableId: "x"}) { clientMutationId } }'
-        self.assertAllowed(f"gh api graphql -f query={shlex.quote(other)} -f note='SQL injection'")
+        self.assert_allowed(f"gh api graphql -f query={shlex.quote(other)} -f note='SQL injection'")
 
     def test_allows_gh_api_reads_and_other_endpoints(self):
-        self.assertAllowed("gh api repos/acme/widgets/issues/12/comments")
-        self.assertAllowed("gh api -X GET repos/acme/widgets/issues -f body='SQL injection'")
-        self.assertAllowed("gh api repos/acme/widgets/topics -X PUT -f body='SQL injection'")
+        self.assert_allowed("gh api repos/acme/widgets/issues/12/comments")
+        self.assert_allowed("gh api -X GET repos/acme/widgets/issues -f body='SQL injection'")
+        self.assert_allowed("gh api repos/acme/widgets/topics -X PUT -f body='SQL injection'")
 
     def test_wrapper_prefixes_do_not_hide_the_write(self):
         for prefix in ("sudo ", "env GH_TOKEN=x ", "mise exec -- ", "/usr/local/bin/"):
             with self.subTest(prefix=prefix):
-                self.assertDenied(f"{prefix}gh issue comment 5 --body 'SQL injection'")
+                self.assert_denied(f"{prefix}gh issue comment 5 --body 'SQL injection'")
 
     def test_a_quoted_semicolon_does_not_split_the_body(self):
-        self.assertDenied("gh issue comment 5 --body 'first; then SQL injection && more'")
-        self.assertAllowed("gh issue comment 5 --body 'first; second && third | fourth'")
+        self.assert_denied("gh issue comment 5 --body 'first; then SQL injection && more'")
+        self.assert_allowed("gh issue comment 5 --body 'first; second && third | fourth'")
 
     def test_any_part_of_a_chain_can_deny(self):
-        self.assertDenied("git add . && git commit -m 'fix: close SQL injection'")
+        self.assert_denied("git add . && git commit -m 'fix: close SQL injection'")
 
     def test_other_commands_are_allowed(self):
-        self.assertAllowed("ls -la")
-        self.assertAllowed("gh issue list --search vulnerability")
-        self.assertAllowed("gh pr view 7")
+        self.assert_allowed("ls -la")
+        self.assert_allowed("gh issue list --search vulnerability")
+        self.assert_allowed("gh pr view 7")
 
     def test_plain_wording_never_asks_for_the_visibility(self):
         log = os.path.join(self.root, "lookups.log")
-        self.assertAllowed(f"gh issue comment 5 --body '{PLAIN_TITLE}'", FAKE_LOOKUP_LOG=log)
+        self.assert_allowed(f"gh issue comment 5 --body '{PLAIN_TITLE}'", FAKE_LOOKUP_LOG=log)
         self.assertFalse(os.path.exists(log))
 
     def test_the_lookup_runs_once_per_repository_and_session(self):
@@ -440,7 +440,7 @@ class PublicFindingsTest(unittest.TestCase):
     def test_unparseable_input_prints_an_empty_response(self):
         self.assertEqual(run_hook("public_findings.py", {"tool_input": "not a dict"}), {})
         self.assertEqual(run_hook("public_findings.py", {}), {})
-        self.assertAllowed("gh issue comment 5 --body 'unterminated SQL injection")
+        self.assert_allowed("gh issue comment 5 --body 'unterminated SQL injection")
 
 
 class VisibilityCacheTest(unittest.TestCase):
