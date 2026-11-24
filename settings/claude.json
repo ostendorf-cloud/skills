@@ -218,8 +218,8 @@
       "go mod tidy *",
       "go get",
       "go get *",
-      "pnpm install",
-      "pnpm install *"
+      "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
+      "pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile"
     ],
     "filesystem": {
       "allowRead": [

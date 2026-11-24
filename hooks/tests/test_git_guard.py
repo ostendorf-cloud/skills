@@ -2823,5 +2823,90 @@ class CommitIdentityTest(unittest.TestCase):
         self.assertFalse(os.path.exists(marker))
 
 
+class PackageCommandShapeTest(unittest.TestCase):
+    """go get and the two exact pnpm install forms leave the sandbox only when they stand
+    alone in the call (ADR 0008). Any other pnpm install gets context, never a deny."""
+
+    FROZEN = "pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile"
+    LOCKFILE_ONLY = "pnpm install --lockfile-only --ignore-scripts --ignore-pnpmfile"
+
+    def setUp(self):
+        self.cwd = tempfile.mkdtemp(prefix="git-guard-package-")
+
+    def check(self, command: str, platform: str = "darwin"):
+        return run_main_in_process(command, self.cwd, platform)
+
+    def test_allows_a_standalone_go_get_and_the_exact_pnpm_forms(self):
+        for command in [
+            "go get github.com/ostendorf-cloud/govue@v0.9.0",
+            "go get ./...",
+            self.FROZEN,
+            self.LOCKFILE_ONLY,
+        ]:
+            self.assertIsNone(decision(self.check(command)), command)
+
+    def test_denies_a_chained_piped_or_cd_prefixed_go_get(self):
+        for command in [
+            "go get github.com/ostendorf-cloud/govue@v0.9.0 && go mod tidy",
+            "cd api && go get ./...",
+            "go get ./... | tail -3",
+            "go get ./... 2>/dev/null",
+        ]:
+            out = self.check(command)
+            self.assertEqual(decision(out), "deny", command)
+            self.assertIn("alone", reason(out))
+            self.assertIn("one call per directory", reason(out))
+
+    def test_denies_an_env_prefix_or_an_option_before_go_get(self):
+        for command in [
+            "GOFLAGS=-mod=mod go get ./...",
+            "env GOPROXY=direct go get ./...",
+            "go -C api get ./...",
+        ]:
+            self.assertEqual(decision(self.check(command)), "deny", command)
+
+    def test_denies_the_exact_pnpm_forms_when_they_do_not_stand_alone(self):
+        for command in [
+            f"cd web && {self.FROZEN}",
+            f"{self.FROZEN} && pnpm build",
+            f"{self.LOCKFILE_ONLY} | tail -3",
+            f"CI=1 {self.FROZEN}",
+        ]:
+            self.assertEqual(decision(self.check(command)), "deny", command)
+
+    def test_adds_context_for_a_pnpm_install_outside_the_exact_forms(self):
+        for command in [
+            "pnpm install",
+            "pnpm install --frozen-lockfile",
+            "pnpm install --dir web --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
+            "pnpm --dir web install --frozen-lockfile --ignore-scripts --ignore-pnpmfile",
+            "cd web && pnpm install --offline",
+            "pnpm install left-pad",
+            f"{self.FROZEN} 2>&1",
+        ]:
+            out = self.check(command)
+            self.assertIsNone(decision(out), command)
+            self.assertIn("inside the sandbox", context(out), command)
+
+    def test_adds_no_context_for_the_exact_forms_or_other_commands(self):
+        for command in [self.FROZEN, self.LOCKFILE_ONLY, "pnpm build", "go test ./...", "ls"]:
+            out = self.check(command)
+            self.assertIsNone(decision(out), command)
+            self.assertEqual(out, {}, command)
+
+    def test_leaves_other_go_and_pnpm_commands_alone(self):
+        for command in [
+            "cd api && go test ./... && go mod tidy",
+            "pnpm rebuild && pnpm build",
+            "go mod download | tail -3",
+            "echo go get is not run",
+        ]:
+            self.assertIsNone(decision(self.check(command)), command)
+
+    def test_does_nothing_off_macos(self):
+        for command in ["cd api && go get ./...", f"cd web && {self.FROZEN}", "pnpm install"]:
+            self.assertEqual(self.check(command, "linux"), {}, command)
+
+
 if __name__ == "__main__":
     unittest.main()

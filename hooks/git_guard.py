@@ -6,7 +6,9 @@ carries no branch at all yet, a force push without `--force-with-lease` or one o
 default branch, `git push --all` or `--mirror`, a command that bypasses hooks or commit
 signing, and deletion of the default branch, local or remote. On macOS it also denies
 a `git fetch`, `git pull` or `git push` that does not stand alone in its call, because
-only a lone command leaves the sandbox (ADR 0005).
+only a lone command leaves the sandbox (ADR 0005). The same holds for `go get` and for
+the two exact `pnpm install` forms of `sandbox.excludedCommands` (ADR 0008): a chained,
+`cd` prefixed or env prefixed one is denied. Any other `pnpm install` only gets context.
 
 It also denies a `git commit`, `rebase`, `cherry-pick`, `merge`, `pull`, `revert`, `am`,
 `commit-tree` or `notes` that runs with `GIT_CONFIG_GLOBAL` set to the null device, the
@@ -859,6 +861,101 @@ def network_shape_violation(
     subcommand_next = sub_index == git_index + 1
     alone = command_alone and git_path is None and prefix_ok and subcommand_next
     return None if alone else RUN_NETWORK_ALONE
+
+
+# The pnpm install forms in sandbox.excludedCommands, matched as exact strings (ADR 0008).
+PNPM_EXACT_FORMS = (
+    ("pnpm", "install", "--frozen-lockfile", "--ignore-scripts", "--ignore-pnpmfile"),
+    ("pnpm", "install", "--lockfile-only", "--ignore-scripts", "--ignore-pnpmfile"),
+)
+
+RUN_PACKAGE_COMMAND_ALONE = (
+    "go get and the two exact pnpm install forms leave the sandbox only when they stand alone "
+    "in the call, without a pipe, chain, cd, env prefix, redirection or option before the "
+    "subcommand. Otherwise they run inside the sandbox and fail the TLS check, so "
+    "run the command alone from the project directory, one call per directory."
+)
+
+PNPM_INSTALL_STAYS_SANDBOXED = (
+    "This pnpm install runs inside the sandbox. Only `pnpm install --frozen-lockfile "
+    "--ignore-scripts --ignore-pnpmfile` and `pnpm install --lockfile-only --ignore-scripts "
+    "--ignore-pnpmfile` leave it, and only as a standalone call from the project directory. "
+    "A --dir or -C option changes the string, so it does not match (ADR 0008)."
+)
+
+
+# The options of go and pnpm that read their value from the next word.
+PACKAGE_OPTIONS_WITH_VALUE = ("-C", "--dir", "--filter", "-F")
+
+
+def package_command_words(raw_part: str) -> Optional[tuple[list[str], int, str]]:
+    """The words of raw_part, the index of the `go` or `pnpm` word and its name, when the
+    part runs `go get` or `pnpm install` (or `pnpm i`), None otherwise. Options before the
+    subcommand are skipped, the value of those that take one in a separate word too."""
+    words = shell_words_of(raw_part)
+    for index, word in enumerate(words):
+        tool = _common.token_name(word)
+        if tool not in ("go", "pnpm"):
+            continue
+        if not all(
+            ENV_ASSIGNMENT.match(before) or _common.token_name(before) in ("env", "time")
+            for before in words[:index]
+        ):
+            return None
+        position = index + 1
+        while position < len(words) and words[position].startswith("-"):
+            position += 2 if words[position] in PACKAGE_OPTIONS_WITH_VALUE else 1
+        wanted = ("get",) if tool == "go" else ("install", "i")
+        if position < len(words) and words[position] in wanted:
+            return words, index, tool
+    return None
+
+
+def package_shape_violation(command_alone: bool, command: str, raw_part: str) -> Optional[str]:
+    """The deny reason when `go get`, or `pnpm install` in one of the two exact forms of
+    sandbox.excludedCommands, does not stand alone in its call, None otherwise.
+
+    Gated on macOS like network_shape_violation: the exclusion exists for the macOS
+    certificate service. That a lone go or pnpm command leaves the sandbox is expected
+    from how the exclusion matches git, not measured for these two tools.
+
+    Alone means one command part, no env assignment or `env` before the tool and no
+    option between the tool and the subcommand. The pnpm forms match as whole strings, so
+    the command text must equal the form, with no redirection. Any other pnpm install is
+    no deny, it works inside the sandbox, see package_notice."""
+    if sys.platform != "darwin":
+        return None
+    found = package_command_words(raw_part)
+    if found is None:
+        return None
+    words, index, tool = found
+    prefix_ok = not any(
+        ENV_ASSIGNMENT.match(word) or _common.token_name(word) == "env" for word in words[:index]
+    )
+    alone = command_alone and prefix_ok
+    if tool == "go":
+        subcommand_next = len(words) > index + 1 and words[index + 1] == "get"
+        return None if alone and subcommand_next else RUN_PACKAGE_COMMAND_ALONE
+    if tuple(words[index:]) not in PNPM_EXACT_FORMS:
+        return None
+    exact = command.strip() in {" ".join(form) for form in PNPM_EXACT_FORMS}
+    return None if alone and exact else RUN_PACKAGE_COMMAND_ALONE
+
+
+def package_notice(command: str) -> Optional[str]:
+    """Context, never a deny, for a pnpm install that is not one of the two exact forms:
+    it runs inside the sandbox, so it needs no exclusion and may still do its job."""
+    if sys.platform != "darwin":
+        return None
+    shape_text, _ = split_heredocs(command, Budget())
+    for raw_part in _common.command_parts(shape_text):
+        found = package_command_words(raw_part)
+        if found is None or found[2] != "pnpm":
+            continue
+        words, index, _tool = found
+        if tuple(words[index:]) not in PNPM_EXACT_FORMS:
+            return PNPM_INSTALL_STAYS_SANDBOXED
+    return None
 
 
 def command_stands_alone(command: str) -> bool:
@@ -2285,6 +2382,9 @@ def _command_violation(command: str, cwd: str) -> Optional[str]:
 
     command_alone = command_stands_alone(shape_text)
     for raw_part, directory in _common.part_dirs(shape_text, cwd):
+        reason = package_shape_violation(command_alone, shape_text, raw_part)
+        if reason:
+            return reason
         part = _common.normalize_command_part(raw_part)
         if part.split(" ", 1)[0] != "git":
             continue
@@ -2328,6 +2428,11 @@ def main() -> int:
         if not reason and "push" in command:
             try:
                 notice = push_notice(command, cwd)
+            except Exception:
+                notice = None
+        if not reason and not notice and "pnpm" in command:
+            try:
+                notice = package_notice(command)
             except Exception:
                 notice = None
     if reason:
