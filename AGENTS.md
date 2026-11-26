@@ -45,11 +45,12 @@ task doctor
   workflow pins addlicense itself, so the check cannot drift with this repository's `mise.toml`.
   `task lint:license` stays and runs the same tool, flags and files locally.
 - The `renovate-config` job in `checks.yaml` calls `ostendorf-cloud/workflows`'
-  `reusable-renovate-config.yaml` instead of a local Task target. The shared workflow pins
-  Renovate itself, independent of this repository's `mise.toml`. `task lint:renovate` is the
-  local equivalent and runs the same two commands: `renovate-config-validator` and
-  `renovate --platform=local --config-validation-error`. The `mise.toml` pin and the shared
-  workflow's pin move by hand. Keep them on the same major version.
+  `reusable-renovate-config.yaml`, which pins Renovate itself. `task lint:renovate` runs the same
+  two commands locally. The `mise.toml` pin and the shared pin move by hand, on the same major
+  version.
+- `lint:agents-md` is included in `Taskfile.yaml` from `ostendorf-cloud/workflows` by tag and
+  checksum, and `task check` runs it. Every `task` call in CI passes `--trusted-hosts github.com`.
+  The tag and checksum move by hand together.
 
 ## Changing the baseline
 

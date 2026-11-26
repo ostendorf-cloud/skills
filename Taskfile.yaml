@@ -1,5 +1,17 @@
 version: "3"
 
+# Shared AGENTS.md line check. The tag and the checksum move by hand together.
+# CI and a run without a terminal need --trusted-hosts github.com for the remote include.
+# The shared task reads MODE from here, so a local run and CI both fail on a long file.
+vars:
+  MODE: fail
+
+includes:
+  shared:
+    taskfile: https://github.com/ostendorf-cloud/workflows.git//taskfiles/agents-md.yaml?ref=v0.9.0
+    checksum: 9309c557cf02835bfef5932ad1c07e3d63325b0d4fa523df5b53befbc9834410
+    flatten: true
+
 tasks:
   setup:
     desc: Install the pinned toolchain
@@ -84,6 +96,7 @@ tasks:
       - task: lint:actions
       - task: lint:secrets
       - task: lint:renovate
+      - task: lint:agents-md
       - task: test:hooks
       - task: test:scripts
       - task: validate
