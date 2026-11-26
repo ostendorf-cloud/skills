@@ -1,6 +1,6 @@
 ---
 name: propose-rule
-description: Proposes a change to the baseline rules, hooks, settings or skills as an issue in the skills repository or as a message to the user, without ever editing the installed baseline. Use when a correction recurs, a guardrail is missing or wrong, or a skill needs updating. Trigger phrases: propose a rule change, this should be a rule, Baseline anpassen, Regel vorschlagen.
+description: "Proposes a change to the baseline rules, hooks, settings or skills as an issue in the skills repository or as a message to the user, without ever editing the installed baseline. Use when a correction recurs, a guardrail is missing or wrong, or a skill needs updating."
 ---
 
 # propose-rule

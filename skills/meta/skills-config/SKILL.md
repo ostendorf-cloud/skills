@@ -1,6 +1,6 @@
 ---
 name: skills-config
-description: Creates or validates a repository's .agent-skills.json against the schema, detecting sensible defaults from the repository and the tracker, and reporting any label the tracker is missing. Use when setting up a new repository for the work loop, or when asked to check, fix or generate the skills configuration. Trigger phrases: set up the skills config, validate agent-skills.json, Konfiguration pruefen, Repo-Konfiguration anlegen.
+description: "Creates or validates a repository's .agent-skills.json against the schema, detecting defaults from the repository and the tracker, and reporting any label the tracker is missing. Use when setting up a new repository for the work loop, or when asked to check, fix or generate the skills configuration."
 ---
 
 # skills-config

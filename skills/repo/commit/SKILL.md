@@ -1,9 +1,6 @@
 ---
 name: commit
-description: Turns the current working tree into one or more atomic Conventional Commits, split
-  by intent, without asking for confirmation first. Use when changes are ready to commit, or the
-  working tree holds several unrelated changes that need splitting. Trigger phrases: commit this,
-  split these commits, commit the changes, das committen, Commits aufteilen.
+description: "Turns the current working tree into one or more atomic Conventional Commits, split by intent, without asking for confirmation first. Use when changes are ready to commit, or the working tree holds several unrelated changes that need splitting."
 ---
 
 # Commit

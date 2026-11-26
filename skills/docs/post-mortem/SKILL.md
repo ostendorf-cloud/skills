@@ -1,10 +1,6 @@
 ---
 name: post-mortem
-description: >-
-  Writes a factual post mortem for an infrastructure incident, built from
-  events, logs and timestamps rather than memory, with a timeline, a ruled
-  out table and no blame. Use after an incident or outage is diagnosed, post
-  mortem, postmortem, incident report, Vorfall, Ausfall.
+description: "Writes a factual post mortem for an infrastructure incident, built from events, logs and timestamps rather than memory, with a timeline, a ruled out table and no blame. Use after an incident or outage is diagnosed."
 ---
 
 # Post mortem

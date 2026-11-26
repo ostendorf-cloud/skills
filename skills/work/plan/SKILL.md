@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Writes a short implementation plan into a GitHub issue, split into verified facts and assumptions, ordered reviewable steps, files touched, a verification command, risks and open questions. Use before implementing a non trivial issue, or when asked to plan, scope or design an approach first. Trigger phrases: write a plan, plan this issue, Plan schreiben, Vorgehen planen.
+description: "Writes a short implementation plan into a GitHub issue, split into verified facts and assumptions, ordered reviewable steps, files touched, a verification command, risks and open questions. Use before implementing a non trivial issue, or when asked to plan an approach first."
 model: opus
 ---
 

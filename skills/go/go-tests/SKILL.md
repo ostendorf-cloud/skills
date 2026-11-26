@@ -1,9 +1,6 @@
 ---
 name: go-tests
-description: >-
-  How to write Go tests with table driven subtests, fakes over mocks,
-  httptest, golden files and the race detector in CI. Use when writing,
-  fixing or reviewing Go tests, Go-Tests schreiben, Testabdeckung.
+description: "How to write Go tests with table driven subtests, fakes over mocks, httptest, golden files and the race detector in CI. Use when writing, fixing or reviewing Go tests."
 ---
 
 # Go tests

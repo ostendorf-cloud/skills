@@ -1,11 +1,6 @@
 ---
 name: release
-description: >-
-  Drives a release through the repository's release tool, release-me by
-  default or release-please where configured: verifies pending commits and
-  the release pull request, merges it only after confirmation, and
-  checks the resulting tag and changelog. Use when a version should be
-  cut, Release veroeffentlichen, Version freigeben.
+description: "Drives a release through the repository's release tool, release-me by default or release-please where configured: verifies pending commits and the release pull request, merges it only after confirmation, and checks the resulting tag and changelog. Use when a version should be cut."
 ---
 
 # Release

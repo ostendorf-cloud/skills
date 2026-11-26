@@ -1,9 +1,6 @@
 ---
 name: worktree
-description: Creates a git worktree under .claude/worktrees/<branch> for a parallel session, and removes
-  it once its branch is merged. Use when starting a session that must not disturb an already
-  checked out branch, or cleaning up after one. Trigger phrases: create a worktree, parallel
-  session, remove the worktree, Worktree anlegen, Worktree entfernen.
+description: "Creates a git worktree under .claude/worktrees/<branch> for a parallel session, and removes it once its branch is merged. Use when starting a session that must not disturb an already checked out branch, or cleaning up after one."
 ---
 
 # Worktree

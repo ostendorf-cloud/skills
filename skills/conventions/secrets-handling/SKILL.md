@@ -1,9 +1,6 @@
 ---
 name: secrets-handling
-description: What never enters a repository, a log, a transcript, an issue or a pull request, and
-  how a leaked secret gets handled. Use when touching a credential, a token, a kubeconfig, a
-  state file or anything a secret manager should hold instead. Trigger phrases: secret, token,
-  credential, kubeconfig, leaked key, Secret, Zugangsdaten, geleakter Token.
+description: "What never enters a repository, a log, a transcript, an issue or a pull request, and how a leaked secret gets handled. Use when touching a credential, a token, a kubeconfig, a state file or anything a secret manager should hold instead."
 ---
 
 # Secrets handling

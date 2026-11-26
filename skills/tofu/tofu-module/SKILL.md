@@ -1,10 +1,6 @@
 ---
 name: tofu-module
-description: Creates or refactors an OpenTofu module with the house file layout, typed and
-  validated inputs, described outputs, a version constraint, a documented README and an examples
-  directory. Use when a new module is needed or existing infrastructure code should become one.
-  Trigger phrases: new module, extract a module, module README, module inputs, module outputs,
-  neues Modul, Modul extrahieren, Modul Variablen.
+description: "Creates or refactors an OpenTofu module with the house file layout, typed and validated inputs, described outputs, a version constraint, a documented README and an examples directory. Use when a new module is needed or existing infrastructure code should become one."
 ---
 
 # Module

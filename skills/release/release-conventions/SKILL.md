@@ -1,12 +1,6 @@
 ---
 name: release-conventions
-description: >-
-  Versioning and release rules: semantic versioning driven by Conventional
-  Commits, release-me as the default tool with release-please for a repository
-  that still runs it, moving major tags, the Renovate conventions and the
-  release labels each tool owns. Use when setting up release automation or
-  deciding what a change means for the version, Release-Konventionen,
-  Versionierung festlegen.
+description: "Versioning and release rules: semantic versioning driven by Conventional Commits, release-me as the default tool, release-please where still used, moving major tags, Renovate conventions and release labels. Use when setting up release automation or deciding what a change means for the version."
 ---
 
 # Release conventions

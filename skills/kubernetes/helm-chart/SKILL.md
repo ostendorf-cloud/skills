@@ -1,10 +1,6 @@
 ---
 name: helm-chart
-description: Creates or changes a Helm chart with a documented values interface, templates that
-  render for every supported configuration, and lint, kubeconform and helm-unittest verification.
-  Use when writing, changing or reviewing a Helm chart. Trigger phrases: write a chart,
-  helm template, values.yaml, helm lint, helm-unittest, Ingress, Gateway API, HTTPRoute,
-  Helm Chart schreiben, Chart Werte, Chart Version.
+description: "Creates or changes a Helm chart with a documented values interface, templates that render for every supported configuration, and lint, kubeconform and helm-unittest verification. Use when writing, changing or reviewing a Helm chart."
 ---
 
 # Helm chart

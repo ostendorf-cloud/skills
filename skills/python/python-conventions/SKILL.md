@@ -1,11 +1,6 @@
 ---
 name: python-conventions
-description: >-
-  Python rules for tooling, glue and hook scripts: when Python at all,
-  standard library only for hooks, uv with pyproject for projects, src
-  layout, ruff, typed signatures, specific exceptions and unittest or
-  pytest. Use when writing or reviewing Python, or setting up a Python
-  project or a hook script, Python schreiben, Python-Konventionen.
+description: "Python rules for tooling, glue and hook scripts: when Python at all, standard library only for hooks, uv with pyproject for projects, src layout, ruff, typed signatures, specific exceptions and unittest or pytest. Use when writing or reviewing Python, or setting up a Python project or a hook script."
 ---
 
 # Python conventions

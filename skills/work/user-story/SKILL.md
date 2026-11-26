@@ -1,6 +1,6 @@
 ---
 name: user-story
-description: Writes a user story in the fixed shape "As a role I want capability so that benefit" from a short request or an existing issue, or checks a story and names what is missing. Use when asked to write a user story, turn an issue into a story, or check a story. Trigger phrases: write a user story, turn this into a story, check this story, User Story schreiben.
+description: "Writes a user story in the fixed shape As a role I want capability so that benefit from a short request or an existing issue, or checks a story and names what is missing. Use when asked to write a user story, turn an issue into a story, or check a story."
 ---
 
 # user-story

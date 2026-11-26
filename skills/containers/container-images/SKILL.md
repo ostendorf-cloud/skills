@@ -1,16 +1,6 @@
 ---
 name: container-images
-description: >-
-  Container image conventions: every image built and published targets
-  linux/amd64 and linux/arm64, a base image is pinned by its multi-platform
-  manifest list digest, never a single platform's digest, and a CI build
-  job gets both platforms through the build action's platforms input, QEMU
-  or a native runner per architecture. Use when writing or changing a
-  Dockerfile, pinning or updating a base image digest, or setting up or
-  reviewing a CI job that builds and publishes a container image. Trigger
-  phrases: Dockerfile schreiben, Basisimage pinnen, multi-arch build,
-  linux/arm64, manifest list digest, Containerimage veroeffentlichen,
-  mehrere Architekturen bauen, base image digest.
+description: "Container image conventions: every image targets linux/amd64 and linux/arm64, and a base image is pinned by its multi-platform manifest list digest. Use when writing or changing a Dockerfile, pinning a base image digest, or setting up a CI job that builds and publishes a container image."
 ---
 
 # Container images

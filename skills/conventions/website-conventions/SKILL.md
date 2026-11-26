@@ -1,11 +1,6 @@
 ---
 name: website-conventions
-description: Rules every website follows: light and dark mode with the shared theme and switch,
-  own imprint and privacy pages with fixed routes and locale redirects, a footer on every page,
-  and nothing built that the shared web library provides. Use when building, extending or
-  reviewing a website, a landing page or its legal pages. Trigger phrases: new website, build a
-  website, build a landing page, write an imprint, write a privacy policy, Impressum schreiben,
-  Datenschutzerklaerung schreiben, Webseite bauen, Webseite pruefen.
+description: "Rules every website follows: light and dark mode, own imprint and privacy pages with fixed routes and locale redirects, a footer on every page, and nothing built that the shared web library provides. Use when building, extending or reviewing a website, a landing page or its legal pages."
 ---
 
 # Website conventions

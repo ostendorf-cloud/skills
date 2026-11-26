@@ -1,10 +1,6 @@
 ---
 name: git-conventions
-description: Branches, commits, pull requests, rebases, force pushes and worktrees across every
-  repository. Use when committing, branching, rebasing, force pushing, opening a pull request,
-  reverting history or starting a parallel session. Trigger phrases: branch name, commit message,
-  rebase, force push, pull request, revert, worktree, Branch anlegen, Commit schreiben,
-  Pull Request erstellen, Force Push, Worktree starten.
+description: "Branches, commits, pull requests, rebases, force pushes and worktrees across every repository. Use when committing, branching, rebasing, force pushing, opening a pull request, reverting history or starting a parallel session."
 ---
 
 # Git conventions

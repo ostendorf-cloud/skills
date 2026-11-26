@@ -1,11 +1,6 @@
 ---
 name: readme
-description: >-
-  Writes or reviews a repository README in one house style with a fixed
-  section order, bullets instead of paragraphs and no badge wall. Use
-  when a repository needs a README, an existing one has drifted from the
-  code, or someone asks to write or review a README, README schreiben,
-  README aktualisieren.
+description: "Writes or reviews a repository README in one house style with a fixed section order, bullets instead of paragraphs and no badge wall. Use when a repository needs a README, an existing one has drifted from the code, or someone asks to write or review a README."
 ---
 
 # Readme

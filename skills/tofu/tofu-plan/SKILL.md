@@ -1,10 +1,6 @@
 ---
 name: tofu-plan
-description: Runs the OpenTofu plan workflow, reads the plan completely, groups changes by blast
-  radius and applies only a saved plan file after explicit confirmation. Use when an infrastructure
-  change should be planned, reviewed or applied, or when state and reality may have drifted.
-  Trigger phrases: tofu plan, tofu apply, review a plan, infrastructure change, drift,
-  Plan erstellen, Tofu anwenden, Drift pruefen.
+description: "Runs the OpenTofu plan workflow, reads the plan completely, groups changes by blast radius and applies only a saved plan file after explicit confirmation. Use when an infrastructure change should be planned, reviewed or applied, or when state and reality may have drifted."
 ---
 
 # Plan and apply

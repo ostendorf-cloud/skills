@@ -1,9 +1,6 @@
 ---
 name: prune-branches
-description: Lists merged and stale branches, locally and on origin, and deletes the merged local
-  ones without asking. Use when the branch list has grown or after merging several pull requests.
-  Trigger phrases: clean up branches, delete merged branches, prune branches, Branches aufraeumen,
-  alte Branches loeschen.
+description: "Lists merged and stale branches, locally and on origin, and deletes the merged local ones without asking. Use when the branch list has grown or after merging several pull requests."
 ---
 
 # Prune branches
