@@ -68,8 +68,8 @@ task doctor
 - `name` equals the directory name. `description` is one double quoted line of at most 300
   characters: what the skill does, then when to use it. A plain scalar with a colon and a space
   inside is not valid YAML, and the harness then lists the skill by its title only.
-- No trigger phrases in a description. They cost listing tokens in every session. They live in
-  the skill reminder hook, and `PHRASES` in its test names them per skill.
+- No trigger phrases in a description, they cost listing tokens. A new skill needs a trigger in
+  `TRIGGERS` of the skill reminder hook and phrases in `PHRASES` in its test.
 - Body at most 120 lines. Sections in this order: title, one line purpose, `## When to use`,
   `## Steps` or `## Rules`, `## Guardrails`, `## Config` when the skill reads
   `.agent-skills.json`, `## References` when needed.
