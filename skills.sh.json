@@ -13,7 +13,7 @@
     {
       "title": "Work",
       "description": "Issues, plans and the label driven work loop.",
-      "skills": ["issue", "refine-issue", "user-story", "plan", "implement", "work-review", "work-queue", "handoff", "tldr", "propose-rule"]
+      "skills": ["issue", "refine-issue", "grill-me", "user-story", "plan", "implement", "work-review", "work-queue", "handoff", "tldr", "propose-rule"]
     },
     {
       "title": "Quality",

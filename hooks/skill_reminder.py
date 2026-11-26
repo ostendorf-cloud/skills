@@ -25,6 +25,11 @@ TRIGGERS = (
         r"(issue|ticket) (verfeinern|sch(ä|ae)rfen))\b",
     ),
     (
+        "grill-me",
+        r"\b(grill me|grill (this|the) (plan|issue|idea)|challenge my assumptions|"
+        r"l(ö|oe)ch(er)? mich (aus|mit fragen)|hinterfrag(e)? (den|meinen) plan)\b",
+    ),
+    (
         "work-review",
         r"\b(work[- ]review|review the work|review issue #?\d+|issue #?\d+ review|"
         r"check the pr for issue|(pr|pull request) gegenpr(ü|ue)fen)\b",

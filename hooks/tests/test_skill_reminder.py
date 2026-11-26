@@ -289,6 +289,13 @@ PHRASES = {
         "Issue erstellen",
         "Ticket anlegen",
     ),
+    "grill-me": (
+        "grill me",
+        "grill this plan",
+        "challenge my assumptions",
+        "hinterfrage den Plan",
+        "löcher mich aus",
+    ),
     "plan": ("write a plan", "plan this issue", "Plan schreiben", "Vorgehen planen"),
     "propose-rule": (
         "propose a rule change",
