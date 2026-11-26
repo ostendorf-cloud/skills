@@ -33,7 +33,8 @@ Make an existing issue ready to implement. Do not implement it.
     problem statement.
 11. Comment the change summary with `gh issue comment <number> --body-file <file>`.
 12. Remove `needs triage` only once the user confirms the issue is ready.
-13. Never set `ai: ready` without the user saying so explicitly.
+13. Never set `ai: ready` without the user saying so explicitly. A request that names the work
+    is that instruction, see `issue`.
 14. Stop. No branch, no code.
 
 ## Template
@@ -55,7 +56,8 @@ Appended to the body:
 
 - Never implement, never create a branch.
 - Open questions go to the user when interactive, to a comment when unattended. Never guessed.
-- `needs triage` and `ai: ready` change only with the user's explicit confirmation.
+- `needs triage` and `ai: ready` change only with the user's explicit confirmation or a request
+  that names the work, see `issue`.
 - Setting `ai: ready` uses the snippet in `~/.claude/skills/README.md`: exactly one
   `ai:` state label remains afterwards.
 

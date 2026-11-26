@@ -21,7 +21,7 @@ The baseline every repository follows, independent of language.
 - `AGENTS.md`: layout, the commands that verify a change, and this repository's own constraints.
   Repository specific only, the baseline already applies. Deviations from this baseline go under
   `## Deviations`, one line each with the reason. A `CLAUDE.md` holding `@AGENTS.md` sits next to
-  it until every agent reads `AGENTS.md` on its own.
+  it until every agent reads `AGENTS.md` on its own. Size limits and placement: `agents-md`.
 - `LICENSE`: Apache-2.0 for a new repository, with a license header in every source file.
 - `.editorconfig` and `.gitignore`, kept current by hand until a shared generator exists.
 - `mise.toml` pinning every tool. `.agent-skills.json` is optional, absent means defaults.

@@ -40,6 +40,26 @@ class LabelMoveTest(unittest.TestCase):
         )
         self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
 
+    def test_needs_triage_to_ready_move_leaves_one_ai_label(self):
+        others = [
+            "ai: working",
+            "ai: review requested",
+            "ai: reviewing",
+            "ai: changes requested",
+            "ai: needs human",
+            "ai: done",
+            "ai: blocked",
+        ]
+        command = 'gh issue edit 44 --add-label "ai: ready" --remove-label "needs triage"'
+        for other in others:
+            command += f' --remove-label "{other}"'
+        self.assertEqual(context(run_hook("label_move.py", bash_payload(command))), "")
+
+    def test_needs_triage_to_ready_move_without_an_ai_remove_is_flagged(self):
+        command = 'gh issue edit 44 --add-label "ai: ready" --remove-label "needs triage"'
+        message = context(run_hook("label_move.py", bash_payload(command)))
+        self.assertIn("ai:", message)
+
     def test_adds_context_for_an_ai_label_anywhere_in_an_add_comma_list(self):
         command = 'gh issue edit 44 --add-label "priority: high,ai: done"'
         message = context(run_hook("label_move.py", bash_payload(command)))

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import posixpath
 import re
 import subprocess
@@ -15,6 +16,7 @@ from pathlib import Path
 
 MIN_DESCRIPTION_LENGTH = 60
 MAX_BODY_LINES = 120
+SKIPPED_DIRS = {".git", "node_modules"}
 
 FORBIDDEN_CHARS = {
     "–": "en dash",
@@ -291,6 +293,22 @@ def scan_characters(path: Path, root: Path) -> list[str]:
     return findings
 
 
+def find_agents_files(root: Path) -> list[Path]:
+    """The root AGENTS.md and every nested one, skipping vendored and worktree directories."""
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        rel = current.relative_to(root).as_posix()
+        dirnames[:] = sorted(
+            d
+            for d in dirnames
+            if d not in SKIPPED_DIRS and posixpath.join(rel, d) != ".claude/worktrees"
+        )
+        if "AGENTS.md" in filenames:
+            found.append(current / "AGENTS.md")
+    return found
+
+
 def check_characters(root: Path) -> list[str]:
     paths: list[Path] = []
     if (root / "skills").is_dir():
@@ -301,10 +319,10 @@ def check_characters(root: Path) -> list[str]:
         paths.extend(sorted((root / "agents").glob("*.md")))
     if (root / "docs").is_dir():
         paths.extend(sorted((root / "docs").rglob("*.md")))
-    for name in ("README.md", "AGENTS.md"):
-        path = root / name
-        if path.is_file():
-            paths.append(path)
+    readme = root / "README.md"
+    if readme.is_file():
+        paths.append(readme)
+    paths.extend(find_agents_files(root))
 
     findings: list[str] = []
     for path in paths:

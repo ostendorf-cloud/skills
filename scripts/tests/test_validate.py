@@ -341,6 +341,21 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("typographic quote", output)
 
+    def test_detects_forbidden_character_in_nested_agents_md(self) -> None:
+        write(self.root / "services" / "api" / "AGENTS.md", "Text with a ’ curly quote.\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("services/api/AGENTS.md:1", output)
+        self.assertIn("typographic quote", output)
+
+    def test_skips_agents_md_in_vendored_and_worktree_directories(self) -> None:
+        bad = "Text with a ’ curly quote.\n"
+        write(self.root / "node_modules" / "pkg" / "AGENTS.md", bad)
+        write(self.root / ".claude" / "worktrees" / "feat" / "AGENTS.md", bad)
+        write(self.root / ".git" / "AGENTS.md", bad)
+        _, output = run(self.root)
+        self.assertNotIn("typographic quote", output)
+
     def test_detects_emoji(self) -> None:
         write(self.root / "README.md", "Great work \U0001f389 done.\n")
         code, output = run(self.root)
@@ -692,6 +707,15 @@ class ValidateTestCase(unittest.TestCase):
         deny_read = profile["sandbox"]["filesystem"]["denyRead"]
         self.assertIn("**/*.pem", deny_read)
         self.assertIn("**/*.key", deny_read)
+
+    def test_profile_allows_reading_the_installer_state_file_and_denies_editing_its_directory(
+        self,
+    ) -> None:
+        permissions = self._laptop_profile()["permissions"]
+        self.assertIn("Read(~/.config/agent-skills/state.json)", permissions["allow"])
+        self.assertIn("Edit(~/.config/agent-skills/**)", permissions["deny"])
+        reads = [entry for entry in permissions["allow"] if "agent-skills" in entry]
+        self.assertEqual(reads, ["Read(~/.config/agent-skills/state.json)"])
 
     def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
         env = self._laptop_profile()["env"]

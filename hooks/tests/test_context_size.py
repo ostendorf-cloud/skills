@@ -58,7 +58,15 @@ class ContextSizeTest(unittest.TestCase):
         message = self.run_prompt()
         self.assertIn("150k", message)
         self.assertIn("handoff", message)
-        self.assertIn("/clear", message)
+        self.assertIn("continue", message)
+
+    def test_warning_never_makes_clear_the_only_way_on(self):
+        self.write([record(150000)])
+        message = self.run_prompt()
+        self.assertNotIn("ask the user", message)
+        self.assertIn("only way", message)
+        self.assertIn("unattended", message.lower())
+        self.assertIn("CI=true", message)
 
     def test_warns_only_once_within_the_same_band(self):
         self.write([record(150000)])
