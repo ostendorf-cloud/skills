@@ -341,6 +341,21 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("typographic quote", output)
 
+    def test_detects_forbidden_character_in_nested_agents_md(self) -> None:
+        write(self.root / "services" / "api" / "AGENTS.md", "Text with a ’ curly quote.\n")
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("services/api/AGENTS.md:1", output)
+        self.assertIn("typographic quote", output)
+
+    def test_skips_agents_md_in_vendored_and_worktree_directories(self) -> None:
+        bad = "Text with a ’ curly quote.\n"
+        write(self.root / "node_modules" / "pkg" / "AGENTS.md", bad)
+        write(self.root / ".claude" / "worktrees" / "feat" / "AGENTS.md", bad)
+        write(self.root / ".git" / "AGENTS.md", bad)
+        _, output = run(self.root)
+        self.assertNotIn("typographic quote", output)
+
     def test_detects_emoji(self) -> None:
         write(self.root / "README.md", "Great work \U0001f389 done.\n")
         code, output = run(self.root)
