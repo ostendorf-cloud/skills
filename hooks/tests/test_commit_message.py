@@ -342,18 +342,11 @@ class CommitMessageTest(unittest.TestCase):
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
     def test_denies_attribution_in_a_third_dash_m_flag(self):
-        command = (
-            "git commit -m 'feat: add thing' -m 'body' "
-            "-m 'Generated with Claude Code'"
-        )
+        command = "git commit -m 'feat: add thing' -m 'body' -m 'Generated with Claude Code'"
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
     def test_reads_a_heredoc_message_from_the_commit_segment(self):
-        command = (
-            "git add -A && git commit -F - <<'EOF'\n"
-            "added some stuff\n"
-            "EOF"
-        )
+        command = "git add -A && git commit -F - <<'EOF'\nadded some stuff\nEOF"
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
 

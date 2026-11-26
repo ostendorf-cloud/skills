@@ -58,17 +58,26 @@ def extract_messages(command: str) -> list[str]:
     return [value for _, value in matches]
 
 
-def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
+def extract_message(
+    command: str, cwd: Optional[str], segment: Optional[str] = None
+) -> Optional[str]:
     """The commit message the command would write, or None when it carries none.
 
-    Every -m/--message value is concatenated in order: the first is the subject, the
-    rest become the body, the same way git itself joins multiple -m flags.
+    Only the `git commit` segment is read, so a -m of another part of a chained command
+    is ignored. A heredoc body sits on the lines after its segment, so it is searched in
+    the command from the segment on. Every -m/--message value of the segment is
+    concatenated in order: the first is the subject, the rest become the body, the same
+    way git itself joins multiple -m flags.
     """
-    heredoc = HEREDOC_MESSAGE.search(command)
-    if heredoc:
-        return heredoc.group(2)
+    if segment is None:
+        segment = command
+    start = command.find(segment)
+    if "<<" in segment and start >= 0:
+        heredoc = HEREDOC_MESSAGE.search(command, start)
+        if heredoc:
+            return heredoc.group(2)
 
-    file_match = FILE_FLAG.search(command)
+    file_match = FILE_FLAG.search(segment)
     if file_match:
         file_path = file_match.group(1).strip("'\"")
         if file_path == "-":
@@ -80,7 +89,7 @@ def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
         except OSError:
             return None
 
-    values = extract_messages(command)
+    values = extract_messages(segment)
     if not values:
         return None
     return "\n\n".join(values)
@@ -134,12 +143,14 @@ def main() -> int:
     git_path: Optional[str] = None
     is_commit = False
     commit_dir: Optional[str] = None
+    commit_segment = ""
     for raw_part, directory in _common.part_dirs(command, cwd):
         part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
         if normalized.startswith("git commit") or normalized == "git commit":
             is_commit = True
             git_path = path
+            commit_segment = raw_part
             commit_dir = _common.git_part_dir(raw_part, directory, path)
             break
 
@@ -151,10 +162,10 @@ def main() -> int:
     if _common.in_scratch(commit_dir):
         return _common.emit_empty()
 
-    if "--amend" in command and not MESSAGE_SOURCE.search(command):
+    if "--amend" in commit_segment and not MESSAGE_SOURCE.search(commit_segment):
         return _common.emit_empty()
 
-    message = extract_message(command, git_path or cwd)
+    message = extract_message(command, git_path or cwd, commit_segment)
     if message is None:
         return _common.emit_empty()
 
