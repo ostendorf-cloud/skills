@@ -8,6 +8,8 @@
   "permissions": {
     "defaultMode": "dontAsk",
     "allow": [
+      "Read({{claude_dir}}/skills/**)",
+      "Read({{claude_dir}}/agents/**)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
