@@ -10,6 +10,7 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 - Ask when something is unclear, risky or assumed. Asking beats guessing.
 - Raise what could additionally be done. The user decides.
 - Do everything that does not depend on the answer first, then ask.
+- A request that names the work allows `ai: ready` on the issues it covers. An issue with `needs triage` outside such a request: ask first, start no work before the answer.
 
 ## Answers
 

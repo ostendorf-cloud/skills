@@ -50,6 +50,8 @@ Drain the ready and changes-requested issues unattended, one at a time, under a 
   Younger: the run is live, stop and report.
 - The cap is a hard limit on the run, applied after ordering.
 - Contradictory labels are reported, never resolved by picking one.
+- This skill never sets `ai: ready` and never removes `needs triage`. The rule that lets a
+  request naming the work do so, see `implement` step 1, never applies here.
 
 ## Config
 
