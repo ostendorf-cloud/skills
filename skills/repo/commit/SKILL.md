@@ -27,6 +27,8 @@ Turn the working tree into atomic, well described commits.
 6. Write the message: `type(scope): subject`, imperative, lowercase, no trailing period, a body
    only when the why is not obvious, `Refs #123` in an issue context, `Closes #123` when this
    commit alone resolves it. No attribution or co-author line for an assistant.
+   Pass a multi paragraph message as one `-m` per paragraph, subject first. The hook judges
+   the `git commit` segment only and reads the first `-m` as the subject.
 7. Commit. Never pass `--no-verify`. A hook that blocks a commit names a real problem, fix it.
 8. Report what was committed, one line per commit, and what is left unstaged and why.
 

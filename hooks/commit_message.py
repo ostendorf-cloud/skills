@@ -23,7 +23,7 @@ HEADER = re.compile(
 )
 SUBJECT_LIMIT = 72
 
-MESSAGE_SOURCE = re.compile(r"(?:^|\s)(-m\b|--message\b|-F\b|--file\b)")
+MESSAGE_SOURCE = re.compile(r"(?:^|\s)(-[A-Za-z]*m\b|--message\b|-F\b|--file\b)")
 
 TRAILER = re.compile(r"co-authored-by:", re.IGNORECASE)
 GENERATED_WITH = re.compile(r"(?m:^[^\w\n]*Generated with\b)")
@@ -36,8 +36,8 @@ ALLOWED_DOC_HOSTS = {
 }
 
 HEREDOC_MESSAGE = re.compile(r"<<[-~]?['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", re.DOTALL)
-MESSAGE_FLAG = re.compile(r"(?:^|\s)(?:-m|--message=?)\s*(['\"])(.*?)(?<!\\)\1", re.DOTALL)
-MESSAGE_FLAG_BARE = re.compile(r"(?:^|\s)-m\s+([^\s'\"]+)")
+MESSAGE_FLAG = re.compile(r"(?:^|\s)(?:-[A-Za-z]*m|--message=?)\s*(['\"])(.*?)(?<!\\)\1", re.DOTALL)
+MESSAGE_FLAG_BARE = re.compile(r"(?:^|\s)-[A-Za-z]*m\s+([^\s'\"]+)")
 FILE_FLAG = re.compile(r"(?:^|\s)(?:-F|--file)(?:\s+|=)(\S+)")
 
 FORMAT_HINT = (
@@ -58,17 +58,26 @@ def extract_messages(command: str) -> list[str]:
     return [value for _, value in matches]
 
 
-def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
+def extract_message(
+    command: str, cwd: Optional[str], segment: Optional[str] = None
+) -> Optional[str]:
     """The commit message the command would write, or None when it carries none.
 
-    Every -m/--message value is concatenated in order: the first is the subject, the
-    rest become the body, the same way git itself joins multiple -m flags.
+    Only the `git commit` segment is read, so a -m of another part of a chained command
+    is ignored. A heredoc body sits on the lines after its segment, so it is searched in
+    the command from the segment on. Every -m/--message value of the segment is
+    concatenated in order: the first is the subject, the rest become the body, the same
+    way git itself joins multiple -m flags.
     """
-    heredoc = HEREDOC_MESSAGE.search(command)
-    if heredoc:
-        return heredoc.group(2)
+    if segment is None:
+        segment = command
+    start = command.find(segment)
+    if "<<" in segment and start >= 0:
+        heredoc = HEREDOC_MESSAGE.search(command, start)
+        if heredoc:
+            return heredoc.group(2)
 
-    file_match = FILE_FLAG.search(command)
+    file_match = FILE_FLAG.search(segment)
     if file_match:
         file_path = file_match.group(1).strip("'\"")
         if file_path == "-":
@@ -80,7 +89,7 @@ def extract_message(command: str, cwd: Optional[str]) -> Optional[str]:
         except OSError:
             return None
 
-    values = extract_messages(command)
+    values = extract_messages(segment)
     if not values:
         return None
     return "\n\n".join(values)
@@ -131,36 +140,29 @@ def main() -> int:
     command = (payload.get("tool_input") or {}).get("command") or ""
     cwd = payload.get("cwd") or os.getcwd()
 
-    git_path: Optional[str] = None
-    is_commit = False
-    commit_dir: Optional[str] = None
+    # Every `git commit` segment is judged on its own message. A part that is not a
+    # commit, such as `git tag -m` or `echo -m`, is ignored.
     for raw_part, directory in _common.part_dirs(command, cwd):
         part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
-        if normalized.startswith("git commit") or normalized == "git commit":
-            is_commit = True
-            git_path = path
-            commit_dir = _common.git_part_dir(raw_part, directory, path)
-            break
+        if not (normalized.startswith("git commit") or normalized == "git commit"):
+            continue
 
-    if not is_commit:
-        return _common.emit_empty()
+        # A commit in a throwaway fixture repository under the session scratch directory
+        # or $TMPDIR is outside this check. A commit in a real repository is checked.
+        if _common.in_scratch(_common.git_part_dir(raw_part, directory, path)):
+            continue
 
-    # A commit in a throwaway fixture repository under the session scratch directory or
-    # $TMPDIR is outside this check. A commit in a real repository is checked as before.
-    if _common.in_scratch(commit_dir):
-        return _common.emit_empty()
+        if "--amend" in raw_part and not MESSAGE_SOURCE.search(raw_part):
+            continue
 
-    if "--amend" in command and not MESSAGE_SOURCE.search(command):
-        return _common.emit_empty()
+        message = extract_message(command, path or cwd, raw_part)
+        if message is None:
+            continue
 
-    message = extract_message(command, git_path or cwd)
-    if message is None:
-        return _common.emit_empty()
-
-    reason = message_violation(message)
-    if reason:
-        return _common.deny(EVENT, reason)
+        reason = message_violation(message)
+        if reason:
+            return _common.deny(EVENT, reason)
 
     return _common.emit_empty()
 
