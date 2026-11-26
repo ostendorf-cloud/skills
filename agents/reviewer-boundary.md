@@ -1,6 +1,6 @@
 ---
 name: reviewer-boundary
-description: "Reviews a pull request that touches a boundary path named in work-review: agent permissions, hooks, CI workflows, release configuration, secret handling or network exposure. Use instead of reviewer only when the path list matches."
+description: "Reviews a pull request that touches a boundary path named in work-review: hooks, rules, agent definitions, settings, CI workflows, release configuration, secret handling or network exposure. Use instead of reviewer only when the path list matches."
 model: opus
 maxTurns: 60
 skills:
