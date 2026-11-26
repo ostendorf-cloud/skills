@@ -307,6 +307,55 @@ class CommitMessageTest(unittest.TestCase):
         self.assertEqual(decision(output), "deny")
         self.assertIn("attribution", reason(output))
 
+    def test_allows_a_valid_commit_after_another_command_with_a_message_flag(self):
+        for command in [
+            "git tag -m 'release notes' && git commit -m 'feat: add thing'",
+            "git stash push -m wip; git commit -m 'feat: add thing' -m 'why it helps'",
+            "echo -m 'not a commit' | cat && git commit -m 'fix(tofu): pin provider version'",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
+    def test_ignores_attribution_text_outside_the_commit_segment(self):
+        for command in [
+            "git commit -m 'feat: add thing' && echo -m 'Co-Authored-By: Claude'",
+            "echo -m 'Co-Authored-By: Claude' && git commit -m 'feat: add thing'",
+            "git commit -m 'feat: add thing' && gh pr comment 1 --body 'see claude.ai'",
+        ]:
+            self.assertIsNone(
+                decision(run_hook("commit_message.py", bash_payload(command))), command
+            )
+
+    def test_judges_the_commit_segment_of_a_chained_command(self):
+        for command in [
+            "git add -A && git commit -m 'added some stuff'",
+            "git tag -m 'v1' && git commit -m 'added some stuff' -m 'body'",
+            "git add -A && git commit -m 'feat: add thing' -m 'Co-Authored-By: Claude <a@b.c>'",
+        ]:
+            self.assertEqual(
+                decision(run_hook("commit_message.py", bash_payload(command))), "deny", command
+            )
+
+    def test_takes_the_first_dash_m_as_the_subject_of_several(self):
+        command = "git commit -m 'added some stuff' -m 'feat: looks fine as a body'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
+    def test_denies_attribution_in_a_third_dash_m_flag(self):
+        command = (
+            "git commit -m 'feat: add thing' -m 'body' "
+            "-m 'Generated with Claude Code'"
+        )
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
+    def test_reads_a_heredoc_message_from_the_commit_segment(self):
+        command = (
+            "git add -A && git commit -F - <<'EOF'\n"
+            "added some stuff\n"
+            "EOF"
+        )
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
 
 if __name__ == "__main__":
     unittest.main()
