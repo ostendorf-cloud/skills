@@ -16,7 +16,11 @@ Take one issue from label to a pushed, reviewable pull request.
 ## Steps
 
 1. Pick the issue: the one named, or the highest priority eligible issue (`ready` or
-   `changes requested`, no `needs triage`).
+   `changes requested`, no `needs triage`). An issue with `needs triage` that the request
+   names: remove `needs triage` and set `ready` with the label move snippet, then go on. An
+   issue with `needs triage` outside such a request: ask the user with the question tool
+   whether it may get `ai: ready`, and start no work before the answer. Unattended
+   (`CI=true`): skip the issue, never set `ready`.
 2. Claim it: move the label to `working`, assign yourself when the tracker allows it. Claim
    before any work.
 3. Read the issue body and the `## Plan` section or latest plan comment. Re-working a
