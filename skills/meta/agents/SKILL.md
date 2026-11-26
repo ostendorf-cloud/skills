@@ -46,7 +46,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   states why in one line, tokens and time against capability.
 - Review: the `reviewer` agent, `sonnet`. The `reviewer-boundary` agent, `opus`, only when the
   path list in `work-review` matches. The list decides, not a feeling about the change.
-- Plan: `opus`. Search and lookup: the built in search agent.
+- Plan: `opus`. Search and lookup: the built in search agent. Kept research: `researcher`, `sonnet`.
 - An agent definition is missing in this installation: use a general agent with the same model
   and the definition's rules in the brief, and say so in the report.
 

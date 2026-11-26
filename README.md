@@ -62,7 +62,7 @@ npx skills add ostendorf-cloud/skills -g
 - The laptop profile sets `model` to `opusplan`: Opus in plan mode, Sonnet otherwise.
 - `effortLevel` is `medium`.
 - `CLAUDE_CODE_SUBAGENT_MODEL` is `sonnet`. A model passed to a single subagent still wins.
-- Agent definitions carry their own model: `implementer` and `reviewer` run on Sonnet,
+- Agent definitions carry their own model: `implementer`, `researcher` and `reviewer` run on Sonnet,
   `reviewer-boundary` on Opus. The path list in `work-review` picks the reviewer.
 - `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is `200000`: a session compacts at 200k tokens instead of
   growing into the large window. Every request reads the whole conversation again.
