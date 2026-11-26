@@ -28,7 +28,9 @@ task install
 ```
 
 `task install` copies the skills into `~/.claude/skills` and the hooks into
-`~/.claude/.agent-skills-hooks`, writes `rules/baseline.md` as `~/.claude/CLAUDE.md`, merges
+`~/.claude/.agent-skills-hooks` together with `rules/main-session.md`, copies `agents/*.md` into
+`~/.claude/agents` without touching other files there, writes `rules/baseline.md` as
+`~/.claude/CLAUDE.md`, appends the main session rules to the exported `AGENTS.md`, merges
 `settings/claude.json` into `~/.claude/settings.json` with the hooks pointing at the installed
 copies, and keeps a backup of every file it replaces. The installation keeps working once this
 checkout moves, is removed, or sits on another branch; `task install` picks up a change made
@@ -60,6 +62,10 @@ npx skills add ostendorf-cloud/skills -g
 - The laptop profile sets `model` to `opusplan`: Opus in plan mode, Sonnet otherwise.
 - `effortLevel` is `medium`.
 - `CLAUDE_CODE_SUBAGENT_MODEL` is `sonnet`. A model passed to a single subagent still wins.
+- Agent definitions carry their own model: `implementer` and `reviewer` run on Sonnet,
+  `reviewer-boundary` on Opus. The path list in `work-review` picks the reviewer.
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is `200000`: a session compacts at 200k tokens instead of
+  growing into the large window. Every request reads the whole conversation again.
 - Raise the model for one session with `/model`, the effort with `/effort`.
 - The CI profile sets no model or effort and keeps the workflow's own choice.
 - No `language` is set: answers follow the user's language, repository content stays English.
@@ -83,11 +89,14 @@ npx skills add ostendorf-cloud/skills -g
 | `public-findings` | deny | A `gh` issue, pull request or API write, or a commit or tag message, in a public repository whose title, label or text describes a finding. Unknown visibility counts as public. A repository without any remote is not public. `publicFindings.allowWords` in `.agent-skills.json` opts out of words. |
 | `prefer-opentofu` | deny | `terraform` in a repository that is not marked as Terraform based in `.agent-skills.json`. |
 | `iac-first` | deny | Repository, organisation, label, ruleset or secret changes through `gh` or the API, a pull request write through the API or a GraphQL mutation, `gh release` where the release tool (release-me or release-please) is configured, and `gh repo` rename, set-default, alias or extension. |
+| `gh-alone` | deny | On macOS, a Bash command that runs `gh` and is not exactly one `gh` call: behind `cd`, in a chain, with a pipe, in a loop, in a command substitution, behind the `env` command or with a redirection other than `2>&1`. A leading `NAME=value` assignment is allowed. The sandbox fails such a call. |
 | `scratchpad-path` | deny | A scratchpad path with a dash instead of a slash before the session id, in a Bash command or a file path. The denial shows the corrected path. |
 | `label-move` | context | `gh issue edit` or `gh pr edit` that adds an `ai:` label without removing another: reminds that exactly one `ai:` state label must remain. |
 | `session-lock` | context | Records the session for the checkout and warns when another live session already works in it. |
 | `session-unlock` | context | Removes the session record at session end. |
 | `stale-skills` | context | Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is on its default branch and behind origin as last fetched. |
+| `main-session-rules` | context | Adds the rules for the session that talks to the user, from the installed `main-session.md`, on every session start, resume, clear and compact. Nothing for a subagent. |
+| `context-size` | context | Warns once per 50000 token band when the context reaches 150000 tokens, or the value of `AGENT_SKILLS_CONTEXT_WARN` (`0` disables), and asks for a handoff and a `/clear`. Nothing for a subagent. |
 | `skill-reminder` | context | Names the skills that cover the request. |
 | `file-parses` | context | A YAML, JSON or TOML file that no longer parses after a write. |
 | `tofu-fmt` | context | Reports when a written `.tf` or `.tfvars` file is not formatted. |

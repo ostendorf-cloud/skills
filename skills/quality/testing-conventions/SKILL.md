@@ -1,10 +1,6 @@
 ---
 name: testing-conventions
-description: >-
-  Generic rules for when a test gets written, what earns one, and that the
-  environment is part of the contract. Use before writing or changing a
-  test, fixing a bug, or reviewing coverage, Testkonventionen, Tests
-  schreiben.
+description: "Generic rules for when a test gets written, what earns one, and that the environment is part of the contract. Use before writing or changing a test, fixing a bug, or reviewing coverage."
 ---
 
 # Testing conventions

@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Captures unfinished work as a structured comment on the issue or pull request, covering state, done, open and next steps, built from git and gh state rather than memory. Use when stopping mid task, running low on context, or asked for a handoff or handover note. Trigger phrases: write a handoff, hand this off, Uebergabe schreiben, Zwischenstand sichern.
+description: "Captures unfinished work as a structured comment on the issue or pull request, covering state, done, open and next steps, built from git and gh state rather than memory. Use when stopping mid task, running low on context, or asked for a handoff or handover note."
 ---
 
 # handoff

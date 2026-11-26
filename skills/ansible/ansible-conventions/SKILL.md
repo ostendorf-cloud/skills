@@ -1,10 +1,6 @@
 ---
 name: ansible-conventions
-description: Ansible conventions for check mode safety, dynamic inventory generated from
-  infrastructure outputs, idempotent tasks, pre-flight guards before a destructive run, and the
-  ansible-lint and syntax-check gate in CI. Use when writing, reviewing or running a playbook, a
-  role or an inventory script. Trigger phrases: write a playbook, ansible role, dynamic
-  inventory, ansible-lint, check mode, pre-flight guard, Playbook schreiben, Inventar generieren.
+description: "Ansible conventions for check mode safety, dynamic inventory generated from infrastructure outputs, idempotent tasks, pre-flight guards before a destructive run, and the ansible-lint and syntax-check gate in CI. Use when writing, reviewing or running a playbook, a role or an inventory script."
 ---
 
 # Ansible conventions

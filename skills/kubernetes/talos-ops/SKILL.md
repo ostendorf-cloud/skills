@@ -1,11 +1,6 @@
 ---
 name: talos-ops
-description: Operates a Talos Linux cluster whose machine configuration, bootstrap and upgrades
-  run as OpenTofu resources through the talos provider, one node at a time, with a health and
-  etcd quorum gate between nodes. Use when upgrading Talos or Kubernetes, reconfiguring a node,
-  bootstrapping a cluster, or diagnosing a node with talosctl. Trigger phrases: talos upgrade,
-  machine config, talosctl, etcd quorum, apply-config, Talos Node aktualisieren, Node neu
-  starten.
+description: "Operates a Talos cluster whose machine configuration, bootstrap and upgrades run as OpenTofu resources, one node at a time, with a health and etcd quorum gate between nodes. Use when upgrading Talos or Kubernetes, reconfiguring a node, bootstrapping a cluster, or diagnosing a node with talosctl."
 ---
 
 # Talos operations

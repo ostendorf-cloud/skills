@@ -1,11 +1,6 @@
 ---
 name: kubernetes-conventions
-description: Kubernetes conventions for how a workload reaches the cluster, how namespaces and
-  CRDs are organised, and the baseline every workload meets: resources, probes, non root, secrets
-  through the secret manager, default deny network policy. Use when installing, changing or
-  reviewing anything that runs in Kubernetes. Trigger phrases: helm_release, install a chart,
-  CRD, namespace, network policy, pod security, Ingress, Gateway API, HTTPRoute,
-  Kubernetes Workload, Namespace anlegen, Secret einbinden.
+description: "Kubernetes conventions for how a workload reaches the cluster, how namespaces and CRDs are organised, and the baseline every workload meets: resources, probes, non root, secrets, default deny network policy. Use when installing, changing or reviewing anything that runs in Kubernetes."
 ---
 
 # Kubernetes conventions

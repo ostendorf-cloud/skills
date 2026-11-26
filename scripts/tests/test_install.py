@@ -1341,6 +1341,162 @@ class InstallTestCase(unittest.TestCase):
         self.assertFalse((self.home / ".config").exists())
         self.assertFalse((self.home / "escaped.state.json").exists())
 
+    def _write_agents(self, **agents: str) -> None:
+        for name, content in agents.items():
+            write(self.source / "agents" / f"{name}.md", content)
+
+    def _agents_dir(self) -> Path:
+        return self.home / ".claude" / "agents"
+
+    def test_install_copies_every_agent_definition(self) -> None:
+        self._write_agents(implementer="one\n", reviewer="two\n")
+        code, output = self._install()
+        self.assertEqual(code, 0, output)
+        self.assertEqual((self._agents_dir() / "implementer.md").read_text(), "one\n")
+        self.assertEqual((self._agents_dir() / "reviewer.md").read_text(), "two\n")
+        self.assertIn("agent   implementer.md installed", output)
+        state = json.loads((self.home / ".config" / "agent-skills" / "state.json").read_text())
+        self.assertEqual(state["agents"], ["implementer.md", "reviewer.md"])
+
+    def test_install_without_an_agents_directory_creates_no_agents_directory(self) -> None:
+        self._install()
+        self.assertFalse(self._agents_dir().exists())
+
+    def test_install_leaves_an_agent_file_it_did_not_install_alone(self) -> None:
+        self._write_agents(implementer="one\n")
+        write(self._agents_dir() / "mine.md", "my own\n")
+        self._install()
+        self._install()
+        self.assertEqual((self._agents_dir() / "mine.md").read_text(), "my own\n")
+
+    def test_install_updates_a_changed_agent_and_reports_unchanged_otherwise(self) -> None:
+        self._write_agents(implementer="one\n")
+        self._install()
+        _, output = self._install()
+        self.assertIn("agent   implementer.md unchanged", output)
+        self._write_agents(implementer="changed\n")
+        _, output = self._install()
+        self.assertIn("agent   implementer.md updated", output)
+        self.assertEqual((self._agents_dir() / "implementer.md").read_text(), "changed\n")
+
+    def test_install_backs_up_a_foreign_agent_file_of_the_same_name_once(self) -> None:
+        self._write_agents(implementer="one\n")
+        write(self._agents_dir() / "implementer.md", "mine\n")
+        self._install()
+        backup = self._agents_dir() / ("implementer.md" + install.BACKUP_SUFFIX)
+        self.assertEqual(backup.read_text(), "mine\n")
+        self._write_agents(implementer="two\n")
+        self._install()
+        self.assertEqual(backup.read_text(), "mine\n")
+
+    def test_install_prunes_an_agent_it_installed_that_left_the_source(self) -> None:
+        self._write_agents(implementer="one\n", reviewer="two\n")
+        write(self._agents_dir() / "mine.md", "my own\n")
+        self._install()
+        (self.source / "agents" / "reviewer.md").unlink()
+        _, output = self._install()
+        self.assertIn("agent   reviewer.md removed", output)
+        self.assertFalse((self._agents_dir() / "reviewer.md").exists())
+        self.assertTrue((self._agents_dir() / "implementer.md").is_file())
+        self.assertTrue((self._agents_dir() / "mine.md").is_file())
+
+    def test_install_reports_a_conflict_for_a_symlink_in_the_way(self) -> None:
+        self._write_agents(implementer="one\n")
+        elsewhere = Path(self.tmp.name) / "elsewhere.md"
+        write(elsewhere, "linked\n")
+        self._agents_dir().mkdir(parents=True)
+        (self._agents_dir() / "implementer.md").symlink_to(elsewhere)
+        code, output = self._install()
+        self.assertEqual(code, 1)
+        self.assertIn("agent   implementer.md conflict", output)
+        self.assertEqual(elsewhere.read_text(), "linked\n")
+
+    def test_status_reports_agent_drift_and_sync(self) -> None:
+        self._write_agents(implementer="one\n")
+        self._install()
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0, output)
+        self.assertIn("agent   implementer.md in sync", output)
+
+        (self._agents_dir() / "implementer.md").write_text("edited\n")
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 1)
+        self.assertIn("agent   implementer.md updated", output)
+
+        (self._agents_dir() / "implementer.md").unlink()
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 1)
+        self.assertIn("agent   implementer.md installed", output)
+
+    def test_status_changes_no_agent_file(self) -> None:
+        self._write_agents(implementer="one\n")
+        run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertFalse(self._agents_dir().exists())
+
+    def test_doctor_fails_for_an_agent_that_is_not_installed(self) -> None:
+        self._write_agents(implementer="one\n")
+        _, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
+        self.assertIn("fail  agent definitions are installed (missing: implementer.md)", output)
+        self._install()
+        _, output = run(["doctor", "--home", str(self.home), "--source", str(self.source)])
+        self.assertIn("ok  agent definitions are installed", output)
+
+    def test_uninstall_removes_installed_agents_and_keeps_foreign_ones(self) -> None:
+        self._write_agents(implementer="one\n")
+        write(self._agents_dir() / "mine.md", "my own\n")
+        self._install()
+        _, output = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertIn("agent   implementer.md removed", output)
+        self.assertFalse((self._agents_dir() / "implementer.md").exists())
+        self.assertFalse((self._agents_dir() / install.AGENTS_MARKER_NAME).exists())
+        self.assertEqual((self._agents_dir() / "mine.md").read_text(), "my own\n")
+
+    def test_uninstall_restores_a_backed_up_agent_and_removes_an_empty_directory(self) -> None:
+        self._write_agents(implementer="one\n", reviewer="two\n")
+        write(self._agents_dir() / "implementer.md", "mine\n")
+        self._install()
+        run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual((self._agents_dir() / "implementer.md").read_text(), "mine\n")
+        self.assertFalse((self._agents_dir() / "reviewer.md").exists())
+
+        (self._agents_dir() / "implementer.md").unlink()
+        self.assertFalse(any(self._agents_dir().iterdir()))
+
+    def test_uninstall_removes_the_agents_directory_when_nothing_else_is_in_it(self) -> None:
+        self._write_agents(implementer="one\n")
+        self._install()
+        run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertFalse(self._agents_dir().exists())
+
+    def test_install_copies_the_main_session_rules_next_to_the_hooks(self) -> None:
+        write(self.source / "rules" / "main-session.md", "# Main\n\nRule.\n")
+        self._install()
+        copy = self.home / ".claude" / install.OWN_HOOKS_DIRNAME / "main-session.md"
+        self.assertEqual(copy.read_text(), "# Main\n\nRule.\n")
+
+    def test_install_without_main_session_rules_copies_none(self) -> None:
+        self._install()
+        hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
+        self.assertFalse((hooks_dir / "main-session.md").exists())
+
+    def test_status_reports_drift_when_the_main_session_rules_change(self) -> None:
+        write(self.source / "rules" / "main-session.md", "# Main\n")
+        self._install()
+        code, _ = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        write(self.source / "rules" / "main-session.md", "# Main\n\nNew rule.\n")
+        code, output = run(["status", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 1)
+        self.assertIn("hooks   drift (updated)", output)
+
+    def test_install_appends_the_main_session_rules_to_the_agents_export(self) -> None:
+        write(self.source / "rules" / "main-session.md", "# Main\n\nRule.\n")
+        self._install()
+        agents_md = self.home / ".config" / "agent-skills" / "AGENTS.md"
+        self.assertEqual(agents_md.read_text(), "# Baseline\n\nRule one.\n\n# Main\n\nRule.\n")
+        claude_md = self.home / ".claude" / "CLAUDE.md"
+        self.assertEqual(claude_md.read_text(), "# Baseline\n\nRule one.\n")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,11 +1,6 @@
 ---
 name: conformance-checks
-description: >-
-  Picks the right tool for a convention no linter knows: helm-unittest for
-  rendered Helm charts, conftest with Rego for YAML, JSON, HCL, TOML and
-  Dockerfile, kubeconform for schemas, never a bespoke check script. Use
-  when writing or reviewing a check for the repository's own rules,
-  eigene Konvention pruefen, Policy schreiben.
+description: "Picks the right tool for a convention no linter knows: helm-unittest for rendered Helm charts, conftest with Rego for YAML, JSON, HCL, TOML and Dockerfile, kubeconform for schemas, never a bespoke check script. Use when writing or reviewing a check for the repository's own rules."
 ---
 
 # Conformance checks

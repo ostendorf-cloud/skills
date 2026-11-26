@@ -1,10 +1,6 @@
 ---
 name: adr
-description: >-
-  Writes a MADR style architecture decision record under docs/adr, or
-  supersedes an existing one, for a decision worth remembering. Use when
-  an architecture, infrastructure or tooling choice needs recording,
-  Architekturentscheidung dokumentieren, ADR schreiben.
+description: "Writes a MADR style architecture decision record under docs/adr, or supersedes an existing one, for a decision worth remembering. Use when an architecture, infrastructure or tooling choice needs recording."
 ---
 
 # Adr

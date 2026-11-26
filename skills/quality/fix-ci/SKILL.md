@@ -1,11 +1,6 @@
 ---
 name: fix-ci
-description: >-
-  Reads a failing GitHub Actions run with the CLI, reproduces the failure
-  locally with the same task target and tool versions, and fixes the
-  cause instead of retrying the job. Use when a check is red, CI behaves
-  differently than local, or someone asks to fix CI, CI reparieren,
-  Workflow debuggen.
+description: "Reads a failing GitHub Actions run with the CLI, reproduces the failure locally with the same task target and tool versions, and fixes the cause instead of retrying the job. Use when a check is red, CI behaves differently than local, or someone asks to fix CI."
 ---
 
 # Fix CI

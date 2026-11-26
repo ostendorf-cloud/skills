@@ -1,13 +1,6 @@
 ---
 name: ci-review
-description: >-
-  Reviews a pull request from CI as a comment whose first line is the verdict,
-  grouped by severity with file and line references, upgrading to a formal
-  GitHub review when the workflow's identity differs from the author, and
-  never merging or pushing. Use when a workflow triggers an automated pull
-  request review, including an infrastructure pull request with a sticky
-  plan comment to read, Pull Request aus der CI pruefen, automatisierte
-  Review, Infrastruktur Pull Request, Plan Kommentar pruefen.
+description: "Reviews a pull request from CI as a comment whose first line is the verdict, grouped by severity with file and line references, and never merges or pushes. Use when a workflow triggers an automated pull request review, including an infrastructure pull request with a sticky plan comment."
 disallowed-tools: AskUserQuestion
 ---
 

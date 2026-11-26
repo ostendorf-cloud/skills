@@ -1,11 +1,6 @@
 ---
 name: lint
-description: >-
-  Detects the repository's formatters and linters from mise.toml, the task
-  runner and config files, runs them and fixes the findings without
-  disabling a rule to pass. Use when code needs linting or formatting, a
-  lint job fails, or someone asks to lint, format, run linters, Code
-  linten, Code formatieren, Linter laufen lassen.
+description: "Detects the repository's formatters and linters from mise.toml, the task runner and config files, runs them and fixes the findings without disabling a rule to pass. Use when code needs linting or formatting, a lint job fails, or someone asks to run the linters."
 ---
 
 # Lint

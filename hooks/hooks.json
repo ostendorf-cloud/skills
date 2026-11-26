@@ -75,6 +75,15 @@
       "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where the repository's release tool (release-me or release-please) is configured, and gh repo rename, set-default, alias or extension."
     },
     {
+      "id": "gh-alone",
+      "script": "gh_alone.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "On macOS, a Bash command that runs gh and is not exactly one gh call: behind cd, in a chain, with a pipe, in a loop, in a command substitution, behind the env command or with a redirection other than 2>&1. A leading NAME=value assignment is allowed. The sandbox fails such a call."
+    },
+    {
       "id": "scratchpad-path",
       "script": "scratchpad_path.py",
       "event": "PreToolUse",
@@ -118,6 +127,24 @@
       "timeout": 10,
       "decision": "context",
       "description": "Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is on its default branch and behind origin as last fetched."
+    },
+    {
+      "id": "main-session-rules",
+      "script": "main_session_rules.py",
+      "event": "SessionStart",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Adds the rules for the session that talks to the user, from the installed main-session.md, on every session start, resume, clear and compact. Nothing for a subagent."
+    },
+    {
+      "id": "context-size",
+      "script": "context_size.py",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Warns once per 50000 token band when the context reaches 150000 tokens, or the value of AGENT_SKILLS_CONTEXT_WARN, and asks for a handoff and a /clear. Nothing for a subagent."
     },
     {
       "id": "skill-reminder",

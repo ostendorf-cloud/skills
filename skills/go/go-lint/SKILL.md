@@ -1,10 +1,6 @@
 ---
 name: go-lint
-description: >-
-  How to format Go code with gofumpt through golangci-lint fmt, run and fix
-  golangci-lint, pick the linter set and pin the version in mise.toml. Use
-  when lint fails, when setting up linting, or before opening a Go pull
-  request, Go linten.
+description: "How to format Go code with gofumpt through golangci-lint fmt, run and fix golangci-lint, pick the linter set and pin the version in mise.toml. Use when lint fails, when setting up linting, or before opening a Go pull request."
 ---
 
 # Go lint

@@ -1,10 +1,6 @@
 ---
 name: repo-conventions
-description: What every repository must contain, how it is laid out, how its tools are pinned and
-  how its scripts are placed. Use when creating a repository, auditing one against the baseline,
-  or deciding where a file, a tool pin or a script belongs. Trigger phrases: new repository,
-  repository layout, mise.toml, Taskfile, where does this script go, Repository anlegen,
-  Tool-Version pinnen.
+description: "What every repository must contain, how it is laid out, how its tools are pinned and how its scripts are placed. Use when creating a repository, auditing one against the baseline, or deciding where a file, a tool pin or a script belongs."
 ---
 
 # Repository conventions

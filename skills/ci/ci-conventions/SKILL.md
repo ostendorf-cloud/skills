@@ -1,18 +1,6 @@
 ---
 name: ci-conventions
-description: >-
-  Rules for running as an agent inside CI with no human in the loop: no
-  questions, bounded steps, read plus review and comment only, secrets
-  only through the workflow, never a push or a merge from CI. Also how a
-  workflow file inside .github/workflows/ is named and shaped: workflow
-  naming, one job per check, matrix, permissions, pinned actions, the
-  .yaml extension, and how an OpenTofu plan and apply pipeline runs
-  across several modules: changed module detection, matrix plan, one
-  sticky comment per module, apply on merge. Use when the session runs
-  non interactively in a workflow, when naming or reviewing a workflow
-  file, when setting up a tofu plan or apply pipeline, Agent laeuft in
-  CI, unbeaufsichtigt in der Pipeline, Workflow benennen, GitHub Actions
-  Workflow, Tofu Pipeline, mehrere Module planen.
+description: "Rules for an agent running inside CI with no human in the loop, and for naming and shaping workflow files, including OpenTofu plan and apply pipelines across several modules. Use when the session runs non interactively in a workflow, or when naming, reviewing or setting up a workflow file."
 disallowed-tools: AskUserQuestion
 ---
 

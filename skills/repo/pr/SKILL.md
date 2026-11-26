@@ -1,9 +1,6 @@
 ---
 name: pr
-description: Opens or updates a pull request with a Conventional Commits title, a body in What,
-  Why, Verification and Risk, issue link and labels. Use when a branch is ready for review or an
-  existing pull request's description no longer matches the work. Trigger phrases: open a pull
-  request, update the pull request, PR erstellen, PR aktualisieren.
+description: "Opens or updates a pull request with a Conventional Commits title, a body in What, Why, Verification and Risk, issue link and labels. Use when a branch is ready for review or an existing pull request's description no longer matches the work."
 ---
 
 # Pull request

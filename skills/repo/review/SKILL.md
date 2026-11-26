@@ -1,9 +1,6 @@
 ---
 name: review
-description: Reviews a diff, a branch or a pull request and posts the verdict as a comment
-  with findings grouped by severity. Use when asked to review code, before merging a pull request,
-  or before approving your own earlier work from a different session. Trigger phrases: review this,
-  review the pull request, request changes, Code Review, PR reviewen.
+description: "Reviews a diff, a branch or a pull request and posts the verdict as a comment with findings grouped by severity. Use when asked to review code, before merging a pull request, or before approving your own earlier work from a different session."
 ---
 
 # Review
@@ -67,9 +64,9 @@ Review a change the way a peer does who has to maintain it afterwards.
   never substitutes for restating whether its finding passed in the new verdict.
 - `review.token`'s value is read into `GH_TOKEN` for the review call only, never printed.
 - Posting a review needs no confirmation. It is a comment, reversible like any other.
-- The supervising session picks the model before it spawns a review: `models.reviewBoundary`
-  for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
-  `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
+- A spawned review runs in the `reviewer` agent, or in `reviewer-boundary` when the boundary
+  path list in `work-review` matches. The list decides, not a feeling about the change. A
+  re-review continues the first reviewer and checks the finding list only.
 
 ## Config
 

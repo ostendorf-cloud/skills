@@ -1,9 +1,6 @@
 ---
 name: go-conventions
-description: >-
-  Go rules for package layout, error wrapping, context propagation,
-  structured logging, configuration and license headers. Use when writing,
-  reviewing or refactoring Go code, Go schreiben, Go-Konventionen.
+description: "Go rules for package layout, error wrapping, context propagation, structured logging, configuration and license headers. Use when writing, reviewing or refactoring Go code."
 ---
 
 # Go conventions

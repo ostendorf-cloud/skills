@@ -4,6 +4,7 @@
   "effortLevel": "medium",
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
     "pnpm_config_store_dir": "~/.cache/pnpm/store",
     "XDG_RUNTIME_DIR": "/tmp/claude"
   },
@@ -182,6 +183,7 @@
       "Edit({{claude_dir}}/settings.json)",
       "Edit({{claude_dir}}/CLAUDE.md)",
       "Edit({{claude_dir}}/skills/**)",
+      "Edit({{claude_dir}}/agents/**)",
       "Edit({{claude_dir}}/.agent-skills-hooks/**)",
       "Edit(~/.config/agent-skills/**)"
     ]

@@ -1,10 +1,6 @@
 ---
 name: concept-doc
-description: >-
-  Writes a short concept doc under docs/concepts before a new service or
-  major feature is built, covering problem, goals, non goals, approach,
-  alternatives and open questions. Use when planning a new service or
-  major feature, Konzept schreiben, Feature-Konzept vor der Umsetzung.
+description: "Writes a short concept doc under docs/concepts before a new service or major feature is built, covering problem, goals, non goals, approach, alternatives and open questions. Use when planning a new service or major feature."
 ---
 
 # Concept doc

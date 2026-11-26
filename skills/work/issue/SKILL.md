@@ -1,6 +1,6 @@
 ---
 name: issue
-description: Creates or updates a GitHub issue with gh issue create or gh issue edit, after a duplicate search, with Goal, Context, Acceptance criteria and Out of scope sections, one type label and a priority label when known. Use when filing, opening or updating an issue or ticket, or when asked to create a bug, feature or research issue. Trigger phrases: open an issue, create a ticket, file a bug, Issue erstellen, Ticket anlegen.
+description: "Creates or updates a GitHub issue with gh issue create or gh issue edit, after a duplicate search, with Goal, Context, Acceptance criteria and Out of scope sections, one type label and a priority label when known. Use when filing, opening or updating an issue or ticket."
 ---
 
 # issue

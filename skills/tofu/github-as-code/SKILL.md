@@ -1,11 +1,6 @@
 ---
 name: github-as-code
-description: GitHub repositories, labels, rulesets, organisation secrets and the GitHub Apps of
-  the automation written as OpenTofu with the github provider, instead of changed by hand with gh
-  or the web UI. Use when writing or reviewing OpenTofu that manages a repository, a label, a
-  ruleset, a secret, an app or an organisation setting, or when asked to change one of those by
-  hand. Trigger phrases: github provider, repository settings, rulesets, labels as code, org
-  settings, github app, app permissions, Repo-Einstellungen, GitHub-App anlegen.
+description: "GitHub repositories, labels, rulesets, organisation secrets and GitHub Apps written as OpenTofu with the github provider, instead of changed by hand with gh or the web UI. Use when writing or reviewing OpenTofu that manages one of those, or when asked to change one of those by hand."
 ---
 
 # github-as-code

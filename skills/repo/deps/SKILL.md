@@ -1,9 +1,6 @@
 ---
 name: deps
-description: Triages dependency update pull requests from Renovate or Dependabot, grouped by risk,
-  and merges them with confirmation. Use when dependency pull requests have piled up or a specific
-  dependency needs an upgrade. Trigger phrases: triage dependency PRs, merge renovate PRs, update
-  dependencies, Dependency-PRs triagieren, Abhaengigkeiten aktualisieren.
+description: "Triages dependency update pull requests from Renovate or Dependabot, grouped by risk, and merges them with confirmation. Use when dependency pull requests have piled up or a specific dependency needs an upgrade."
 ---
 
 # Dependencies

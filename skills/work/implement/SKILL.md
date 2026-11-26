@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Claims one ready or changes-requested GitHub issue, implements it on a worktree branch through a subagent, verifies, commits, pushes and opens a draft pull request, then hands it to review. Use when asked to implement, work on, pick up or build an issue, or to address review feedback. Trigger phrases: implement issue 42, work this issue, address the review feedback, Issue umsetzen, Ticket abarbeiten.
+description: "Claims one ready or changes-requested GitHub issue, implements it on a worktree branch through a subagent, verifies, commits, pushes and opens a draft pull request, then hands it to review. Use when asked to implement, work on, pick up or build an issue, or to address review feedback."
 ---
 
 # implement
@@ -25,13 +25,13 @@ Take one issue from label to a pushed, reviewable pull request.
 4. Create the branch and worktree via the `worktree` skill: `work.branch` strategy, default
    `worktree`, under `.claude/worktrees/<branch>`, branch named `<type>/<issue-number>-<slug>`.
 5. Implement through a subagent, except a change of about five lines or fewer with no logic
-   (text, configuration, a single value): the supervising session makes it directly and it still
+   (text, configuration, a single value): the orchestrator makes it directly and it still
    goes through review. Code with logic or a change that needs a new or changed test always uses
-   a subagent. It runs through the Agent tool, model from the plan's per-step override or config
-   `models.implement` (default `sonnet`), scoped to the files the plan named, carrying the house
-   style rules. A rework round scopes the subagent to the finding list instead: every blocker
-   and should finding goes to it. A nit is fixed by the supervising session directly, not sent
-   into the subagent or another review round.
+   a subagent. It runs as the `implementer` agent, model from the plan's per-step override or
+   config `models.implement` (default `sonnet`), scoped to the files the plan named. A rework
+   round continues that same agent with a message carrying the finding list: every blocker and
+   should finding goes to it. A fresh agent only when the first one is gone. A nit is fixed by
+   the orchestrator directly, not sent into the subagent or another review round.
 6. Keep the change scoped to this one issue.
 7. Run the verify command from config `verify`. The change rewrote a check, a matcher or a
    gate: `testing-conventions`'s comparison requirement holds before this counts as green.
@@ -41,7 +41,9 @@ Take one issue from label to a pushed, reviewable pull request.
 10. Push the branch.
 11. Open a draft pull request via the `pr` skill, body includes `Closes #<number>`. Re-working
     an existing pull request: update it instead of opening a second one.
-12. Move the label to `review requested`.
+12. Move the label to `review requested`. Wait for CI on the head commit here, with
+    `gh pr checks <number> --watch` as one background call, before a review is spawned. Check
+    the boundary path list in `work-review` and spawn `reviewer` or `reviewer-boundary`.
 13. Comment a short summary on the issue via the `tldr` skill template.
 14. Interactive session: ask when something is genuinely unclear before step 5.
 15. Unattended session (`CI=true`): never ask, record the question as an issue comment and move

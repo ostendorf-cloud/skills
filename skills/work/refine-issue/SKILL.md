@@ -1,6 +1,6 @@
 ---
 name: refine-issue
-description: Turns a thin GitHub issue into an implementable one by restating the goal, listing open questions, writing acceptance criteria and splitting it when too large. Use when an issue is picked up but does not say enough to start, or when asked to refine, groom, scope or break down an issue. Trigger phrases: refine this issue, groom the backlog, Issue schaerfen, Ticket verfeinern.
+description: "Turns a thin GitHub issue into an implementable one by restating the goal, listing open questions, writing acceptance criteria and splitting it when too large. Use when an issue is picked up but does not say enough to start, or when asked to refine or break down an issue."
 ---
 
 # refine-issue

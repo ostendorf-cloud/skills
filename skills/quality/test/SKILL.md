@@ -1,10 +1,6 @@
 ---
 name: test
-description: >-
-  Detects the repository's test runner, runs the suite and adds missing
-  tests for changed code including edge cases and failure paths. Use when
-  tests should run or be extended, a change lacks coverage, or someone
-  asks to test, add tests, Tests ausfuehren, Tests ergaenzen.
+description: "Detects the repository's test runner, runs the suite and adds missing tests for changed code including edge cases and failure paths. Use when tests should run or be extended, a change lacks coverage, or someone asks to run or add tests."
 ---
 
 # Test

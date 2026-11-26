@@ -5,7 +5,6 @@
 import glob
 import json
 import os
-import re
 import sys
 import unittest
 
@@ -16,10 +15,313 @@ import skill_reminder  # noqa: E402
 
 SKILLS_DIR = os.path.join(os.path.dirname(HOOKS_DIR), "skills")
 
-# Words that only occur in the English "Use when ..." clause of a description. The German
-# phrases at the end of a description without a "Trigger phrases:" list follow the last
-# item that holds one of them.
-CLAUSE_WORDS = re.compile(r"\b(when|or|needs|including|before|after|use)\b", re.IGNORECASE)
+# Trigger phrases per skill. The descriptions no longer list them, so this table is the single
+# source. Every phrase must match its own skill, or sit in UNMATCHED_PHRASES with a reason.
+PHRASES = {
+    "ansible-conventions": (
+        "write a playbook",
+        "ansible role",
+        "dynamic inventory",
+        "ansible-lint",
+        "check mode",
+        "pre-flight guard",
+        "Playbook schreiben",
+        "Inventar generieren",
+    ),
+    "ci-conventions": (
+        "Agent laeuft in CI",
+        "unbeaufsichtigt in der Pipeline",
+        "Workflow benennen",
+        "GitHub Actions Workflow",
+        "Tofu Pipeline",
+        "mehrere Module planen",
+    ),
+    "ci-review": (
+        "Pull Request aus der CI pruefen",
+        "automatisierte Review",
+        "Infrastruktur Pull Request",
+        "Plan Kommentar pruefen",
+    ),
+    "container-images": (
+        "Dockerfile schreiben",
+        "Basisimage pinnen",
+        "multi-arch build",
+        "linux/arm64",
+        "manifest list digest",
+        "Containerimage veroeffentlichen",
+        "mehrere Architekturen bauen",
+        "base image digest",
+    ),
+    "git-conventions": (
+        "branch name",
+        "commit message",
+        "rebase",
+        "force push",
+        "pull request",
+        "revert",
+        "worktree",
+        "Branch anlegen",
+        "Commit schreiben",
+        "Pull Request erstellen",
+        "Force Push",
+        "Worktree starten",
+    ),
+    "repo-conventions": (
+        "new repository",
+        "repository layout",
+        "mise.toml",
+        "Taskfile",
+        "where does this script go",
+        "Repository anlegen",
+        "Tool-Version pinnen",
+    ),
+    "secrets-handling": (
+        "secret",
+        "token",
+        "credential",
+        "kubeconfig",
+        "leaked key",
+        "Secret",
+        "Zugangsdaten",
+        "geleakter Token",
+    ),
+    "website-conventions": (
+        "new website",
+        "build a website",
+        "build a landing page",
+        "write an imprint",
+        "write a privacy policy",
+        "Impressum schreiben",
+        "Datenschutzerklaerung schreiben",
+        "Webseite bauen",
+        "Webseite pruefen",
+    ),
+    "writing-style": (
+        "rewrite this",
+        "house style",
+        "test name",
+        "commit message",
+        "pull request body",
+        "issue body",
+        "Text umschreiben",
+        "Hausstil",
+        "Commit-Nachricht",
+    ),
+    "adr": ("Architekturentscheidung dokumentieren", "ADR schreiben"),
+    "concept-doc": ("Konzept schreiben", "Feature-Konzept vor der Umsetzung"),
+    "post-mortem": ("post mortem", "postmortem", "incident report", "Vorfall", "Ausfall"),
+    "readme": ("README schreiben", "README aktualisieren"),
+    "go-conventions": ("Go schreiben", "Go-Konventionen"),
+    "go-lint": ("Go linten",),
+    "go-tests": ("Go-Tests schreiben", "Testabdeckung"),
+    "helm-chart": (
+        "write a chart",
+        "helm template",
+        "values.yaml",
+        "helm lint",
+        "helm-unittest",
+        "Ingress",
+        "Gateway API",
+        "HTTPRoute",
+        "Helm Chart schreiben",
+        "Chart Werte",
+        "Chart Version",
+    ),
+    "k8s-debug": (
+        "pod crash looping",
+        "pending pod",
+        "helm release failed",
+        "service unreachable",
+        "Pod startet nicht",
+        "Fehler im Cluster",
+    ),
+    "kubernetes-conventions": (
+        "helm_release",
+        "install a chart",
+        "CRD",
+        "namespace",
+        "network policy",
+        "pod security",
+        "Ingress",
+        "Gateway API",
+        "HTTPRoute",
+        "Kubernetes Workload",
+        "Namespace anlegen",
+        "Secret einbinden",
+    ),
+    "talos-ops": (
+        "talos upgrade",
+        "machine config",
+        "talosctl",
+        "etcd quorum",
+        "apply-config",
+        "Talos Node aktualisieren",
+        "Node neu starten",
+    ),
+    "agents": (
+        "spawn an agent",
+        "run this in parallel",
+        "clean up the agents",
+        "Subagenten einsetzen",
+        "Agenten aufraeumen",
+    ),
+    "skills-config": (
+        "set up the skills config",
+        "validate agent-skills.json",
+        "Konfiguration pruefen",
+        "Repo-Konfiguration anlegen",
+    ),
+    "python-conventions": ("Python schreiben", "Python-Konventionen"),
+    "conformance-checks": ("eigene Konvention pruefen", "Policy schreiben"),
+    "fix-ci": ("CI reparieren", "Workflow debuggen"),
+    "lint": (
+        "lint",
+        "format",
+        "run linters",
+        "Code linten",
+        "Code formatieren",
+        "Linter laufen lassen",
+    ),
+    "security-review": ("security review", "sicherheitscheck", "check this for vulnerabilities"),
+    "test": ("add tests", "Tests ausfuehren", "Tests ergaenzen"),
+    "testing-conventions": ("Testkonventionen", "Tests schreiben"),
+    "release-conventions": ("Release-Konventionen", "Versionierung festlegen"),
+    "release": ("Release veroeffentlichen", "Version freigeben"),
+    "commit": (
+        "commit this",
+        "split these commits",
+        "commit the changes",
+        "das committen",
+        "Commits aufteilen",
+    ),
+    "deps": (
+        "triage dependency PRs",
+        "merge renovate PRs",
+        "update dependencies",
+        "Dependency-PRs triagieren",
+        "Abhaengigkeiten aktualisieren",
+    ),
+    "pr": ("open a pull request", "update the pull request", "PR erstellen", "PR aktualisieren"),
+    "prune-branches": (
+        "clean up branches",
+        "delete merged branches",
+        "prune branches",
+        "Branches aufraeumen",
+        "alte Branches loeschen",
+    ),
+    "review": (
+        "review this",
+        "review the pull request",
+        "request changes",
+        "Code Review",
+        "PR reviewen",
+    ),
+    "worktree": (
+        "create a worktree",
+        "parallel session",
+        "remove the worktree",
+        "Worktree anlegen",
+        "Worktree entfernen",
+    ),
+    "github-as-code": (
+        "github provider",
+        "repository settings",
+        "rulesets",
+        "labels as code",
+        "org settings",
+        "github app",
+        "app permissions",
+        "Repo-Einstellungen",
+        "GitHub-App anlegen",
+    ),
+    "opentofu-conventions": (
+        "write tofu",
+        "opentofu module",
+        "variables.tf",
+        "provider block",
+        "state backend",
+        "tofu plan",
+        "tofu apply",
+        "Tofu Code schreiben",
+        "Variablen Datei",
+        "Terraform Code",
+        "Statedatei",
+    ),
+    "tofu-module": (
+        "new module",
+        "extract a module",
+        "module README",
+        "module inputs",
+        "module outputs",
+        "neues Modul",
+        "Modul extrahieren",
+        "Modul Variablen",
+    ),
+    "tofu-plan": (
+        "tofu plan",
+        "tofu apply",
+        "review a plan",
+        "infrastructure change",
+        "drift",
+        "Plan erstellen",
+        "Tofu anwenden",
+        "Drift pruefen",
+    ),
+    "handoff": ("write a handoff", "hand this off", "Uebergabe schreiben", "Zwischenstand sichern"),
+    "implement": (
+        "implement issue 42",
+        "work this issue",
+        "address the review feedback",
+        "Issue umsetzen",
+        "Ticket abarbeiten",
+    ),
+    "issue": (
+        "open an issue",
+        "create a ticket",
+        "file a bug",
+        "Issue erstellen",
+        "Ticket anlegen",
+    ),
+    "plan": ("write a plan", "plan this issue", "Plan schreiben", "Vorgehen planen"),
+    "propose-rule": (
+        "propose a rule change",
+        "this should be a rule",
+        "Baseline anpassen",
+        "Regel vorschlagen",
+    ),
+    "refine-issue": (
+        "refine this issue",
+        "groom the backlog",
+        "Issue schaerfen",
+        "Ticket verfeinern",
+    ),
+    "tldr": (
+        "give me a tldr",
+        "summarize this",
+        "write the PR description",
+        "kurz zusammenfassen",
+        "Status geben",
+    ),
+    "user-story": (
+        "write a user story",
+        "turn this into a story",
+        "check this story",
+        "User Story schreiben",
+    ),
+    "work-queue": (
+        "drain the queue",
+        "work the issues",
+        "run the work loop",
+        "Warteschlange abarbeiten",
+        "Issues automatisch bearbeiten",
+    ),
+    "work-review": (
+        "review issue 42",
+        "check the PR for issue 42",
+        "Issue 42 review",
+        "PR gegenpruefen",
+    ),
+}
 
 # Phrases from a description that the hook deliberately does not match, with the reason.
 # A bare noun or a phrase another skill owns would make the reminder match almost every
@@ -48,6 +350,7 @@ UNMATCHED_PHRASES = {
     ("post-mortem", "Ausfall"): "single noun",
     ("go-tests", "Testabdeckung"): "owned by the test skill",
     ("testing-conventions", "Tests schreiben"): "owned by the test skill",
+    ("lint", "lint"): "single verb",
     ("lint", "format"): "single verb",
     ("helm-chart", "Ingress"): "owned by kubernetes-conventions",
     ("helm-chart", "Gateway API"): "owned by kubernetes-conventions",
@@ -57,39 +360,6 @@ UNMATCHED_PHRASES = {
     ("tofu-plan", "infrastructure change"): "noun phrase",
     ("tofu-plan", "drift"): "single noun",
 }
-
-
-def description(path: str) -> str:
-    """The frontmatter description of a skill file as one line."""
-    with open(path, encoding="utf-8") as handle:
-        lines = handle.read().split("\n")
-    values = []
-    collecting = False
-    for line in lines[1:]:
-        if line.startswith("---"):
-            break
-        if line.startswith("description:"):
-            collecting = True
-            values.append(line[len("description:") :].strip())
-        elif collecting and (line.startswith(" ") or not line.strip()):
-            values.append(line.strip())
-        else:
-            collecting = False
-    return " ".join(value for value in values if value and value != ">-")
-
-
-def trigger_phrases(text: str) -> list:
-    """The explicit trigger phrases of a description, else its trailing German phrases."""
-    if "Trigger phrases:" in text:
-        tail = text.split("Trigger phrases:", 1)[1]
-        return [item.strip() for item in tail.strip().rstrip(".").split(", ") if item.strip()]
-    sentence = text.rstrip(".").rsplit(". ", 1)[-1]
-    phrases = []
-    for item in reversed(sentence.split(", ")):
-        if CLAUSE_WORDS.search(item) or item.startswith('"'):
-            break
-        phrases.append(item.strip())
-    return list(reversed(phrases))
 
 
 def prompt_payload(prompt: str) -> dict:
@@ -183,20 +453,15 @@ class SkillReminderTest(unittest.TestCase):
         message = context(run_hook("skill_reminder.py", prompt_payload(prompt)))
         self.assertLessEqual(len(self.names(message)) if message else 0, 1)
 
-    def test_every_description_phrase_matches_its_own_skill(self):
+    def test_every_listed_phrase_matches_its_own_skill(self):
         missing = []
-        seen = set()
-        for path in sorted(glob.glob(os.path.join(SKILLS_DIR, "*", "*", "SKILL.md"))):
-            skill = os.path.basename(os.path.dirname(path))
-            for phrase in trigger_phrases(description(path)):
-                key = (skill, phrase)
-                seen.add(key)
-                if key in UNMATCHED_PHRASES:
+        for skill, phrases in PHRASES.items():
+            for phrase in phrases:
+                if (skill, phrase) in UNMATCHED_PHRASES:
                     continue
                 if skill not in skill_reminder.matches(phrase):
-                    missing.append(key)
+                    missing.append((skill, phrase))
         self.assertEqual(missing, [])
-        self.assertTrue(seen, "no trigger phrases found")
 
     def test_allow_list_names_only_phrases_that_still_fail(self):
         stale = []
@@ -205,12 +470,17 @@ class SkillReminderTest(unittest.TestCase):
                 stale.append((skill, phrase))
         self.assertEqual(stale, [])
 
-    def test_allow_list_names_only_phrases_in_a_description(self):
-        present = set()
-        for path in glob.glob(os.path.join(SKILLS_DIR, "*", "*", "SKILL.md")):
-            skill = os.path.basename(os.path.dirname(path))
-            present.update((skill, phrase) for phrase in trigger_phrases(description(path)))
-        self.assertEqual(sorted(set(UNMATCHED_PHRASES) - present), [])
+    def test_allow_list_names_only_phrases_listed_in_phrases(self):
+        listed = {(skill, phrase) for skill, phrases in PHRASES.items() for phrase in phrases}
+        self.assertEqual(sorted(set(UNMATCHED_PHRASES) - listed), [])
+
+    def test_every_skill_has_listed_phrases(self):
+        skills = {
+            os.path.basename(os.path.dirname(path))
+            for path in glob.glob(os.path.join(SKILLS_DIR, "*", "*", "SKILL.md"))
+        }
+        self.assertTrue(skills, "no skills found")
+        self.assertEqual(sorted(skills - {s for s, p in PHRASES.items() if p}), [])
 
     def test_matches_phrases_from_the_work_loop_skills(self):
         cases = [

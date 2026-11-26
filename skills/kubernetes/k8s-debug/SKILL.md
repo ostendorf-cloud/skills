@@ -1,10 +1,6 @@
 ---
 name: k8s-debug
-description: Diagnoses a failing workload in Kubernetes read only first, from events and logs
-  down to scheduling, storage, network and ingress, then proposes a fix before touching live
-  state. Use when a pod, deployment, job or release in the cluster is not working. Trigger
-  phrases: pod crash looping, pending pod, helm release failed, service unreachable,
-  Pod startet nicht, Fehler im Cluster.
+description: "Diagnoses a failing workload in Kubernetes read only first, from events and logs down to scheduling, storage, network and ingress, then proposes a fix before touching live state. Use when a pod, deployment, job or release in the cluster is not working."
 ---
 
 # Kubernetes debugging

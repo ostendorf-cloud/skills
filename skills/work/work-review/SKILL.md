@@ -1,12 +1,8 @@
 ---
 name: work-review
-description: Reviews the pull request of one issue in review requested as a fresh independent
-  agent, posts the verdict as a comment and routes the label to done, changes requested, needs
-  human or blocked. Use when asked to review, check or sign off the AI implementation of an
-  issue. Trigger phrases: review issue 42, check the PR for issue 42, Issue 42 review, PR
-  gegenpruefen.
-model: sonnet
+description: "Reviews the pull request of one issue in review requested as a fresh independent agent, posts the verdict and routes the label to done, changes requested, needs human or blocked. Use when asked to review, check or sign off the AI implementation of an issue."
 context: fork
+agent: reviewer
 disallowed-tools:
   - AskUserQuestion
 ---
@@ -18,15 +14,17 @@ Judge one pushed pull request as a different agent than the one that built it.
 ## When to use
 
 - An issue carries `ai: review requested` and its pull request is open.
-- Never run this against your own session's implementation work.
 
 ## Independence
 
-- This skill forks the calling session, so it is independent of the implementation only when
-  `implement` ran the code through its own bounded subagent for this issue, never when the
-  supervising session wrote the code directly. The fork would otherwise inherit that work.
-- Not independent: `approve` can still be the judgment, but the label never reaches `done`
-  through it, see step 13.
+- Independent: the review runs in a `reviewer` or `reviewer-boundary` agent that never saw the
+  implementation, from a brief naming only repository, issue and pull request.
+- Not independent: the session that wrote or supervised the code judges it inline. `approve` can
+  still be the judgment, but the label never reaches `done` through it, see step 13.
+- Boundary paths, from `gh pr diff <number> --name-only`, pick `reviewer-boundary`: agent
+  settings, permissions and hooks, CI workflows and actions, release configuration, secret,
+  token or authentication code, network exposure, or more than 800 changed lines outside lock
+  and generated files. A `reviewer` that finds a match posts no verdict and reports `boundary`.
 
 ## Steps
 
@@ -37,15 +35,15 @@ Judge one pushed pull request as a different agent than the one that built it.
    each comment's body). A rework round starts from these, not from memory of the first pass.
 4. Read CI from `gh pr checks <number>` or the commit's check-runs via `gh api`, never a branch
    filtered runs list. One `gh` per command. A `## Verification` naming no commit is unverified.
-   To wait for a pending check, run `gh pr checks <number> --watch` as one call with the Bash
-   tool's `timeout` of at most 600000: no pipe, no loop, no other `gh` call in the message.
-   Read the verdict from the table. If the call moves to the background, wait for its notice.
-   Still pending then: post no verdict, keep the label, name the pending check in the report.
-5. Run the verify command from config `verify` against the pushed branch.
-6. Judge in order: does the diff meet the acceptance criteria, is it correct, does it need a
-   human. For every open thread from step 3, decide whether its finding is now fixed.
+   A check still pending: post no verdict, keep the label, report it and stop. The orchestrator
+   waits with `gh pr checks <number> --watch` as one background call and continues this reviewer.
+5. Run config `verify` against the pushed branch, unless a CI job ran each of its targets green
+   on the head commit. The verdict then names those jobs. A target without a job: run verify.
+6. Judge in order: does the diff meet the acceptance criteria, is it correct and safe, does it
+   need a human. Formatting, naming taste and wording belong to the linters and are no finding.
+   For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
-   are `approve`, named in the verdict for the supervising session to fix. Name the commit CI
+   are `approve`, named in the verdict for the orchestrator to fix. Name the commit CI
    was green on, part of the verdict text in steps 9 and 10.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
@@ -97,10 +95,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 - A claim settled only by reading, not by running, is named unverified in the verdict, with
   what it rests on, whether or not running it was attempted.
 - Move the label with the snippet in `~/.claude/skills/README.md`: one `ai:` label remains.
-- The supervising session picks the model before it spawns this review: `models.reviewBoundary`
-  for a change to settings, the sandbox, a hook that denies, a release path or a large diff,
-  `models.review` otherwise. A re-review checks the finding list only, same or cheaper model.
-- A different agent than the implementer, every time, per Independence.
+- The boundary path list decides the agent. Config `models.review` or `models.reviewBoundary`,
+  when set, overrides its model. A re-review continues the first reviewer, finding list only.
 - `done` is a real acceptance, only through an independent review. Unsure: `needs human`.
 - A `## Verification` section is a claim, not evidence. The pull request's own CI result for
   the current head decides. Every verdict names the commit CI was green on, in both paths.

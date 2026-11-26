@@ -1,6 +1,6 @@
 ---
 name: tldr
-description: Summarizes a finished task, answer or session in at most eight bullets, shaped for a pull request body, an issue comment or a short reply. Use when asked for a tldr, a summary, a status update or a pull request description. Trigger phrases: give me a tldr, summarize this, write the PR description, kurz zusammenfassen, Status geben.
+description: "Summarizes a finished task, answer or session in at most eight bullets, shaped for a pull request body, an issue comment or a short reply. Use when asked for a tldr, a summary, a status update or a pull request description."
 ---
 
 # tldr

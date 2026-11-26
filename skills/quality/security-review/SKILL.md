@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Reviews a diff, branch or pull request for security problems and posts the findings as a GitHub review with severity, file and line. Covers injection, authentication, secrets, dependencies, workflows and infrastructure code. Use when the user asks for a security review, a security check of a pull request, "security review", "sicherheitscheck", "check this for vulnerabilities", or when the work loop reviews a change that touches authentication, secrets, network exposure or CI workflows.
+description: "Reviews a diff, branch or pull request for security problems and posts the findings as a GitHub review with severity, file and line. Use when asked for a security review, or when a change touches authentication, secrets, network exposure, dependencies or CI workflows."
 ---
 
 # Security review

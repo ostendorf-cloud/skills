@@ -1,10 +1,6 @@
 ---
 name: opentofu-conventions
-description: OpenTofu conventions for file layout, typed variables, providers, state, naming,
-  sensitive secrets and the Kubernetes provider boundary. Use when writing, reviewing or
-  refactoring OpenTofu or Terraform code, or running a tofu command. Trigger phrases: write tofu,
-  opentofu module, variables.tf, provider block, state backend, tofu plan, tofu apply,
-  Tofu Code schreiben, Variablen Datei, Terraform Code, Statedatei.
+description: "OpenTofu conventions for file layout, typed variables, providers, state, naming, sensitive secrets and the Kubernetes provider boundary. Use when writing, reviewing or refactoring OpenTofu or Terraform code, or running a tofu command."
 ---
 
 # OpenTofu conventions

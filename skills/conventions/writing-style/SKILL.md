@@ -1,10 +1,6 @@
 ---
 name: writing-style
-description: Structural rules for everything written, a chat answer, a file, a commit, a pull
-  request or issue body, a code comment or a test name. Use before writing or rewriting any of
-  these, or when asked to rewrite text in house style. Trigger phrases: rewrite this, house
-  style, test name, commit message, pull request body, issue body, Text umschreiben,
-  Hausstil, Commit-Nachricht.
+description: "Structural rules for everything written, a chat answer, a file, a commit, a pull request or issue body, a code comment or a test name. Use before writing or rewriting any of these, or when asked to rewrite text in house style."
 ---
 
 # Writing style

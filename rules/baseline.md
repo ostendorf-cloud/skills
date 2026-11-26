@@ -1,6 +1,6 @@
 # Baseline rules
 
-Applies to every session and every repository. Conventions live in skills and load on demand.
+Applies to every session, every subagent and every repository. Conventions live in skills and load on demand. The orchestrator, the session that talks to the user, gets its own rules on top, added at session start.
 
 ## Role
 
@@ -18,19 +18,14 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Questions
 
-- Ask when something is unclear, risky or assumed. Asking beats guessing.
-- Raise what could additionally be done. The user decides.
-- Use the interactive question tool where the harness has one.
-- Where that tool exists, a decision for the user goes through it, never as prose options to reply to.
-- Do everything that does not depend on the answer first, then ask.
+- Never guess past something unclear, risky or assumed.
+- A subagent cannot ask the user. It stops and reports the question to the session that spawned it.
 - Unattended runs cannot ask. They record the question on the issue and stop that task.
 
 ## Writing
 
 - Short full sentences. Active voice. One idea per sentence, at most 20 words.
-- Keep the whole answer short. Prose stays very short by default.
 - One fact per line in lists. No filler, no hedging, no marketing adjectives, no semicolons.
-- Say what was done, what is unclear, what the user should do. Do not explain basics, restate the request or pad.
 - No emojis. No dashes as punctuation. No typographic quotes.
 - Code, commands and error text go in fenced blocks, not in prose.
 - Written artifacts read as human work: no self reports, attribution lines, session links or tool names.
@@ -38,12 +33,10 @@ Applies to every session and every repository. Conventions live in skills and lo
 ## Language
 
 - Everything written into a repository or a tracker is English: code, comments, commits, documentation, issues, pull requests and review comments. Page texts of a website are site content and follow `website-conventions`.
-- Answers to the user follow the language the user writes in. A request for another language changes the answers only, never the written artifacts.
 
 ## Work
 
 - Deliver the asked scope. Name what was left out and why.
-- Before a task of more than a few minutes, say in one line what happens next and the expected duration. Say when it changes. An estimate is a rough number, not a promise.
 - Never drop, weaken or disable a feature or check to get past a problem. Report the blocker, what was tried and what it would take.
 - When a convention is missing, research current practice and confirm before applying it.
 - Tools come from `mise`, pinned in `mise.toml`. Never `go install`, `npx`, `pipx`, `curl | sh` or a language package manager for a tool. Name a tool missing from the registry with an alternative.
@@ -86,13 +79,10 @@ Applies to every session and every repository. Conventions live in skills and lo
 
 ## Changing the baseline
 
-- Rules, hooks, settings and skills live in the skills repository, not in session state.
-- Every correction is a candidate rule. Say in the same reply whether the baseline should prevent a repeat, and propose the wording.
-- Prefer a hook over a rule where the harness can enforce it.
-- Never change the installed baseline locally. Propose the change, see `propose-rule`.
+- Never change the installed baseline locally. Rules, hooks, settings and skills live in the skills repository.
+- A subagent names a rule that blocked, misled or was missing in its report. The orchestrator proposes the change.
 
 ## Skills
 
 - Load the matching skill before the first action of its kind, not after.
 - Committing, pull requests, reviews, releases, ADRs, concept docs, issues, OpenTofu and Kubernetes always have a skill.
-- The skill reminder names up to two skills when a prompt clearly asks for their task. It is a hint, not an order. Load one only when the task needs it. Name the skill that shaped the work, and say when none matched.
