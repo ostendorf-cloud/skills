@@ -1,6 +1,6 @@
 ---
 name: work-queue
-description: Drains the ready and changes-requested issue queue unattended, running implement then work-review on each eligible issue under a single-flight lock, up to a per-run cap. Use when asked to drain the queue, batch-process ready issues, or run the work loop unattended. Trigger phrases: drain the queue, work the issues, run the work loop, Warteschlange abarbeiten, Issues automatisch bearbeiten.
+description: "Drains the ready and changes-requested issue queue unattended, running implement then work-review on each eligible issue under a single-flight lock, up to a per-run cap. Use when asked to drain the queue, batch-process ready issues, or run the work loop unattended."
 disallowed-tools:
   - AskUserQuestion
 ---
@@ -28,7 +28,9 @@ Drain the ready and changes-requested issues unattended, one at a time, under a 
    in the report, do not label or touch it.
 6. Nothing eligible: release the lock, report an empty run.
 7. Loop up to config `work.cap` issues: run `implement` on the issue, then `work-review` on the
-   same issue once it reaches `review requested`.
+   same issue once it reaches `review requested` and CI on its head commit has finished. A
+   reviewer that reports `boundary`: run the review again as `reviewer-boundary`. Small issues
+   with no overlap in files may share one `implementer`, see `agents`.
 8. Re-stamp the owner file's `refreshed` timestamp once per iteration.
 9. Continue on `blocked`, `changes requested` or `needs human`. Stop the whole run only on a hard
    error.
