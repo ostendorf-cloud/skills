@@ -49,7 +49,11 @@ Applies to every session, every subagent and every repository. Conventions live 
 - Sandbox traps answer wrongly instead of failing. Known traps, with the form that works:
   - `git -C <repo> fetch` in a `for` loop updates no ref. Use `cd <repo> && git fetch`.
   - `gh` in a `for` loop returns empty. Call `gh` once per Bash invocation.
-  - `gh ... --body "<multi-line>"` fails with `operation not permitted` on the config file. Use `--body-file`.
+  - `gh ... --body "<multi-line>"` fails with `operation not permitted` on the config file. A one line body with backticks fails too. Use `--body-file`.
+  - `gh api` rejects `--repo`. Use the path form `repos/<owner>/<repo>/...`.
+  - `python3 -c` one liners are denied. Write a probe fixture with the Write tool.
+  - A `mise.toml` trust prompt makes the `python3` shim fail in an exported tree.
+  - No sanctioned way exists to save `gh api` raw output under `$TMPDIR` for a checksum. Hooks block piping into a hash tool and redirecting into a file.
   - `diff <(...) <(...)` fails on blocked `/dev/fd` and reports a false difference. Compare `git rev-parse <rev>:<path>` hashes.
   - `grep -rc` summed gives zero. Use `grep -rho` and count lines.
   - `git fetch`, `git pull` and `git push` fail with a host key error behind a pipe, redirection, chain, `-C` or `cd`. Run each alone.

@@ -21,15 +21,15 @@ Judge one pushed pull request as a different agent than the one that built it.
   implementation, from a brief naming only repository, issue and pull request.
 - Not independent: the session that wrote or supervised the code judges it inline. `approve` can
   still be the judgment, but the label never reaches `done` through it, see step 13.
-- Boundary paths, from `gh pr diff <number> --name-only`, pick `reviewer-boundary`: agent
-  settings, permissions and hooks, CI workflows and actions, release configuration, secret,
+- Boundary paths, from `gh pr diff <number> --name-only`, pick `reviewer-boundary`: `hooks/`,
+  `rules/`, `agents/`, `settings/`, CI workflows and actions, release configuration, secret,
   token or authentication code, network exposure, or more than 800 changed lines outside lock
   and generated files. A `reviewer` that finds a match posts no verdict and reports `boundary`.
 
 ## Steps
 
 1. Pick the issue: the one named, or the highest priority issue in `review requested`.
-2. Move the label to `reviewing` when that label exists in config.
+2. Optional: move the label to `reviewing` when configured. Only a long review needs it.
 3. Read the issue body, the `## Plan` section, the pull request diff, and every review thread
    already on the pull request through `gh api graphql` (`reviewThreads`, with `isResolved` and
    each comment's body). A rework round starts from these, not from memory of the first pass.
@@ -43,16 +43,14 @@ Judge one pushed pull request as a different agent than the one that built it.
    need a human. Formatting, naming taste and wording belong to the linters and are no finding.
    For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
-   are `approve`, named in the verdict for the orchestrator to fix. Name the commit CI
-   was green on, part of the verdict text in steps 9 and 10.
+   are `approve`, named in the verdict for the orchestrator to fix.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
    second thread for the same problem.
-9. Review only, per Guardrails: no edit to the code under review and no commit of its own,
-   whichever posting path follows. The pull request's author differs from this review's
-   identity, or config `review.token` names an environment variable holding a token of such a
-   reviewer: post the verdict as a formal review,
+9. The pull request's author differs from this review's identity, or config `review.token`
+   names an environment variable holding a token of such a reviewer: post the verdict as a
+   formal review,
    `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through `gh api`, with `event` from the
    verdict, `commit_id` the pull request's full 40 character head SHA (a short SHA fails with
    422), `body` naming the commit CI was green on, and `comments`: one entry per finding,
@@ -66,25 +64,27 @@ Judge one pushed pull request as a different agent than the one that built it.
 11. A finding's line falls outside every diff hunk in either path: anchor the inline comment at
     the nearest changed line in the same file and name the real location in its body, or, with
     no changed line in that file at all, put the finding in the top level review or comment body.
-12. Verdict approve, independent per Independence: move the label to `done`, mark the pull
-    request ready with `gh pr ready`.
+12. Verdict approve, independent per Independence: mark the pull request ready (`gh pr ready`).
+    It closes its issue by default: move the label to `done`. A body saying `Part of #N` leaves
+    the issue open: move the label to `ready` when agent work is left, else `needs human`, and
+    comment what is left.
 13. Verdict approve, not independent: treat it like step 15, `needs human`, naming in the
     report that the judgment was approve but independence was missing.
-14. Verdict changes requested: move the label to `changes requested`. The pull request stays
-    a draft. A pull request that was ready stays ready, nothing is ever put back to draft.
+14. Verdict changes requested: move the label to `changes requested`. Never undo `ready`.
 15. Verdict needs human, or config `work.reviewRounds` is set and the round count reaches it:
     move the label to `needs human`. The round count is this skill's own verdict comments and
     formal reviews on the pull request, the one just posted included. Unset means no limit.
 16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
     skill's ready condition holds and only a human decision is left, otherwise leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
-18. Changes requested or blocked: point the issue comment at `implement` for the rework round.
+18. Changes requested or blocked: end the verdict with a line that names `implement` as the
+    next step. The rework round starts there and reads this verdict.
 19. Never merge the pull request. Never approve one implemented in this same session, formal
     review included.
 
 ## Guardrails
 
-- Review only: no edit to the code under review, no commit, no merge.
+- Review only: no edit to the code under review, no commit of its own, no merge.
 - A reviewer may write a throwaway probe to settle a claim it cannot settle by reading. It is a
   file of its own, never the code under review, never committed, staged or pushed.
 - It is deleted in the same task, the worktree left as found. A probe that starts no process,
@@ -114,15 +114,14 @@ Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 - `work.reviewRounds`: review rounds before escalating to `needs human`. Default unset, no limit.
 - `models.review`: default `sonnet`. `models.reviewBoundary`: default `opus`.
-- `labels.reviewing`, `labels.done`, `labels.changesRequested`, `labels.needsHuman`,
-  `labels.blocked`: defaults in `~/.claude/skills/README.md`.
+- `labels.reviewing`, `labels.ready`, `labels.done`, `labels.changesRequested`,
+  `labels.needsHuman`, `labels.blocked`: defaults in `~/.claude/skills/README.md`.
 - `review.token`: environment variable holding a token of the review app, see the Apps section
   of `github-as-code`. Default: unset, the verdict stands as a comment.
 - `verify`: command that proves a change is good.
 
 ## References
 
-- `gh pr review`, `gh pr comment`, `gh pr ready`, `gh api graphql`:
-  <https://cli.github.com/manual/>
+- GitHub CLI manual: <https://cli.github.com/manual/>
 - `pr` skill: the ready condition for leaving draft.
 - `implement` skill: the rework round a `changes requested` or `blocked` verdict hands off to.
