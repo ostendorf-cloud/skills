@@ -43,6 +43,14 @@ REFERENCE_MARKER_NAME = ".agent-skills-readme-checksum"
 # Top level settings earlier profiles wrote before the state file recorded them. An
 # install with no recorded footprint removes one only while it still holds this value.
 LEGACY_PROFILE_SETTINGS = {"language": "english"}
+# Subagent definitions go into claude_dir/agents, a directory the user may fill with agents
+# of their own. The marker lists the files this installer wrote, with the hash it wrote,
+# so only those are ever updated, pruned or removed.
+AGENTS_DIRNAME = "agents"
+AGENTS_MARKER_NAME = ".agent-skills-agents"
+# Rules for the session that talks to the user. Copied next to the installed hooks, where
+# the session start hook reads it, and appended to the exported AGENTS.md.
+MAIN_SESSION_RULES = "main-session.md"
 
 
 @dataclass
@@ -456,7 +464,8 @@ def hooks_source_files(source: Path) -> list[Path]:
     """Every file to copy into the installed hooks directory: every top level .py file
     under hooks/, flat. Covers each hook script and the shared _common module they
     import, and leaves hooks/hooks.json and hooks/tests/ out, neither of which the
-    installed copy needs at run time.
+    installed copy needs at run time. rules/main-session.md rides along, so the hook
+    that emits it reads the installed copy and never the checkout.
 
     Copies whatever it finds here, flat. A hooks.json entry naming a script that is
     not directly a top level file under hooks/ is a repository invariant, checked by
@@ -465,7 +474,115 @@ def hooks_source_files(source: Path) -> list[Path]:
     hooks_root = source / "hooks"
     if not hooks_root.is_dir():
         return []
-    return sorted(p for p in hooks_root.iterdir() if p.is_file() and p.suffix == ".py")
+    files = sorted(p for p in hooks_root.iterdir() if p.is_file() and p.suffix == ".py")
+    rules = source / "rules" / MAIN_SESSION_RULES
+    if rules.is_file():
+        files.append(rules)
+    return files
+
+
+def discover_agents(source: Path) -> list[Path]:
+    agents_root = source / AGENTS_DIRNAME
+    if not agents_root.is_dir():
+        return []
+    return sorted(p for p in agents_root.iterdir() if p.is_file() and p.suffix == ".md")
+
+
+def read_agents_marker(agents_dir: Path) -> dict[str, str]:
+    """The agent files this installer wrote, name to hash. Empty when absent or unreadable."""
+    path = agents_dir / AGENTS_MARKER_NAME
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def write_agents_marker(agents_dir: Path, owned: dict[str, str]) -> None:
+    marker = agents_dir / AGENTS_MARKER_NAME
+    if owned:
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(owned, indent=2, sort_keys=True) + "\n")
+    elif marker.is_file():
+        marker.unlink()
+
+
+def restore_agent_backup(dest: Path) -> None:
+    backup = Path(str(dest) + BACKUP_SUFFIX)
+    if backup.is_file():
+        shutil.move(str(backup), str(dest))
+
+
+def sync_agents(source: Path, claude_dir: Path, dry_run: bool) -> list[tuple[str, str]]:
+    """Bring claude_dir/agents in line with source/agents. Returns (file name, status).
+
+    Status is installed, updated, unchanged, conflict or removed. Only a file the marker
+    lists is ever pruned. A file that is not listed and differs from the source is backed
+    up once, as rules/baseline.md is, then overwritten. A symlink or a directory in the
+    way is a conflict and is left alone. A file this installer did not write is never
+    touched, which a directory shared with agents of the user's own needs.
+    """
+    agents_dir = claude_dir / AGENTS_DIRNAME
+    owned = read_agents_marker(agents_dir)
+    results: list[tuple[str, str]] = []
+    wanted: dict[str, str] = {}
+    for origin in discover_agents(source):
+        dest = agents_dir / origin.name
+        digest = tree_hash_file(origin)
+        if dest.is_symlink() or dest.is_dir():
+            results.append((origin.name, "conflict"))
+            if origin.name in owned:
+                wanted[origin.name] = owned[origin.name]
+            continue
+        wanted[origin.name] = digest
+        if not dest.exists():
+            status = "installed"
+        elif dest.read_bytes() == origin.read_bytes():
+            status = "unchanged" if owned.get(origin.name) == digest else "installed"
+        else:
+            status = "updated"
+            backup = Path(str(dest) + BACKUP_SUFFIX)
+            if origin.name not in owned and not backup.exists() and not dry_run:
+                backup.write_bytes(dest.read_bytes())
+        results.append((origin.name, status))
+        if status in ("installed", "updated") and not dry_run:
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(origin, dest)
+
+    for name in sorted(set(owned) - set(wanted)):
+        dest = agents_dir / name
+        if not dry_run and dest.is_file() and not dest.is_symlink():
+            dest.unlink()
+            restore_agent_backup(dest)
+        results.append((name, "removed"))
+    if not dry_run and wanted != owned:
+        write_agents_marker(agents_dir, wanted)
+    return results
+
+
+def uninstall_agents(claude_dir: Path, dry_run: bool) -> list[str]:
+    """Remove every agent file the marker lists, restore a backup, drop the marker."""
+    agents_dir = claude_dir / AGENTS_DIRNAME
+    lines: list[str] = []
+    for name in sorted(read_agents_marker(agents_dir)):
+        dest = agents_dir / name
+        if dest.is_symlink() or not dest.is_file():
+            continue
+        lines.append(f"agent   {name} removed")
+        if not dry_run:
+            dest.unlink()
+            restore_agent_backup(dest)
+    if not dry_run:
+        marker = agents_dir / AGENTS_MARKER_NAME
+        if marker.is_file():
+            marker.unlink()
+        if agents_dir.is_dir() and not any(agents_dir.iterdir()):
+            agents_dir.rmdir()
+    return lines
 
 
 def hooks_hash(files: list[Path]) -> str:
@@ -514,7 +631,12 @@ def install_hooks_dir(source: Path, claude_dir: Path, dry_run: bool) -> tuple[st
 
 
 def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
+    """Write the AGENTS.md export: the baseline, then the main session rules. An agent
+    without hooks has no other way to get the second part."""
     content = normalize_text((source / "rules" / "baseline.md").read_text())
+    main_session = source / "rules" / MAIN_SESSION_RULES
+    if main_session.is_file():
+        content += "\n" + normalize_text(main_session.read_text())
     dest = target_file(home, target, "AGENTS.md")
     if not dry_run:
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -898,6 +1020,7 @@ def write_state(
     backups: dict[str, str],
     dry_run: bool,
     settings_footprint_record: dict[str, list[str]] | None = None,
+    agent_names: list[str] | None = None,
 ) -> None:
     if dry_run:
         return
@@ -908,6 +1031,7 @@ def write_state(
         "profile": profile,
         "mode": mode,
         "skills": sorted(skill_names),
+        "agents": sorted(agent_names or []),
         "commit": source_commit(source),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "backups": backups,
@@ -962,6 +1086,14 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     if reference_status == "conflict":
         conflicts = True
 
+    agent_names: list[str] = []
+    for name, status in sync_agents(args.source, args.claude_dir, args.dry_run):
+        lines.append(f"agent   {name} {status}")
+        if status == "conflict":
+            conflicts = True
+        elif status != "removed":
+            agent_names.append(name)
+
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, args.dry_run)
     lines.append(f"hooks   {hooks_action}")
     if hooks_action == "conflict":
@@ -1002,6 +1134,7 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
             collect_backups(args.claude_dir),
             args.dry_run,
             footprint,
+            agent_names,
         )
         lines.append("state   written" if not args.dry_run else "state   skipped in dry run")
 
@@ -1033,6 +1166,13 @@ def cmd_status(args: argparse.Namespace) -> tuple[list[str], int]:
     else:
         lines.append(f"skill   {REFERENCE_NAME} {reference_status}")
         drift = True
+
+    for name, status in sync_agents(args.source, args.claude_dir, dry_run=True):
+        if status == "unchanged":
+            lines.append(f"agent   {name} in sync")
+        else:
+            lines.append(f"agent   {name} {status}")
+            drift = True
 
     hooks_action, _ = install_hooks_dir(args.source, args.claude_dir, dry_run=True)
     if hooks_action == "unchanged":
@@ -1166,6 +1306,16 @@ def cmd_doctor(args: argparse.Namespace) -> tuple[list[str], int]:
         "no broken skill symlinks" + (f" ({', '.join(broken_skills)})" if broken_skills else ""),
     )
 
+    agents_dir = args.claude_dir / AGENTS_DIRNAME
+    missing_agents = [
+        p.name for p in discover_agents(args.source) if not (agents_dir / p.name).is_file()
+    ]
+    check(
+        not missing_agents,
+        "agent definitions are installed"
+        + (f" (missing: {', '.join(missing_agents)})" if missing_agents else ""),
+    )
+
     mismatch = claude_dir_mismatch(args.home, args.target, args.claude_dir)
     check(mismatch is None, mismatch or "state records the claude-dir in use")
 
@@ -1236,6 +1386,8 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
                 lines.append(f"skill   {REFERENCE_NAME} removed")
             if not args.dry_run:
                 reference_marker.unlink()
+
+    lines.extend(uninstall_agents(claude_dir, args.dry_run))
 
     hooks_dir = claude_dir / OWN_HOOKS_DIRNAME
     hooks_dir_state = inspect_hooks_dir(hooks_dir)

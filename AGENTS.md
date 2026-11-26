@@ -7,6 +7,9 @@ baseline already applies here and is not repeated.
 
 - `rules/baseline.md`: always-on rules. Installed as `~/.claude/CLAUDE.md` and exported as
   `AGENTS.md` for other agents.
+- `rules/main-session.md`: rules for the session that talks to the user. Emitted by the
+  `main-session-rules` hook and appended to the exported `AGENTS.md`.
+- `agents/<name>.md`: one subagent definition. Installed into `~/.claude/agents`.
 - `skills/<category>/<name>/SKILL.md`: one skill. `skills.sh.json` groups them for the skills.sh
   catalogue.
 - `hooks/*.py`: one hook per file, standard library only. `hooks/hooks.json` is the manifest the
@@ -59,10 +62,13 @@ task doctor
 
 ## Writing a skill
 
-- Frontmatter: `name`, `description`. Optional: `model`, `context`, `allowed-tools`,
+- Frontmatter: `name`, `description`. Optional: `model`, `context`, `agent`, `allowed-tools`,
   `disallowed-tools`, `argument-hint`.
-- `name` equals the directory name. `description` says what the skill does and ends with when to
-  use it, with trigger phrases.
+- `name` equals the directory name. `description` is one double quoted line of at most 300
+  characters: what the skill does, then when to use it. A plain scalar with a colon and a space
+  inside is not valid YAML, and the harness then lists the skill by its title only.
+- No trigger phrases in a description. They cost listing tokens in every session. They live in
+  the skill reminder hook, and `PHRASES` in its test names them per skill.
 - Body at most 120 lines. Sections in this order: title, one line purpose, `## When to use`,
   `## Steps` or `## Rules`, `## Guardrails`, `## Config` when the skill reads
   `.agent-skills.json`, `## References` when needed.
@@ -86,6 +92,25 @@ task doctor
 - No ASCII art, no emoji, no typographic quotes, no long dashes.
 - A rule that narrows or reverses an existing one edits that rule in the same commit. Two
   sections never state opposite instructions.
+
+## Writing a rule
+
+- `rules/baseline.md` loads into every session and every subagent. A rule goes there only when
+  a subagent needs it too.
+- A rule about talking to the user, delegating or the size of the conversation goes into
+  `rules/main-session.md`. It stays under 9000 characters, the harness cuts hook output above
+  that.
+- A rule only one role needs goes into that role's agent definition.
+- A rule a hook can enforce becomes a hook. Every line here is paid for in every request.
+
+## Writing an agent definition
+
+- Frontmatter: `name` equal to the file name, `description` as one double quoted line, `model`,
+  `maxTurns`. Optional: `skills`, `tools`, `disallowedTools`, `effort`.
+- A reviewer has no `Edit` and no `NotebookEdit`. No agent has `AskUserQuestion` or `Agent`.
+- The body holds what this role needs on top of the baseline: scope, rules, report shape. It
+  repeats no baseline rule.
+- `skills` preloads the whole skill body into every spawn. List only what the role always needs.
 
 ## Writing a hook
 

@@ -120,6 +120,24 @@
       "description": "Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is on its default branch and behind origin as last fetched."
     },
     {
+      "id": "main-session-rules",
+      "script": "main_session_rules.py",
+      "event": "SessionStart",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Adds the rules for the session that talks to the user, from the installed main-session.md, on every session start, resume, clear and compact. Nothing for a subagent."
+    },
+    {
+      "id": "context-size",
+      "script": "context_size.py",
+      "event": "UserPromptSubmit",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Warns once per 50000 token band when the context reaches 150000 tokens, or the value of AGENT_SKILLS_CONTEXT_WARN, and asks for a handoff and a /clear. Nothing for a subagent."
+    },
+    {
       "id": "skill-reminder",
       "script": "skill_reminder.py",
       "event": "UserPromptSubmit",
