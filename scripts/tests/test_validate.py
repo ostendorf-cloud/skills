@@ -81,6 +81,172 @@ class ValidateTestCase(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(output.strip(), "ok")
 
+    def _problems(self, *lines: str) -> list:
+        return validate.frontmatter_problems(list(lines))
+
+    def test_strict_frontmatter_accepts_one_line_block_and_quoted_values(self) -> None:
+        self.assertEqual(
+            self._problems(
+                "name: demo",
+                "description: One line without a colon and a long enough text to read.",
+                "other: >",
+                "  Folded: text with a colon.",
+                "  second line # not a comment",
+                "third: |-",
+                "  Literal: text",
+                'fourth: "Quoted: text # kept"',
+                "fifth: 'Single: quoted'",
+                "allowed-tools: Bash(git:*), Read",
+            ),
+            [],
+        )
+
+    def test_strict_frontmatter_rejects_a_plain_value_that_continues_on_the_next_line(self) -> None:
+        problems = self._problems(
+            "name: demo",
+            "description: Does a thing. Trigger phrases: commit this,",
+            "  push that.",
+            "model: sonnet",
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("description", problems[0])
+        self.assertIn("continues on the next line", problems[0])
+
+    def test_strict_frontmatter_rejects_a_colon_and_space_in_a_plain_value(self) -> None:
+        problems = self._problems("description: Trigger phrases: commit this")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("': '", problems[0])
+
+    def test_strict_frontmatter_rejects_a_plain_value_ending_in_a_colon(self) -> None:
+        self.assertEqual(len(self._problems("description: Trigger phrases:")), 1)
+
+    def test_strict_frontmatter_rejects_a_comment_marker_in_a_plain_value(self) -> None:
+        problems = self._problems("description: Fixes the thing # and more")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("' #'", problems[0])
+
+    def test_strict_frontmatter_accepts_a_hash_without_a_leading_space(self) -> None:
+        self.assertEqual(self._problems("description: See issue#12 and C# code"), [])
+
+    def test_strict_frontmatter_accepts_a_url_and_a_time_in_a_plain_value(self) -> None:
+        self.assertEqual(self._problems("description: See https://example.com at 10:30"), [])
+
+    def test_strict_frontmatter_rejects_an_unclosed_quote(self) -> None:
+        problems = self._problems('description: "never closed', "name: demo")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("not closed", problems[0])
+
+    def test_strict_frontmatter_rejects_an_unescaped_double_quote_in_a_double_quoted_value(
+        self,
+    ) -> None:
+        problems = self._problems('description: "Say "hello" to the user"')
+        self.assertEqual(len(problems), 1)
+        self.assertIn("after the closing quote", problems[0])
+
+    def test_strict_frontmatter_accepts_an_escaped_double_quote_in_a_double_quoted_value(
+        self,
+    ) -> None:
+        self.assertEqual(self._problems('description: "Say \\"hello\\" to the user"'), [])
+
+    def test_strict_frontmatter_rejects_a_lone_single_quote_in_a_single_quoted_value(
+        self,
+    ) -> None:
+        problems = self._problems("description: 'Don't do that'")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("after the closing quote", problems[0])
+
+    def test_strict_frontmatter_accepts_a_doubled_single_quote_in_a_single_quoted_value(
+        self,
+    ) -> None:
+        self.assertEqual(self._problems("description: 'Don''t do that'"), [])
+
+    def test_strict_frontmatter_accepts_quotes_of_the_other_kind_inside_a_quoted_value(
+        self,
+    ) -> None:
+        self.assertEqual(self._problems('description: "Don\'t"', "other: 'Say \"hi\"'"), [])
+
+    def test_strict_frontmatter_rejects_an_unescaped_quote_in_a_multi_line_quoted_value(
+        self,
+    ) -> None:
+        problems = self._problems('description: "first', '  say "hi" there"', "name: demo")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("after the closing quote", problems[0])
+
+    def test_strict_frontmatter_accepts_an_escaped_quote_in_a_multi_line_quoted_value(
+        self,
+    ) -> None:
+        self.assertEqual(
+            self._problems('description: "first', '  say \\"hi\\" there"', "name: demo"), []
+        )
+
+    def test_strict_frontmatter_rejects_text_after_the_closing_quote(self) -> None:
+        problems = self._problems('description: "Closed" and more')
+        self.assertEqual(len(problems), 1)
+        self.assertIn("after the closing quote", problems[0])
+
+    def test_strict_frontmatter_accepts_a_comment_after_the_closing_quote(self) -> None:
+        self.assertEqual(self._problems('description: "Closed"  # a comment'), [])
+
+    def test_strict_frontmatter_rejects_a_hash_glued_to_the_closing_quote(self) -> None:
+        self.assertEqual(len(self._problems('description: "Closed"# not a comment')), 1)
+
+    def test_strict_frontmatter_accepts_a_quoted_value_over_several_lines(self) -> None:
+        self.assertEqual(self._problems('description: "first', '  second"', "name: demo"), [])
+
+    def test_strict_frontmatter_skips_nested_lists_and_maps(self) -> None:
+        self.assertEqual(
+            self._problems("allowed-tools:", "  - Bash(git: status)", "  - Read", "name: demo"),
+            [],
+        )
+
+    def test_reports_a_skill_with_a_multi_line_plain_description(self) -> None:
+        write(
+            self.root / "skills" / "cat" / "myskill" / "SKILL.md",
+            "---\nname: myskill\ndescription: Does a useful thing for the tests here.\n"
+            "  Trigger phrases: commit this\n---\nBody.\n",
+        )
+        code, output = run(self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("skills/cat/myskill/SKILL.md: frontmatter description", output)
+
+    def _write_agent(self, stem: str, text: str) -> None:
+        write(self.root / "agents" / f"{stem}.md", text)
+
+    def test_accepts_a_well_formed_agent_definition(self) -> None:
+        self._write_agent(
+            "reviewer",
+            "---\nname: reviewer\ndescription: >\n  Reviews a diff. Use: reviews.\n---\nBody.\n",
+        )
+        self.assertEqual(validate.check_agents(self.root), [])
+
+    def test_agent_name_must_equal_the_file_stem(self) -> None:
+        self._write_agent("reviewer", "---\nname: other\ndescription: Reviews a diff.\n---\n")
+        findings = validate.check_agents(self.root)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("does not match the file name", findings[0])
+
+    def test_agent_description_must_be_present(self) -> None:
+        self._write_agent("reviewer", "---\nname: reviewer\n---\nBody.\n")
+        findings = validate.check_agents(self.root)
+        self.assertEqual(findings, ["agents/reviewer.md: description is missing"])
+
+    def test_agent_frontmatter_must_exist(self) -> None:
+        self._write_agent("reviewer", "No frontmatter here.\n")
+        self.assertEqual(
+            validate.check_agents(self.root), ["agents/reviewer.md: missing frontmatter"]
+        )
+
+    def test_agent_frontmatter_is_checked_strictly(self) -> None:
+        self._write_agent(
+            "reviewer", "---\nname: reviewer\ndescription: Reviews: a diff.\n---\nBody.\n"
+        )
+        findings = validate.check_agents(self.root)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("frontmatter description", findings[0])
+
+    def test_agents_check_passes_without_an_agents_directory(self) -> None:
+        self.assertEqual(validate.check_agents(self.root), [])
+
     def test_detects_bad_frontmatter_name(self) -> None:
         self._write_skill(name="myskill", frontmatter_name="wrong-name")
         code, output = run(self.root)

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Copyright 2026 Simon Ostendorf
 # SPDX-License-Identifier: Apache-2.0
-"""Checks skill style, hooks, settings, groupings, ADRs, license headers, YAML extensions."""
+"""Checks skill and agent style, hooks, settings, groupings, ADRs, license headers, YAML
+extensions."""
 
 from __future__ import annotations
 
@@ -119,14 +120,107 @@ def parse_frontmatter(lines: list[str]) -> dict[str, str]:
     return data
 
 
-def split_frontmatter(text: str) -> tuple[dict[str, str] | None, str]:
+def split_frontmatter_lines(text: str) -> tuple[list[str] | None, str]:
+    """The raw frontmatter lines between the two --- markers, and the body."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return None, text
     end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
     if end is None:
         return None, text
-    return parse_frontmatter(lines[1:end]), "\n".join(lines[end + 1 :])
+    return lines[1:end], "\n".join(lines[end + 1 :])
+
+
+def split_frontmatter(text: str) -> tuple[dict[str, str] | None, str]:
+    lines, body = split_frontmatter_lines(text)
+    if lines is None:
+        return None, body
+    return parse_frontmatter(lines), body
+
+
+BLOCK_SCALAR_HEAD = re.compile(r"^[>|][-+0-9]*(\s+#.*)?$")
+PLAIN_SCALAR_INDICATORS = "[{*&!@`%|>"
+
+
+def quoted_problem(text: str) -> str | None:
+    """What is wrong with a quoted scalar that starts at text[0], or None when it is fine.
+
+    A double quoted value escapes a quote with a backslash, a single quoted one by
+    doubling it. A quote that is not escaped closes the value, so whatever follows it
+    must be whitespace or a ' #' comment.
+    """
+    quote = text[0]
+    position = 1
+    while position < len(text):
+        char = text[position]
+        if quote == '"' and char == "\\":
+            position += 2
+            continue
+        if char == quote:
+            if quote == "'" and text[position + 1 : position + 2] == "'":
+                position += 2
+                continue
+            break
+        position += 1
+    else:
+        return "quoted value is not closed"
+    rest = text[position + 1 :]
+    if not rest.strip() or (rest[0] in " \t" and rest.lstrip().startswith("#")):
+        return None
+    return f"text after the closing quote, escape a {quote} inside the value " + (
+        "with a backslash" if quote == '"' else "by doubling it"
+    )
+
+
+def frontmatter_problems(lines: list[str]) -> list[str]:
+    """Values a YAML parser rejects or misreads, in the shapes frontmatter uses here.
+
+    parse_frontmatter is lenient on purpose. This is the strict half: a plain scalar
+    that continues on following indented lines, or that holds ': ' or ' #', is an error
+    in a real parser or silently cut short. The accepted shapes are one line, a block
+    scalar (> or |) and a quoted value. Nested maps and lists, flow collections and
+    values that start with a YAML indicator are not inspected.
+    """
+    problems: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = FRONTMATTER_KEY.match(lines[index])
+        index += 1
+        if not match:
+            continue
+        key, value = match.group(1), match.group(2).strip()
+        following = index
+        while following < len(lines) and (
+            lines[following].strip() == "" or lines[following].startswith((" ", "\t"))
+        ):
+            following += 1
+        continuation = [line for line in lines[index:following] if line.strip()]
+        if not value or BLOCK_SCALAR_HEAD.match(value) or value[0] in PLAIN_SCALAR_INDICATORS:
+            index = following
+            continue
+        if value[0] in "\"'":
+            text = "\n".join([value, *(line.strip() for line in lines[index:following])])
+            index = following
+            problem = quoted_problem(text)
+            if problem:
+                problems.append(f"frontmatter {key}: {problem}")
+            continue
+        if continuation:
+            problems.append(
+                f"frontmatter {key}: plain value continues on the next line, "
+                "use one line, a block scalar (>) or quotes"
+            )
+            index = following
+        elif ": " in value or value.endswith(":"):
+            problems.append(
+                f"frontmatter {key}: plain value contains ': ', use a block scalar (>) or quotes"
+            )
+        elif " #" in value:
+            problems.append(
+                f"frontmatter {key}: plain value contains ' #', which starts a comment, "
+                "use a block scalar (>) or quotes"
+            )
+    return problems
 
 
 def check_skills(root: Path) -> list[str]:
@@ -137,10 +231,13 @@ def check_skills(root: Path) -> list[str]:
         if not skill_md.is_file():
             findings.append(f"{rel}: missing SKILL.md")
             continue
-        frontmatter, body = split_frontmatter(skill_md.read_text())
+        text = skill_md.read_text()
+        frontmatter, body = split_frontmatter(text)
         if frontmatter is None:
             findings.append(f"{rel}: missing frontmatter")
             continue
+        raw_lines, _ = split_frontmatter_lines(text)
+        findings.extend(f"{rel}: {problem}" for problem in frontmatter_problems(raw_lines or []))
         name = frontmatter.get("name")
         if name != skill_dir.name:
             findings.append(f"{rel}: frontmatter name {name!r} does not match directory name")
@@ -153,6 +250,29 @@ def check_skills(root: Path) -> list[str]:
         body_lines = body.splitlines()
         if len(body_lines) > MAX_BODY_LINES:
             findings.append(f"{rel}: body is {len(body_lines)} lines, maximum is {MAX_BODY_LINES}")
+    return findings
+
+
+def check_agents(root: Path) -> list[str]:
+    """Subagent definitions under agents/: strict frontmatter, name is the file stem."""
+    agents_root = root / "agents"
+    if not agents_root.is_dir():
+        return []
+    findings: list[str] = []
+    for path in sorted(agents_root.glob("*.md")):
+        rel = path.relative_to(root)
+        text = path.read_text()
+        frontmatter, _ = split_frontmatter(text)
+        if frontmatter is None:
+            findings.append(f"{rel}: missing frontmatter")
+            continue
+        raw_lines, _ = split_frontmatter_lines(text)
+        findings.extend(f"{rel}: {problem}" for problem in frontmatter_problems(raw_lines or []))
+        name = frontmatter.get("name")
+        if name != path.stem:
+            findings.append(f"{rel}: frontmatter name {name!r} does not match the file name")
+        if not frontmatter.get("description"):
+            findings.append(f"{rel}: description is missing")
     return findings
 
 
@@ -177,6 +297,8 @@ def check_characters(root: Path) -> list[str]:
         paths.extend(sorted((root / "skills").rglob("*.md")))
     if (root / "rules").is_dir():
         paths.extend(sorted((root / "rules").glob("*.md")))
+    if (root / "agents").is_dir():
+        paths.extend(sorted((root / "agents").glob("*.md")))
     if (root / "docs").is_dir():
         paths.extend(sorted((root / "docs").rglob("*.md")))
     for name in ("README.md", "AGENTS.md"):
@@ -582,6 +704,7 @@ def check_skill_references(root: Path) -> list[str]:
 CHECKS = (
     check_skills,
     check_skill_references,
+    check_agents,
     check_characters,
     check_forbidden_words,
     check_groupings,
