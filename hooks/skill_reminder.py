@@ -173,6 +173,11 @@ TRIGGERS = (
         r"branch (anlegen|erstellen|name)|merge strategy|force[- ]push)\b",
     ),
     (
+        "agents-md",
+        r"\b(nested agents\.md|(trim|shorten|split) (the |my )?agents\.md|"
+        r"agents\.md (is )?too (long|big|large)|agents\.md k(ü|ue)rzen|lint:agents-md)",
+    ),
+    (
         "repo-conventions",
         r"\b(new repository|agents\.md|repository layout|repo(sitory)? anlegen|"
         r"where does this script go|tool-version pinnen)\b",
