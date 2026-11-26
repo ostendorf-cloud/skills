@@ -75,6 +75,15 @@
       "description": "Repository, organisation, label, ruleset or secret changes through gh or the API, a pull request write through the API or a GraphQL mutation, gh release where the repository's release tool (release-me or release-please) is configured, and gh repo rename, set-default, alias or extension."
     },
     {
+      "id": "gh-alone",
+      "script": "gh_alone.py",
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "timeout": 10,
+      "decision": "deny",
+      "description": "On macOS, a Bash command that runs gh and is not exactly one gh call: behind cd, in a chain, with a pipe, in a loop, in a command substitution, behind the env command or with a redirection other than 2>&1. A leading NAME=value assignment is allowed. The sandbox fails such a call."
+    },
+    {
       "id": "scratchpad-path",
       "script": "scratchpad_path.py",
       "event": "PreToolUse",
