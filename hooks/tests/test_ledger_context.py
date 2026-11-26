@@ -4,6 +4,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,11 +46,26 @@ def write(path: str, text: str) -> None:
         handle.write(text)
 
 
+CREATED: list = []
+
+
+def make_dir(prefix: str) -> str:
+    """A fresh temporary directory, removed by the cleanup the test class registers."""
+    path = os.path.realpath(tempfile.mkdtemp(prefix=prefix))
+    CREATED.append(path)
+    return path
+
+
+def remove_created() -> None:
+    while CREATED:
+        shutil.rmtree(CREATED.pop(), ignore_errors=True)
+
+
 class Fixture:
     """An org folder with a repository below it and an optional ledger."""
 
     def __init__(self, stream: str = "foreman", text: str = LEDGER):
-        self.root = os.path.realpath(tempfile.mkdtemp(prefix="ledger-"))
+        self.root = make_dir("ledger-")
         self.org = os.path.join(self.root, "org")
         self.repo = os.path.join(self.org, "repo", "sub")
         os.makedirs(self.repo)
@@ -67,6 +83,9 @@ class Fixture:
 
 
 class LedgerContextTest(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(remove_created)
+
     def out(self, fixture: Fixture, payload: dict = None, env: dict = None) -> str:
         result = run(payload or start(cwd=fixture.repo), env, fixture.root)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -100,7 +119,7 @@ class LedgerContextTest(unittest.TestCase):
 
     def test_env_dir_is_used_outside_the_org_folder(self):
         fixture = Fixture().with_ledger()
-        elsewhere = tempfile.mkdtemp(prefix="elsewhere-")
+        elsewhere = make_dir("elsewhere-")
         payload = start(cwd=elsewhere)
         self.assert_empty(fixture, payload)
         text = self.ctx(fixture, payload, {"AGENT_SKILLS_LEDGER_DIR": fixture.ledger})
