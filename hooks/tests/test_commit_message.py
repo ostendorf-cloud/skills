@@ -349,6 +349,47 @@ class CommitMessageTest(unittest.TestCase):
         command = "git add -A && git commit -F - <<'EOF'\nadded some stuff\nEOF"
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
+    def test_denies_attribution_in_the_second_commit_of_a_chain(self):
+        command = (
+            "git commit -m 'feat: add thing' && "
+            "git commit -m 'fix: repair thing' -m 'Co-Authored-By: Claude <a@b.c>'"
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_denies_a_non_conventional_subject_in_the_second_commit_of_a_chain(self):
+        command = "git commit -m 'feat: add thing' && git commit -m 'added some stuff'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
+    def test_allows_two_valid_commits_in_one_command(self):
+        command = "git commit -m 'feat: add thing' && git commit -m 'fix: repair thing' -m 'why'"
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
+    def test_ignores_a_foreign_message_flag_between_two_commits(self):
+        command = (
+            "git commit -m 'feat: add thing' && git tag -m 'Co-Authored-By: Claude' v1 && "
+            "git commit -m 'fix: repair thing'"
+        )
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
+    def test_judges_a_message_passed_with_combined_short_flags(self):
+        self.assertEqual(
+            decision(run_hook("commit_message.py", bash_payload("git commit -am 'added stuff'"))),
+            "deny",
+        )
+        self.assertIsNone(
+            decision(run_hook("commit_message.py", bash_payload("git commit -am 'feat: add it'")))
+        )
+
+    def test_denies_attribution_in_a_combined_short_flag_message(self):
+        command = "git commit -am 'feat: add thing' -m 'Co-Authored-By: Claude <a@b.c>'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
+    def test_denies_an_amend_with_a_combined_short_flag_message(self):
+        command = "git commit --amend -am 'added stuff'"
+        self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

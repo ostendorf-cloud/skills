@@ -23,7 +23,7 @@ HEADER = re.compile(
 )
 SUBJECT_LIMIT = 72
 
-MESSAGE_SOURCE = re.compile(r"(?:^|\s)(-m\b|--message\b|-F\b|--file\b)")
+MESSAGE_SOURCE = re.compile(r"(?:^|\s)(-[A-Za-z]*m\b|--message\b|-F\b|--file\b)")
 
 TRAILER = re.compile(r"co-authored-by:", re.IGNORECASE)
 GENERATED_WITH = re.compile(r"(?m:^[^\w\n]*Generated with\b)")
@@ -36,8 +36,8 @@ ALLOWED_DOC_HOSTS = {
 }
 
 HEREDOC_MESSAGE = re.compile(r"<<[-~]?['\"]?(\w+)['\"]?\s*\n(.*?)\n\1", re.DOTALL)
-MESSAGE_FLAG = re.compile(r"(?:^|\s)(?:-m|--message=?)\s*(['\"])(.*?)(?<!\\)\1", re.DOTALL)
-MESSAGE_FLAG_BARE = re.compile(r"(?:^|\s)-m\s+([^\s'\"]+)")
+MESSAGE_FLAG = re.compile(r"(?:^|\s)(?:-[A-Za-z]*m|--message=?)\s*(['\"])(.*?)(?<!\\)\1", re.DOTALL)
+MESSAGE_FLAG_BARE = re.compile(r"(?:^|\s)-[A-Za-z]*m\s+([^\s'\"]+)")
 FILE_FLAG = re.compile(r"(?:^|\s)(?:-F|--file)(?:\s+|=)(\S+)")
 
 FORMAT_HINT = (
@@ -140,38 +140,29 @@ def main() -> int:
     command = (payload.get("tool_input") or {}).get("command") or ""
     cwd = payload.get("cwd") or os.getcwd()
 
-    git_path: Optional[str] = None
-    is_commit = False
-    commit_dir: Optional[str] = None
-    commit_segment = ""
+    # Every `git commit` segment is judged on its own message. A part that is not a
+    # commit, such as `git tag -m` or `echo -m`, is ignored.
     for raw_part, directory in _common.part_dirs(command, cwd):
         part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
-        if normalized.startswith("git commit") or normalized == "git commit":
-            is_commit = True
-            git_path = path
-            commit_segment = raw_part
-            commit_dir = _common.git_part_dir(raw_part, directory, path)
-            break
+        if not (normalized.startswith("git commit") or normalized == "git commit"):
+            continue
 
-    if not is_commit:
-        return _common.emit_empty()
+        # A commit in a throwaway fixture repository under the session scratch directory
+        # or $TMPDIR is outside this check. A commit in a real repository is checked.
+        if _common.in_scratch(_common.git_part_dir(raw_part, directory, path)):
+            continue
 
-    # A commit in a throwaway fixture repository under the session scratch directory or
-    # $TMPDIR is outside this check. A commit in a real repository is checked as before.
-    if _common.in_scratch(commit_dir):
-        return _common.emit_empty()
+        if "--amend" in raw_part and not MESSAGE_SOURCE.search(raw_part):
+            continue
 
-    if "--amend" in commit_segment and not MESSAGE_SOURCE.search(commit_segment):
-        return _common.emit_empty()
+        message = extract_message(command, path or cwd, raw_part)
+        if message is None:
+            continue
 
-    message = extract_message(command, git_path or cwd, commit_segment)
-    if message is None:
-        return _common.emit_empty()
-
-    reason = message_violation(message)
-    if reason:
-        return _common.deny(EVENT, reason)
+        reason = message_violation(message)
+        if reason:
+            return _common.deny(EVENT, reason)
 
     return _common.emit_empty()
 
