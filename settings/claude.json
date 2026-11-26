@@ -18,6 +18,7 @@
     "defaultMode": "auto",
     "allow": [
       "Read(~/Code/**)",
+      "Read(~/.config/agent-skills/state.json)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
