@@ -34,8 +34,10 @@ Take one issue from label to a pushed, reviewable pull request.
    a subagent. It runs as the `implementer` agent, model from the plan's per-step override or
    config `models.implement` (default `sonnet`), scoped to the files the plan named. A rework
    round continues that same agent with a message carrying the finding list: every blocker and
-   should finding goes to it. A fresh agent only when the first one is gone. A nit is fixed by
-   the orchestrator directly, not sent into the subagent or another review round.
+   should finding goes to it. A fresh agent only when the first one is gone. The orchestrator
+   judges each nit. A nit worth fixing is fixed by the orchestrator directly as a commit in the
+   same pull request before the merge, with no subagent and no new review round. Any other nit
+   is dropped, with no follow-up issue. A fix that changes logic is a should finding.
 6. Keep the change scoped to this one issue.
 7. Run the verify command from config `verify`. The change rewrote a check, a matcher or a
    gate: `testing-conventions`'s comparison requirement holds before this counts as green.
