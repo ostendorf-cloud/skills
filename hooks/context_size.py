@@ -169,8 +169,10 @@ def main() -> int:
     return _common.context(
         EVENT_PROMPT,
         f"The context holds about {tokens // 1000}k tokens. Finish the current step, "
-        "write the state to the issue with the `handoff` skill, then ask the user to "
-        "run `/clear`.",
+        "write the state to the issue with the `handoff` skill, then continue from the "
+        "handoff or stop with the state recorded. Never make `/clear` by the user the only "
+        "way on. Interactive: offer `/clear` as a choice in one line. Unattended "
+        "(`CI=true`): never ask.",
     )
 
 

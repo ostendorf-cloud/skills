@@ -144,7 +144,7 @@
       "matcher": "",
       "timeout": 10,
       "decision": "context",
-      "description": "Warns once per 50000 token band when the context reaches 150000 tokens, or the value of AGENT_SKILLS_CONTEXT_WARN, and asks for a handoff and a /clear. Nothing for a subagent."
+      "description": "Warns once per 50000 token band when the context reaches 150000 tokens, or the value of AGENT_SKILLS_CONTEXT_WARN, and asks for a handoff, then to continue from it. /clear is never the only way on. Nothing for a subagent."
     },
     {
       "id": "skill-reminder",
