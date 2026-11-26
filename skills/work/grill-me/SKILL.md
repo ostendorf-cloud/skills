@@ -18,8 +18,8 @@ Close every open assumption of a plan or an issue with the owner before any work
 
 ## Steps
 
-1. Unattended session (`CI=true`): skip the rounds. Record the open points as one comment with
-   `gh issue comment <number> --body-file <file>` and stop.
+1. Unattended session (`CI=true`): do steps 2 and 3, skip the rounds. Record the open points as
+   one comment with `gh issue comment <number> --body-file <file>` and stop.
 2. Read the plan or the issue and every comment: `gh issue view <number> --comments`.
 3. List three things: the assumptions, the risks and the undefined terms. Check each against the
    code or the docs first. Ask only what a read cannot answer.

@@ -294,6 +294,7 @@ PHRASES = {
         "grill this plan",
         "challenge my assumptions",
         "hinterfrage den Plan",
+        "löcher mich aus",
     ),
     "plan": ("write a plan", "plan this issue", "Plan schreiben", "Vorgehen planen"),
     "propose-rule": (
