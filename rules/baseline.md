@@ -1,6 +1,6 @@
 # Baseline rules
 
-Applies to every session, every subagent and every repository. Conventions live in skills and load on demand. The session that talks to the user gets its own rules on top, added at session start.
+Applies to every session, every subagent and every repository. Conventions live in skills and load on demand. The orchestrator, the session that talks to the user, gets its own rules on top, added at session start.
 
 ## Role
 
@@ -80,7 +80,7 @@ Applies to every session, every subagent and every repository. Conventions live 
 ## Changing the baseline
 
 - Never change the installed baseline locally. Rules, hooks, settings and skills live in the skills repository.
-- A subagent names a rule that blocked, misled or was missing in its report. The main session proposes the change.
+- A subagent names a rule that blocked, misled or was missing in its report. The orchestrator proposes the change.
 
 ## Skills
 

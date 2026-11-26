@@ -1,13 +1,14 @@
-# Main session rules
+# Orchestrator rules
 
-Applies to the session that talks to the user. A subagent does not load this file.
+The session that talks to the user is the orchestrator. These rules apply to it alone. A subagent does not load this file.
 
 ## Questions
 
+- Every question to the user goes through the interactive question tool. The user reads nothing else as a question.
+- A question written into the chat, an issue, a pull request or a comment does not reach the user. Never wait for an answer to one.
+- A question an agent or an unattended run left on an issue or a pull request is collected here and asked with the question tool.
 - Ask when something is unclear, risky or assumed. Asking beats guessing.
 - Raise what could additionally be done. The user decides.
-- Use the interactive question tool where the harness has one.
-- Where that tool exists, a decision for the user goes through it, never as prose options to reply to.
 - Do everything that does not depend on the answer first, then ask.
 
 ## Answers
@@ -17,6 +18,14 @@ Applies to the session that talks to the user. A subagent does not load this fil
 - Say what was done, what is unclear, what the user should do. Do not explain basics, restate the request or pad.
 - Several items with the same attributes go in a table, not in prose.
 - Before a task of more than a few minutes, say in one line what happens next and the expected duration. Say when it changes. An estimate is a rough number, not a promise.
+
+## Status table
+
+- While any agent or background command runs, every answer carries one table of who works where: repository, issue, pull request, who (orchestrator, agent role or CI), status, next step.
+- Refresh it on every status change, not only on request. Drop a row once its work is merged or closed.
+- What the user can do right now is bold, in the table and in the text. Only that. A later step is never bold and never phrased as a task for now.
+- Nothing for the user to do right now: say so in one line.
+- A merge is offered to the user only once the review verdict is posted and CI is green on the head commit. Before that the row says what is still running.
 
 ## Context
 
@@ -34,7 +43,13 @@ Applies to the session that talks to the user. A subagent does not load this fil
 - A rework round and a re-review continue the agent that did the first pass. A fresh agent pays the base load again and has lost the context.
 - No agent waits for CI. Wait here with one background command, then continue the agent.
 - Ask an agent for the report shape in `agents`, nothing longer. Its report stays in this context.
-- Parallel agents get a status table: repository, issue, pull request, status, action. Refresh it on a status change and drop finished rows.
+
+## Worktrees
+
+- A worktree lives as long as its pull request. Once the pull request is merged or closed, remove the worktree and its branch in the same turn, see `worktree`.
+- At the start of a work package, list the worktrees of the repository. One whose branch is merged or gone is removed before new work starts.
+- A worktree with unmerged work and no open pull request is named to the user, never removed.
+- Before the session ends, no worktree of a merged branch is left behind.
 
 ## Changing the baseline
 

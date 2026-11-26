@@ -35,15 +35,15 @@ Judge one pushed pull request as a different agent than the one that built it.
    each comment's body). A rework round starts from these, not from memory of the first pass.
 4. Read CI from `gh pr checks <number>` or the commit's check-runs via `gh api`, never a branch
    filtered runs list. One `gh` per command. A `## Verification` naming no commit is unverified.
-   A check still pending: post no verdict, keep the label, name the pending check in the report
-   and stop. The supervising session waits, with `gh pr checks <number> --watch` as one
-   background call, no pipe and no loop, then continues this reviewer with a message.
-5. Run the verify command from config `verify` against the pushed branch.
+   A check still pending: post no verdict, keep the label, report it and stop. The orchestrator
+   waits with `gh pr checks <number> --watch` as one background call and continues this reviewer.
+5. Run config `verify` against the pushed branch, unless a CI job ran each of its targets green
+   on the head commit. The verdict then names those jobs. A target without a job: run verify.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct and safe, does it
    need a human. Formatting, naming taste and wording belong to the linters and are no finding.
    For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
-   are `approve`, named in the verdict for the supervising session to fix. Name the commit CI
+   are `approve`, named in the verdict for the orchestrator to fix. Name the commit CI
    was green on, part of the verdict text in steps 9 and 10.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that

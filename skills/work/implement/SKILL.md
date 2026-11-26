@@ -25,13 +25,13 @@ Take one issue from label to a pushed, reviewable pull request.
 4. Create the branch and worktree via the `worktree` skill: `work.branch` strategy, default
    `worktree`, under `.claude/worktrees/<branch>`, branch named `<type>/<issue-number>-<slug>`.
 5. Implement through a subagent, except a change of about five lines or fewer with no logic
-   (text, configuration, a single value): the supervising session makes it directly and it still
+   (text, configuration, a single value): the orchestrator makes it directly and it still
    goes through review. Code with logic or a change that needs a new or changed test always uses
    a subagent. It runs as the `implementer` agent, model from the plan's per-step override or
    config `models.implement` (default `sonnet`), scoped to the files the plan named. A rework
    round continues that same agent with a message carrying the finding list: every blocker and
    should finding goes to it. A fresh agent only when the first one is gone. A nit is fixed by
-   the supervising session directly, not sent into the subagent or another review round.
+   the orchestrator directly, not sent into the subagent or another review round.
 6. Keep the change scoped to this one issue.
 7. Run the verify command from config `verify`. The change rewrote a check, a matcher or a
    gate: `testing-conventions`'s comparison requirement holds before this counts as green.

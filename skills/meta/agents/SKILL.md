@@ -11,11 +11,11 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 
 - Work splits into independent parts that can run in parallel.
 - An independent reviewer is needed for a diff or a decision.
-- A long search or audit would flood the main session with output.
+- A long search or audit would flood the orchestrator with output.
 
 ## Rules
 
-- The supervising session does itself: plan, verify a claim, run the verify command, route
+- The orchestrator does itself: plan, verify a claim, run the verify command, route
   labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one
   line nit, and a change of about five lines or fewer with no logic: text, configuration, a
   single value. Such a change still goes through review like any other.
@@ -24,7 +24,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   test always run in a subagent.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
-- A subagent cannot fetch, no exception. Fetch in the supervising session first and give it the
+- A subagent cannot fetch, no exception. Fetch in the orchestrator first and give it the
   result; a brief that tells it to fetch gets stale refs reported back as current.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
@@ -34,9 +34,9 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   it.
 - A conflict between two agents' changes, such as a merge conflict on overlapping files from
   parallel work or a review finding that traces to one agent's change, is resolved by the agent
-  that caused it. Not by a third agent, and not absorbed silently by the supervising session.
-  Exception: the causing agent is already terminated, stale or stuck. Then the supervising
-  session resolves the conflict directly, or reassigns a fresh agent, and says so in its report.
+  that caused it. Not by a third agent, and not absorbed silently by the orchestrator.
+  Exception: the causing agent is already terminated, stale or stuck. Then the orchestrator
+  resolves the conflict directly, or reassigns a fresh agent, and says so in its report.
 - Never ask an agent to do something that was denied in this session. Never route work through an
   agent to get around a permission decision.
 
@@ -61,8 +61,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 - A large issue gets a fresh agent. So does an agent whose report says it neared its turn limit.
 - A continued agent that has been idle for more than a few minutes has lost its cache. Still
   continue it when it holds context the next step needs, otherwise spawn fresh.
-- No agent waits: not for CI, not for another agent, not for a slow command. The supervising
-  session waits with one background command and continues the agent afterwards.
+- No agent waits: not for CI, not for another agent, not for a slow command. The orchestrator
+  waits with one background command and continues the agent afterwards.
 - Spawn the review only once CI on the head commit has finished.
 
 ### Briefs
@@ -103,7 +103,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 - Which claims are unverified, and why.
 - What it stopped on, if anything.
 - Baseline feedback: a rule that blocked or misled, a rule that was missing, or "none".
-- No narration of work already done. The report stays in the supervising session's context and
+- No narration of work already done. The report stays in the orchestrator's context and
   is paid for on every later request.
 
 ## Steps
