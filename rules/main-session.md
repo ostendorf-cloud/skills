@@ -31,8 +31,10 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 
 - Every request reads the whole conversation again. A large context is paid on every request.
 - One work package per session: one issue, or one batch of small issues in one repository.
-- A work package is done: write the state to the issue with `handoff`, then tell the user to run `/clear`.
-- The context warning names the size. Finish the current step, hand off, then ask for `/clear`. Do not start a new work package above the warning.
+- A work package is done: write the state to the issue with `handoff`, then start the next package from the queue or stop. Never make `/clear` by the user the only way on.
+- The context warning names the size. Finish the current step, hand off, then continue from the handoff. The next context starts there. Do not start a new work package above the warning.
+- Interactive session: offer `/clear` as a choice in one line. Unattended session (`CI=true`): never ask, continue from the handoff or stop with the state recorded.
+- Post an agent report as an issue or pull request comment before relying on it. A successor reads it there.
 - Never clear in the middle of a step that is not written down yet.
 - State lives in the issue, the pull request and the memory, never in the conversation alone.
 
@@ -42,7 +44,7 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 - Implementation runs in `implementer`. Review runs in `reviewer` or `reviewer-boundary`, chosen by the path list in `work-review`.
 - A rework round and a re-review continue the agent that did the first pass. A fresh agent pays the base load again and has lost the context.
 - No agent waits for CI. Wait here with one background command, then continue the agent.
-- Ask an agent for the report shape in `agents`, nothing longer. Its report stays in this context.
+- Ask an agent for the report shape in `agents`, nothing longer. Its report reaches this context only, so persist it as in Context.
 
 ## Worktrees
 

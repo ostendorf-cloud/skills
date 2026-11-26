@@ -96,7 +96,7 @@ npx skills add ostendorf-cloud/skills -g
 | `session-unlock` | context | Removes the session record at session end. |
 | `stale-skills` | context | Warns once when the installed skills are behind the checkout they were installed from, or when that checkout is on its default branch and behind origin as last fetched. |
 | `main-session-rules` | context | Adds the rules for the session that talks to the user, from the installed `main-session.md`, on every session start, resume, clear and compact. Nothing for a subagent. |
-| `context-size` | context | Warns once per 50000 token band when the context reaches 150000 tokens, or the value of `AGENT_SKILLS_CONTEXT_WARN` (`0` disables), and asks for a handoff and a `/clear`. Nothing for a subagent. |
+| `context-size` | context | Warns once per 50000 token band when the context reaches 150000 tokens, or the value of `AGENT_SKILLS_CONTEXT_WARN` (`0` disables), and asks for a handoff, then to continue from it. `/clear` is never the only way on. Nothing for a subagent. |
 | `skill-reminder` | context | Names the skills that cover the request. |
 | `file-parses` | context | A YAML, JSON or TOML file that no longer parses after a write. |
 | `tofu-fmt` | context | Reports when a written `.tf` or `.tfvars` file is not formatted. |
