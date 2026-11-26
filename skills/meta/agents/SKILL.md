@@ -30,8 +30,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   pretending to be parallel.
 - The session collects the agents' baseline feedback and raises what is worth a change through
   `propose-rule`, one issue per rule, never silently.
-- Agent output is a claim, not a fact: verify files, run tests, read the diff before relying on
-  it.
+- Agent output is a claim, not a fact: verify files, run tests, read the diff before relying.
 - A conflict between two agents' changes, such as a merge conflict on overlapping files from
   parallel work or a review finding that traces to one agent's change, is resolved by the agent
   that caused it. Not by a third agent, and not absorbed silently by the orchestrator.
@@ -46,7 +45,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   states why in one line, tokens and time against capability.
 - Review: the `reviewer` agent, `sonnet`. The `reviewer-boundary` agent, `opus`, only when the
   path list in `work-review` matches. The list decides, not a feeling about the change.
-- Plan: `opus`. Search and lookup: the built in search agent. Kept research: `researcher`, `sonnet`.
+- Plan: `opus`. Search and lookup: the built in search agent. Kept research: `researcher`,
+  `sonnet`, one question whose sources must outlive the chat. The session posts its file.
 - An agent definition is missing in this installation: use a general agent with the same model
   and the definition's rules in the brief, and say so in the report.
 
