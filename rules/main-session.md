@@ -54,7 +54,7 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 ## Ledger
 
 - The state of a workstream lives in one file per stream: `<org folder>/.ledger/<stream>.md`. It sits outside every repository. No secret goes into it.
-- The `ledger-context` hook loads it at session start and after compaction. It finds the folder through `AGENT_SKILLS_LEDGER_DIR` or the nearest `.ledger` above the working directory. It finds the stream through `AGENT_SKILLS_STREAM` or the first line of `.ledger/current`.
+- The `ledger-context` hook loads it at session start and after compaction. It finds the folder through `AGENT_SKILLS_LEDGER_DIR` or the nearest `.ledger` above every repository on the way up from the working directory. A `.ledger` inside a repository is ignored. It finds the stream through `AGENT_SKILLS_STREAM` or the first line of `.ledger/current`.
 - Fields: goal, order of packages, decisions with date. Per package: repository, issue, pull request, agent, status, next step.
 - Only the orchestrator writes it. It updates the ledger at every status change, in the same turn as the status table.
 - The issue and `gh` state win over the ledger. On a conflict, fix the ledger and go on with the issue.
