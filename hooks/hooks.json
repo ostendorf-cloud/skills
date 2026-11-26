@@ -138,6 +138,15 @@
       "description": "Adds the rules for the session that talks to the user, from the installed main-session.md, on every session start, resume, clear and compact. Nothing for a subagent."
     },
     {
+      "id": "ledger-context",
+      "script": "ledger_context.py",
+      "event": "SessionStart",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "context",
+      "description": "Adds the ledger of the current workstream, .ledger/<stream>.md, on every session start, resume, clear and compact. Prints nothing when there is no ledger. Nothing for a subagent."
+    },
+    {
       "id": "context-size",
       "script": "context_size.py",
       "event": "UserPromptSubmit",
