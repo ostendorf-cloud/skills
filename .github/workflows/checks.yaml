@@ -14,14 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:ruff
+      - run: task --trusted-hosts github.com lint:ruff
 
   ruff-format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:ruff-format
+      - run: task --trusted-hosts github.com lint:ruff-format
 
   # The one check CI does not run through its Task target: the shared workflow
   # pins addlicense itself, so the check runs on a known version even in a
@@ -44,21 +44,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:markdown
+      - run: task --trusted-hosts github.com lint:markdown
 
   yamllint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:yaml
+      - run: task --trusted-hosts github.com lint:yaml
 
   actionlint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:actions
+      - run: task --trusted-hosts github.com lint:actions
 
   gitleaks:
     runs-on: ubuntu-latest
@@ -67,25 +67,34 @@ jobs:
         with:
           fetch-depth: 0
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task lint:secrets
+      - run: task --trusted-hosts github.com lint:secrets
+
+  # Task loads the remote include on every call, so every job that runs task
+  # trusts github.com explicitly.
+  agents-md:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
+      - run: task --trusted-hosts github.com lint:agents-md
 
   hook-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task test:hooks
+      - run: task --trusted-hosts github.com test:hooks
 
   script-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task test:scripts
+      - run: task --trusted-hosts github.com test:scripts
 
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78  # v5.3.0
-      - run: task validate
+      - run: task --trusted-hosts github.com validate

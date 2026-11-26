@@ -54,8 +54,9 @@ A root `AGENTS.md` holds only what almost every task in the repository needs.
 - It has two modes: `warn` prints the files over the limit, `fail` also exits non zero.
 - The limits are inputs of the check, defaulting to 150 and 100.
 - CI runs the included task with `--yes` or `--trusted-hosts`, because a remote include needs
-  trust.
-- Pin the include by tag and checksum.
+  trust. Task loads the include on every call, so every `task` call in CI passes the flag.
+- Pin the include by tag and checksum. The tag and the checksum move by hand together.
+- Set the mode once as a root `vars` entry in `Taskfile.yaml`, so a local run and CI agree.
 
 ### Rollout
 
