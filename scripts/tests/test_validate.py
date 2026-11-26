@@ -693,6 +693,15 @@ class ValidateTestCase(unittest.TestCase):
         self.assertIn("**/*.pem", deny_read)
         self.assertIn("**/*.key", deny_read)
 
+    def test_profile_allows_reading_the_installer_state_file_and_denies_editing_its_directory(
+        self,
+    ) -> None:
+        permissions = self._laptop_profile()["permissions"]
+        self.assertIn("Read(~/.config/agent-skills/state.json)", permissions["allow"])
+        self.assertIn("Edit(~/.config/agent-skills/**)", permissions["deny"])
+        reads = [entry for entry in permissions["allow"] if "agent-skills" in entry]
+        self.assertEqual(reads, ["Read(~/.config/agent-skills/state.json)"])
+
     def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
         env = self._laptop_profile()["env"]
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/tmp/claude")
