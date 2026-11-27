@@ -2063,6 +2063,62 @@ class NetworkShapeTest(unittest.TestCase):
         ]:
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
 
+    def worktree_of(self, repo: str, branch: str = "feat/thing") -> str:
+        path = os.path.join(repo, ".claude", "worktrees", branch.replace("/", "-"))
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", branch, path],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+        )
+        return path
+
+    def test_allows_dash_c_push_of_a_feature_branch_from_a_registered_worktree(self):
+        repo = git_repo()
+        worktree = self.worktree_of(repo)
+        outside = tempfile.mkdtemp(prefix="git-guard-plain-")
+        for command in [
+            f"git -C {worktree} push origin feat/thing",
+            f"git -C {worktree} push -u origin feat/thing",
+        ]:
+            self.assertIsNone(decision(self.check(command, outside)), command)
+
+    def test_denies_dash_c_push_from_a_path_that_is_not_a_registered_worktree(self):
+        repo = git_repo()
+        checkout_feature(repo)
+        unregistered = os.path.join(repo, ".claude", "worktrees", "feat-other")
+        os.makedirs(unregistered)
+        for path in (repo, unregistered, tempfile.mkdtemp(prefix="git-guard-plain-")):
+            command = f"git -C {path} push origin feat/thing"
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
+    def test_denies_dash_c_push_of_the_default_branch_from_a_worktree(self):
+        repo = git_repo()
+        worktree = self.worktree_of(repo)
+        for command in [
+            f"git -C {worktree} push origin main",
+            f"git -C {worktree} push origin HEAD:main",
+            f"git -C {worktree} push origin feat/thing:main",
+            f"git -C {worktree} push --force origin feat/thing",
+            f"git -C {worktree} push origin feat/thing && git status",
+            f"cd {worktree} && git -C {worktree} push origin feat/thing",
+        ]:
+            self.assertEqual(decision(self.check(command, worktree)), "deny", command)
+
+    def test_denies_dash_c_worktree_push_with_other_options_or_refs(self):
+        repo = git_repo()
+        worktree = self.worktree_of(repo)
+        for command in [
+            f"git -C {worktree} -c core.sshCommand=x push origin feat/thing",
+            f"git -C {worktree} push origin feat/thing other",
+            f"git -C {worktree} push upstream feat/thing",
+            f"git -C {worktree} push",
+            f"git -C {worktree} fetch origin",
+            "git -C $WT push origin feat/thing",
+            f"FOO=1 git -C {worktree} push origin feat/thing",
+        ]:
+            self.assertEqual(decision(self.check(command, repo)), "deny", command)
+
     def test_denies_git_network_command_behind_cd(self):
         repo = git_repo()
         checkout_feature(repo)

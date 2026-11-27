@@ -35,6 +35,16 @@ Date: 2026-10-21
   directory instead.
 - On macOS the `git-guard` hook denies the sandboxed shapes. It does nothing on Linux and in
   CI, where nothing is lost by them.
+- Amendment 2026-11-27: one `-C` form is allowed so a session outside a repository can push a
+  worktree branch (skills issue 267). The form is exactly
+  `git -C <path> push [-u] origin <branch>`, alone in the call. The path is absolute, read
+  literally and a registered worktree under `.claude/worktrees/` (`git worktree list`). The
+  branch is a plain name other than the default branch. Any other `-C` shape stays denied, and
+  the default branch push check runs before this one and stays unchanged.
+- The amendment adds `git -C * push *` to `excludedCommands`. Nobody has verified yet that this
+  pattern matches and that the push leaves the sandbox. The owner tests it in review. If it does
+  not match, the hook allows a shape that still fails with a host key error, and the entry or the
+  amendment goes.
 - Linux is unaffected either way; the exclusion only matters where the proxy cannot carry SSH.
 - While the install is broken, for example with no `python3`, `onFailure: block` blocks every Bash
   call, not only git. The setting needs Claude Code 2.1.295 or later.
