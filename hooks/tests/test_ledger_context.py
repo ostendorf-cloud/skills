@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for ledger_context.py. Every case runs in a fresh temporary directory."""
 
+import datetime
 import json
 import os
 import shutil
@@ -14,6 +15,18 @@ from helper import HOOKS_DIR, context
 
 LEDGER = "# Goal\n\nShip the ledger.\n\n## Packages\n\n- skills 266 in progress\n"
 HOOK = os.path.join(HOOKS_DIR, "ledger_context.py")
+
+
+def inventory_line(hours: int, clock: bool = False) -> str:
+    """An `Inventory read:` line for a read that many hours ago, in UTC."""
+    moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
+    stamp = moment.strftime("%Y-%m-%d %H:%M" if clock else "%Y-%m-%d")
+    return f"Inventory read: {stamp}"
+
+
+def with_inventory(line: str) -> str:
+    """LEDGER plus an Inventory section that holds line."""
+    return f"{LEDGER}\n## Inventory\n\n{line}\n\n- skills 308 open\n"
 
 
 def start(source: str = "startup", cwd: str = "", **extra) -> dict:
@@ -173,6 +186,64 @@ class LedgerContextTest(unittest.TestCase):
         fixture = Fixture(text="x" * 20000).with_ledger()
         text = self.ctx(fixture)
         self.assertLess(len(text), 9000)
+        self.assertIn("ledger cut", text)
+
+    def test_warns_when_the_ledger_has_no_inventory(self):
+        text = self.ctx(Fixture().with_ledger())
+        self.assertIn("WARNING: the ledger has no `Inventory read: YYYY-MM-DD` line", text)
+        self.assertLess(text.index("WARNING"), text.index("Ship the ledger."))
+
+    def test_warns_when_the_inventory_has_no_date_line(self):
+        fixture = Fixture(text=LEDGER + "\n## Inventory\n\n- skills 308 open\n").with_ledger()
+        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture))
+
+    def test_warns_when_the_date_line_sits_outside_the_inventory_section(self):
+        fixture = Fixture(text=f"{inventory_line(hours=0)}\n\n{LEDGER}\n## Inventory\n\n- a\n")
+        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture.with_ledger()))
+
+    def test_warns_when_the_date_is_not_a_real_date(self):
+        fixture = Fixture(text=f"{LEDGER}\n## Inventory\n\nInventory read: 2026-13-45\n")
+        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture.with_ledger()))
+
+    def test_warns_when_the_inventory_is_older_than_24_hours(self):
+        for hours in (25, 72):
+            with self.subTest(hours=hours):
+                fixture = Fixture(text=with_inventory(inventory_line(hours=hours, clock=True)))
+                text = self.ctx(fixture.with_ledger())
+                self.assertIn("more than 24 hours ago", text)
+                self.assertNotIn("no `Inventory read", text)
+
+    def test_warns_when_a_date_without_time_is_not_today(self):
+        fixture = Fixture(text=with_inventory(inventory_line(hours=48)))
+        self.assertIn("more than 24 hours ago", self.ctx(fixture.with_ledger()))
+
+    def test_warns_when_the_inventory_date_is_in_the_future(self):
+        fixture = Fixture(text=with_inventory(inventory_line(hours=-48)))
+        self.assertIn("more than 24 hours ago", self.ctx(fixture.with_ledger()))
+
+    def test_does_not_warn_for_a_fresh_inventory(self):
+        for line in (inventory_line(hours=0), inventory_line(hours=1, clock=True)):
+            with self.subTest(line=line):
+                text = self.ctx(Fixture(text=with_inventory(line)).with_ledger())
+                self.assertNotIn("WARNING", text)
+                self.assertIn(line, text)
+
+    def test_warns_when_the_ledger_is_over_the_size_limit(self):
+        body = with_inventory(inventory_line(hours=0)) + "- row\n" * 2000
+        text = self.ctx(Fixture(text=body).with_ledger())
+        self.assertIn("WARNING: the ledger has", text)
+        self.assertIn("over the limit of 8000", text)
+        self.assertNotIn("more than 24 hours ago", text)
+        self.assertLess(text.index("WARNING"), text.index("Ship the ledger."))
+
+    def test_does_not_warn_for_a_ledger_within_the_size_limit(self):
+        text = self.ctx(Fixture(text=with_inventory(inventory_line(hours=0))).with_ledger())
+        self.assertNotIn("over the limit", text)
+
+    def test_keeps_the_warnings_when_the_ledger_is_cut(self):
+        text = self.ctx(Fixture(text="x" * 20000).with_ledger())
+        self.assertIn("over the limit of 8000", text)
+        self.assertIn("no `Inventory read", text)
         self.assertIn("ledger cut", text)
 
     def test_ignores_a_ledger_inside_a_repository(self):
