@@ -41,11 +41,11 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 
 ## Delegation
 
-- Load `agents` before the first spawn. It holds the rules for briefs, models, bundling and reports.
+- Load `agents` before the first spawn. It holds the rules for models and bundling. Load `agent-briefs` before the first brief.
 - Implementation runs in `implementer`. Review runs in `reviewer` or `reviewer-boundary`, chosen by the path list in `work-review`.
 - A rework round and a re-review continue the agent that did the first pass. A fresh agent pays the base load again and has lost the context.
 - No agent waits for CI. Wait here with one background command, then continue the agent.
-- Ask an agent for the report shape in `agents`, nothing longer. Its report reaches this context only, so persist it as in Context.
+- Ask an agent for the report shape in `agent-briefs`, nothing longer. Its report reaches this context only, so persist it as in Context.
 
 ## Worktrees
 

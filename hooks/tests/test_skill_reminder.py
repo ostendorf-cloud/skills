@@ -172,6 +172,12 @@ PHRASES = {
         "Subagenten einsetzen",
         "Agenten aufraeumen",
     ),
+    "agent-briefs": (
+        "write a brief",
+        "write the agent brief",
+        "agent report shape",
+        "Brief fuer den Agenten",
+    ),
     "skills-config": (
         "set up the skills config",
         "validate agent-skills.json",

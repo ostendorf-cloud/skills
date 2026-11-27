@@ -65,19 +65,9 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   waits with one background command and continues the agent afterwards.
 - Spawn the review only once CI on the head commit has finished.
 
-### Briefs
+### Briefs and reports
 
-- Give the agent the plan and the rules it needs, not the full conversation transcript.
-- A reviewer's brief names the repository, the issue and the pull request, nothing about why
-  the change is right.
-- The dispatching session verifies every precondition a brief asserts before it sends the brief:
-  a file exists where the brief says, a branch is where it says, a tool is installed.
-- A brief that depends on work not merged yet says so plainly and gives the path to read it
-  from. It never describes that work as present.
-- A statement in a brief about how a tool behaves is an assumption until someone runs it. The
-  brief labels it as one.
-- An agent that finds a stated precondition false stops and reports it. It does not reconstruct
-  what is missing. An unattended agent records it on the issue and stops that task.
+- Load `agent-briefs` before writing a brief or asking an agent for its report.
 
 ### Monitoring
 
@@ -95,16 +85,6 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   silent.
 - Check the running agent list before spawning more, and again before ending the session. The
   list must be empty at the end.
-
-### Report shape
-
-- What changed, per target: a table or a short list, not a walkthrough.
-- Which claims were verified by running something, and what ran.
-- Which claims are unverified, and why.
-- What it stopped on, if anything.
-- Baseline feedback: a rule that blocked or misled, a rule that was missing, or "none".
-- No narration of work already done. The report stays in the orchestrator's context and
-  is paid for on every later request.
 
 ## Steps
 

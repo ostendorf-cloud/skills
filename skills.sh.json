@@ -58,7 +58,7 @@
     {
       "title": "Meta",
       "description": "Subagents, models and the skills configuration.",
-      "skills": ["agents", "skills-config"]
+      "skills": ["agents", "agent-briefs", "skills-config"]
     }
   ],
   "notGrouped": "bottom"
