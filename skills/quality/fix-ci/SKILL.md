@@ -64,9 +64,9 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
   change, and never worth investigating per repository.
 - `mise x` provisions every pinned tool before running anything, so one tool the sandbox cannot
   fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
-- A review cannot run a blocked `task` target. It runs the underlying tool of each target
-  directly, for example `markdownlint-cli2` or `swift test`, and reads the CI result on the
-  head commit.
+- A review cannot run a `task` target that stays blocked after the `HOME` route below. It runs
+  the underlying tool of each target directly, for example `markdownlint-cli2` or `swift test`,
+  and reads the CI result on the head commit.
 - The report lists each blocked `task` target as not run, with the reason, and the substitute
   that ran.
 - A Taskfile with a remote include writes its cache under the user cache directory, which the
@@ -75,8 +75,8 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
 - `--remote-cache-dir` does not help for a git include: task 3.54.0 still writes
   `task-git-repos` under the user cache directory.
 - Run on macOS with task 3.54.0: `task --list` through the `HOME` route. No target was run
-  through it. `HOME` also hides mise trust state. Other platforms and `XDG_CACHE_HOME` are
-  unverified.
+  through it. `HOME` also hides mise trust state, so a target through it fails with a mise
+  trust error. Other platforms and `XDG_CACHE_HOME` are unverified.
 
 ## References
 
