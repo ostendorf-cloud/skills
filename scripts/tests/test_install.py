@@ -248,6 +248,61 @@ class InstallTestCase(unittest.TestCase):
         self.assertTrue((hooks_dir / "test_hook.py").is_file())
         self.assertTrue((hooks_dir / install.MARKER_NAME).is_file())
 
+    def _write_mod(self) -> None:
+        mod = self.source / "mods" / "demo"
+        write(mod / ".claude-plugin" / "plugin.json", "{}\n")
+        write(mod / "hooks" / "register.ts", "export {}\n")
+        write(mod / "tests" / "demo.test.ts", "test\n")
+        write(mod / ".claude-plugin" / "types" / "index.d.ts", "types\n")
+
+    def test_install_copies_a_mod_without_its_tests_and_engine_types(self) -> None:
+        self._write_mod()
+        code, output = self._install()
+        self.assertEqual(code, 0)
+        self.assertIn("mods    created", output)
+        mods_dir = self.home / ".claude" / install.MODS_DIRNAME
+        self.assertTrue((mods_dir / "demo" / "hooks" / "register.ts").is_file())
+        self.assertTrue((mods_dir / "demo" / ".claude-plugin" / "plugin.json").is_file())
+        self.assertFalse((mods_dir / "demo" / "tests").exists())
+        self.assertFalse((mods_dir / "demo" / ".claude-plugin" / "types").exists())
+        self.assertTrue((mods_dir / install.MARKER_NAME).is_file())
+
+    def test_reinstall_leaves_an_unchanged_mod_alone_and_updates_a_changed_one(self) -> None:
+        self._write_mod()
+        self._install()
+        _, output = self._install()
+        self.assertIn("mods    unchanged", output)
+        write(self.source / "mods" / "demo" / "hooks" / "register.ts", "export const a = 1\n")
+        _, output = self._install()
+        self.assertIn("mods    updated", output)
+
+    def test_install_refuses_a_foreign_mods_directory_instead_of_deleting_it(self) -> None:
+        self._write_mod()
+        foreign = self.home / ".claude" / install.MODS_DIRNAME / "foreign.txt"
+        write(foreign, "not ours\n")
+        code, output = self._install()
+        self.assertEqual(code, 1)
+        self.assertIn("mods    conflict", output)
+        self.assertEqual(foreign.read_text(), "not ours\n")
+
+    def test_uninstall_removes_the_installed_mods_and_keeps_a_foreign_directory(self) -> None:
+        self._write_mod()
+        self._install()
+        mods_dir = self.home / ".claude" / install.MODS_DIRNAME
+        code, output = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertEqual(code, 0)
+        self.assertIn("mods    removed", output)
+        self.assertFalse(mods_dir.exists())
+        write(mods_dir / "foreign.txt", "not ours\n")
+        _, output = run(["uninstall", "--home", str(self.home), "--source", str(self.source)])
+        self.assertIn("mods    left untouched, not ours", output)
+        self.assertTrue((mods_dir / "foreign.txt").is_file())
+
+    def test_install_without_mods_reports_nothing_to_do(self) -> None:
+        _, output = self._install()
+        self.assertIn("mods    unchanged", output)
+        self.assertFalse((self.home / ".claude" / install.MODS_DIRNAME).exists())
+
     def test_install_refuses_a_foreign_hooks_directory_instead_of_deleting_it(self) -> None:
         hooks_dir = self.home / ".claude" / install.OWN_HOOKS_DIRNAME
         foreign = hooks_dir / "foreign.txt"

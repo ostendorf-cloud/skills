@@ -28,6 +28,8 @@ Leave unfinished work resumable without reconstructing it from memory.
 9. Post as a comment: `gh issue comment <number> --body-file <file>` or
    `gh pr comment <number> --body-file <file>`.
 10. Never commit the handoff note into the repository.
+11. The work package is done and a `request_rotation` tool exists: call it with the URL of the
+    comment just posted, then end the turn. The session clears and restarts from that comment.
 
 ## Template
 
@@ -52,6 +54,7 @@ Leave unfinished work resumable without reconstructing it from memory.
 - Every uncommitted file is either committed or explained, never left silent.
 - No secrets, tokens or internal hostnames in the note.
 - No version bump or changelog edit.
+- Never call `request_rotation` before the comment exists. The tool refuses a call without its URL.
 
 ## References
 

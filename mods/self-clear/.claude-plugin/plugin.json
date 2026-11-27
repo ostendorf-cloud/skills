@@ -1,0 +1,32 @@
+{
+  "name": "self-clear",
+  "version": "0.1.0",
+  "author": { "name": "Simon Ostendorf" },
+  "description": "Clears the orchestrator context at a work package boundary, after the handoff is written.",
+  "userConfig": {
+    "nudgePercent": {
+      "type": "number",
+      "title": "Nudge percent",
+      "description": "Context usage at which the owner gets a toast.",
+      "default": 60
+    },
+    "wrapUpPercent": {
+      "type": "number",
+      "title": "Wrap up percent",
+      "description": "Context usage at which the model is asked to hand off.",
+      "default": 70
+    },
+    "forcePercent": {
+      "type": "number",
+      "title": "Force percent",
+      "description": "Context usage at which the model is told to hand off now.",
+      "default": 80
+    },
+    "maxRotations": {
+      "type": "number",
+      "title": "Rotation cap",
+      "description": "Most rotations per session. 0 turns rotation off.",
+      "default": 5
+    }
+  }
+}
