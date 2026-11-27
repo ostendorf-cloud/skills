@@ -77,7 +77,7 @@ Judge one pushed pull request as a different agent than the one that built it.
     move the label to `needs human`. The round count is this skill's own verdict comments and
     formal reviews on the pull request, the one just posted included. Unset means no limit.
 16. Label now `needs human`: run `gh pr ready` when the `pr` skill's ready condition holds and
-    only a human decision is left. A verdict on should findings leaves it a draft.
+    only a human decision is left, otherwise (should findings included) leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
 18. Changes requested or blocked: end the verdict with a line that names `implement` as the
     next step. The rework round starts there and reads this verdict.
