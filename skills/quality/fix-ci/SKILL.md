@@ -63,6 +63,10 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
   change, and never worth investigating per repository.
 - `mise x` provisions every pinned tool before running anything, so one tool the sandbox cannot
   fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
+- A Taskfile with a remote include writes its cache under the user cache directory, which the
+  sandbox blocks. Create `$TMPDIR/home` and point `HOME` at it for that one call:
+  `HOME="$TMPDIR/home" task --trusted-hosts github.com <target>`. Verified on macOS only.
+  Elsewhere the cache directory may follow `XDG_CACHE_HOME`, which is unverified.
 
 ## References
 
