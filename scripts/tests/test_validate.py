@@ -722,13 +722,6 @@ class ValidateTestCase(unittest.TestCase):
         for dirname in (".agent-skills-hooks", ".agent-skills-mods"):
             self.assertIn("Edit({{claude_dir}}/" + dirname + "/**)", deny)
 
-    def test_profile_names_the_installed_mod_with_an_absolute_path(self) -> None:
-        env = self._laptop_profile()["env"]
-        self.assertEqual(
-            env["CLAUDE_CODE_PLUGIN_DIRS"],
-            "{{claude_dir_abs}}/.agent-skills-mods/self-clear",
-        )
-
     def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
         env = self._laptop_profile()["env"]
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/tmp/claude")

@@ -24,9 +24,6 @@ from typing import Any
 BACKUP_SUFFIX = ".before-agent-skills"
 # Stands in for the directory an install writes into, wherever the shipped settings name it.
 CLAUDE_DIR_PLACEHOLDER = "{{claude_dir}}"
-# Same directory as an absolute path, for a value that is not a permission rule and for
-# which nothing shows that a leading "~" is expanded, such as an environment variable.
-CLAUDE_DIR_ABS_PLACEHOLDER = "{{claude_dir_abs}}"
 MARKER_NAME = ".agent-skills-checksum"
 # Subdirectory of claude_dir that holds the installed copy of the hook scripts. Named
 # independently of claude_dir itself, so the marker below recognises an installed
@@ -725,24 +722,19 @@ def claude_dir_rule_path(claude_dir: Path, home: Path) -> str:
     return str(expanded)
 
 
-def substitute_claude_dir(value: Any, rule_path: str, abs_path: str) -> Any:
-    """Replace the claude_dir placeholders in every string of a settings tree.
+def substitute_claude_dir(value: Any, rule_path: str) -> Any:
+    """Replace the claude_dir placeholder in every string of a settings tree.
 
     The shipped profile cannot name the install directory, so rules that protect a
     target's own settings.json and CLAUDE.md carry the placeholder and are bound to the
-    directory this run installs into. The absolute placeholder serves values that are not
-    permission rules.
+    directory this run installs into.
     """
     if isinstance(value, str):
-        return value.replace(CLAUDE_DIR_PLACEHOLDER, rule_path).replace(
-            CLAUDE_DIR_ABS_PLACEHOLDER, abs_path
-        )
+        return value.replace(CLAUDE_DIR_PLACEHOLDER, rule_path)
     if isinstance(value, dict):
-        return {
-            key: substitute_claude_dir(item, rule_path, abs_path) for key, item in value.items()
-        }
+        return {key: substitute_claude_dir(item, rule_path) for key, item in value.items()}
     if isinstance(value, list):
-        return [substitute_claude_dir(item, rule_path, abs_path) for item in value]
+        return [substitute_claude_dir(item, rule_path) for item in value]
     return value
 
 
@@ -1021,9 +1013,7 @@ def install_settings(
         if overlay is not None:
             profile_settings = deep_merge(profile_settings, overlay)
     profile_settings = substitute_claude_dir(
-        profile_settings,
-        claude_dir_rule_path(claude_dir, home),
-        str(claude_dir.expanduser()),
+        profile_settings, claude_dir_rule_path(claude_dir, home)
     )
 
     hooks = load_hook_manifest(source)

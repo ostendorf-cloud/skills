@@ -141,8 +141,6 @@ task doctor
 - `{{claude_dir}}` in a path stands for the directory the installer writes into. It is replaced
   at install time, home relative as `~/...` where it sits under the home directory. A rule that
   protects an installation's own files uses it instead of a literal `~/.claude`.
-- `{{claude_dir_abs}}` is the same directory as an absolute path. Use it only for a value that
-  is not a permission rule, such as an environment variable.
 - A file rule is written as `Edit(path)` or `Read(path)`. `Edit` covers every file editing
   tool. A path rule on `Write`, `NotebookEdit`, `MultiEdit` or `Glob` is never matched and
   `validate` rejects it, in the overlay example too.
