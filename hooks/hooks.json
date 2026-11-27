@@ -144,7 +144,7 @@
       "matcher": "",
       "timeout": 10,
       "decision": "context",
-      "description": "Adds the ledger of the current workstream, .ledger/<stream>.md, on every session start, resume, clear and compact. Adds nothing when there is no ledger or when a .ledger sits inside a repository. Nothing for a subagent."
+      "description": "Adds the ledger of the current workstream, .ledger/<stream>.md, on every session start, resume, clear and compact. Warns when the Inventory section has no `Inventory read:` date, when the line holds an invalid value, when the date is older than 24 hours or in the future, and when the ledger is over its size limit. Adds nothing when there is no ledger or when a .ledger sits inside a repository. Nothing for a subagent."
     },
     {
       "id": "context-size",
