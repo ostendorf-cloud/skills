@@ -66,8 +66,12 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
   fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
 - A Taskfile with a remote include writes its cache under the user cache directory, which the
   sandbox blocks. Create `$TMPDIR/home` and point `HOME` at it for that one call:
-  `HOME="$TMPDIR/home" task --trusted-hosts github.com <target>`. Verified on macOS only.
-  Elsewhere the cache directory may follow `XDG_CACHE_HOME`, which is unverified.
+  `HOME="$TMPDIR/home" task --trusted-hosts github.com <target>`.
+- `--remote-cache-dir` does not help for a git include: task 3.54.0 still writes
+  `task-git-repos` under the user cache directory.
+- Run on macOS with task 3.54.0: `task --list` through the `HOME` route. No target was run
+  through it. `HOME` also hides mise trust state. Other platforms and `XDG_CACHE_HOME` are
+  unverified.
 
 ## References
 
