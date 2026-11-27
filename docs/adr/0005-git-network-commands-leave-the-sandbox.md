@@ -38,7 +38,8 @@ Date: 2026-10-21
 - Amendment 2026-11-27: one `-C` form is allowed so a session outside a repository can push a
   worktree branch (skills issue 267). The form is exactly
   `git -C <path> push [-u] origin <branch>`, alone in the call. The path is absolute, read
-  literally and a registered worktree under `.claude/worktrees/` (`git worktree list`). The
+  literally and a linked worktree under `.claude/worktrees/` (`git worktree list`, the main
+  worktree entry excluded). The
   branch is a plain name other than the default branch. Any other `-C` shape stays denied, and
   the default branch push check runs before this one and stays unchanged.
 - The amendment adds `git -C * push *` to `excludedCommands`. Nobody has verified yet that this

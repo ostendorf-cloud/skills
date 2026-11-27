@@ -872,7 +872,7 @@ BRANCH_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")
 
 def is_worktree_push(words: list[str], git_index: int, sub_index: int) -> bool:
     """Whether words are exactly `git -C <path> push [-u] origin <branch>`, with <path>
-    a registered worktree under a `.claude/worktrees/` directory and <branch> a plain
+    a linked worktree under a `.claude/worktrees/` directory and <branch> a plain
     branch name other than the default branch. The path is read literally: a variable,
     a substitution or a `~` in it is not followed. Such a push is let through the shape
     check, ADR 0005. The default branch check of the push itself runs before this."""
@@ -892,12 +892,14 @@ def is_worktree_push(words: list[str], git_index: int, sub_index: int) -> bool:
     listing = QUERIES.run(["worktree", "list", "--porcelain"], real)
     if listing is None:
         return False
-    registered = {
+    entries = [
         os.path.realpath(line[len("worktree ") :])
         for line in listing.splitlines()
         if line.startswith("worktree ")
-    }
-    if real not in registered:
+    ]
+    # The first entry is the main worktree. A standalone repository lists only itself
+    # there, so only a linked worktree counts.
+    if real not in entries[1:]:
         return False
     return rest[1] != QUERIES.default_branch(real)
 

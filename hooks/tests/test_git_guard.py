@@ -2092,6 +2092,15 @@ class NetworkShapeTest(unittest.TestCase):
             command = f"git -C {path} push origin feat/thing"
             self.assertEqual(decision(self.check(command, repo)), "deny", command)
 
+    def test_denies_dash_c_push_from_a_standalone_repository_under_a_worktrees_path(self):
+        base = tempfile.mkdtemp(prefix="git-guard-standalone-")
+        standalone = os.path.join(base, ".claude", "worktrees", "x")
+        os.makedirs(standalone)
+        for args in (["init", "-q", "-b", "main"], ["checkout", "-q", "-b", "feat/thing"]):
+            subprocess.run(["git", *args], cwd=standalone, check=True, capture_output=True)
+        command = f"git -C {standalone} push origin feat/thing"
+        self.assertEqual(decision(self.check(command, base)), "deny", command)
+
     def test_denies_dash_c_push_of_the_default_branch_from_a_worktree(self):
         repo = git_repo()
         worktree = self.worktree_of(repo)
