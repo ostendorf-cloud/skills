@@ -9,9 +9,9 @@
   },
   "env": {
     "OTEL_EXPORTER_OTLP_ENDPOINT": "https://<collector-host>",
-    "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=<value from the secret manager>",
     "OTEL_RESOURCE_ATTRIBUTES": "host.name=<laptop-name>"
   },
+  "otelHeadersHelper": "<path to your helper script>",
   "sandbox": {
     "network": {
       "allowUnixSockets": ["~/.bitwarden-ssh-agent.sock"]

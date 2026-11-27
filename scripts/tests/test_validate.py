@@ -757,9 +757,16 @@ class ValidateTestCase(unittest.TestCase):
         ):
             self.assertNotIn(name, env)
 
-    def test_profile_keeps_ninety_days_of_transcripts_and_wires_the_status_line(self) -> None:
+    def test_overlay_example_holds_no_collector_credential(self) -> None:
+        path = Path(__file__).resolve().parents[2] / "settings" / "local.example.json"
+        overlay = json.loads(path.read_text())
+        self.assertNotIn("OTEL_EXPORTER_OTLP_HEADERS", overlay.get("env", {}))
+        self.assertNotIn("Authorization", path.read_text())
+        self.assertIn("otelHeadersHelper", overlay)
+
+    def test_profile_keeps_120_days_of_transcripts_and_wires_the_status_line(self) -> None:
         profile = self._laptop_profile()
-        self.assertGreaterEqual(profile["cleanupPeriodDays"], 90)
+        self.assertEqual(profile["cleanupPeriodDays"], 120)
         status_line = profile["statusLine"]
         self.assertEqual(status_line["type"], "command")
         self.assertIn(

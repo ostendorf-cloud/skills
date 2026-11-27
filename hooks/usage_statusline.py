@@ -8,16 +8,19 @@ Not a hook. It lives next to the hook scripts so the installer copies it to
 feeds the status line JSON on stdin. It always prints one status line and exits 0.
 
 The plan limit is not part of the built in OpenTelemetry export, so this script sends
-three gauges over OTLP/HTTP JSON to the configured endpoint:
+two gauges over OTLP/HTTP JSON to the configured endpoint:
 
 - claude_code.plan_limit.used_percentage with attribute `window` (five_hour, seven_day)
 - claude_code.context.used_percentage
 
-Every sample carries session.id, model and vcs.repository.name. The endpoint, the
-headers and the resource attributes come from the standard OTEL_EXPORTER_OTLP_* and
-OTEL_RESOURCE_ATTRIBUTES variables, which the local overlay sets. Nothing is sent
-without an endpoint. Claude Code cancels a status line run that takes too long, so the
-send runs in a detached child and at most once per interval per session.
+Every sample carries session.id, model and vcs.repository.name. The endpoint and the
+resource attributes come from the standard OTEL_EXPORTER_OTLP_ENDPOINT and
+OTEL_RESOURCE_ATTRIBUTES variables, which the local overlay sets. The Authorization
+header comes from the `otelHeadersHelper` command in the installed settings.json, the
+same command Claude Code runs for its own export. No header value is read from the
+environment. Nothing is sent without an endpoint or when the helper fails.
+Claude Code cancels a status line run that takes too long, so the send runs in a
+detached child and at most once per interval per session.
 """
 
 import contextlib
@@ -27,7 +30,6 @@ import subprocess
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -37,6 +39,8 @@ SEND_TIMEOUT_SECONDS = 5
 GIT_TIMEOUT_SECONDS = 2
 FOREGROUND_ENV = "USAGE_STATUSLINE_FOREGROUND"
 STATE_DIR_ENV = "USAGE_STATUSLINE_STATE_DIR"
+SETTINGS_ENV = "USAGE_STATUSLINE_SETTINGS"
+HELPER_TIMEOUT_SECONDS = 5
 WINDOWS = (("five_hour", "5h"), ("seven_day", "7d"))
 
 
@@ -69,8 +73,7 @@ def status_line(data: dict[str, Any]) -> str:
 
 
 def parse_pairs(text: str) -> dict[str, str]:
-    """A comma separated k=v list, as OTEL_EXPORTER_OTLP_HEADERS and
-    OTEL_RESOURCE_ATTRIBUTES spell it."""
+    """A comma separated k=v list, as OTEL_RESOURCE_ATTRIBUTES spells it."""
     pairs: dict[str, str] = {}
     for item in text.split(","):
         key, sep, value = item.partition("=")
@@ -165,10 +168,50 @@ def build_payload(
     }
 
 
+def settings_path(env: dict[str, str]) -> Path:
+    """The installed settings.json: the parent of the directory this script is installed in."""
+    explicit = env.get(SETTINGS_ENV)
+    if explicit:
+        return Path(explicit)
+    return Path(__file__).resolve().parent.parent / "settings.json"
+
+
+def helper_headers(env: dict[str, str]) -> Optional[dict[str, str]]:
+    """Run the `otelHeadersHelper` command from settings.json and return the headers it prints.
+
+    Returns None when the helper is missing, fails or prints anything but a JSON object of
+    strings, so that nothing is sent."""
+    try:
+        settings = json.loads(settings_path(env).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    command = settings.get("otelHeadersHelper") if isinstance(settings, dict) else None
+    if not isinstance(command, str) or not command.strip():
+        return None
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=HELPER_TIMEOUT_SECONDS,
+            check=False,
+        )
+        printed = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0 or not isinstance(printed, dict):
+        return None
+    if not all(isinstance(k, str) and isinstance(v, str) for k, v in printed.items()):
+        return None
+    return printed
+
+
 def post(payload: dict[str, Any], endpoint: str, env: dict[str, str]) -> bool:
-    headers = {"Content-Type": "application/json"}
-    for name, value in parse_pairs(env.get("OTEL_EXPORTER_OTLP_HEADERS", "")).items():
-        headers[name] = urllib.parse.unquote(value)
+    extra = helper_headers(env)
+    if extra is None:
+        return False
+    headers = {"Content-Type": "application/json", **extra}
     request = urllib.request.Request(
         endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
     )

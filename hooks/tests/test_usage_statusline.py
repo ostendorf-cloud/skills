@@ -155,14 +155,20 @@ class SendTest(unittest.TestCase):
         self.addCleanup(self.server.shutdown)
         self.state = tempfile.TemporaryDirectory()
         self.addCleanup(self.state.cleanup)
+        self.settings = os.path.join(self.state.name, "settings.json")
+        self.write_helper('printf \'{"Authorization": "Basic fake-test-value"}\'')
         self.env = {
             "OTEL_EXPORTER_OTLP_ENDPOINT": f"http://127.0.0.1:{self.server.server_port}",
-            "OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Basic fake-test-value",
             "USAGE_STATUSLINE_FOREGROUND": "1",
-            "USAGE_STATUSLINE_STATE_DIR": self.state.name,
+            "USAGE_STATUSLINE_STATE_DIR": os.path.join(self.state.name, "state"),
+            "USAGE_STATUSLINE_SETTINGS": self.settings,
         }
 
-    def test_posts_the_gauges_with_the_configured_headers(self):
+    def write_helper(self, command):
+        with open(self.settings, "w", encoding="utf-8") as handle:
+            json.dump({"otelHeadersHelper": command}, handle)
+
+    def test_posts_the_gauges_with_the_helper_headers(self):
         result = run(FULL, self.env)
         self.assertEqual(result.stdout.strip(), "Opus | ctx 8% | 5h 24% | 7d 41%")
         self.assertEqual(len(Collector.received), 1)
@@ -171,11 +177,28 @@ class SendTest(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Basic fake-test-value")
         self.assertEqual(len(points(body)), 3)
 
-    def test_decodes_percent_encoded_header_values(self):
-        env = dict(self.env, OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20fake-test-value")
+    def test_ignores_a_header_value_in_the_environment(self):
+        env = dict(self.env, OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic env-value")
+        self.write_helper("printf '{}'")
         run(FULL, env)
         self.assertEqual(len(Collector.received), 1)
-        self.assertEqual(Collector.received[0][1]["Authorization"], "Basic fake-test-value")
+        self.assertNotIn("Authorization", Collector.received[0][1])
+
+    def test_sends_nothing_when_the_helper_fails(self):
+        self.write_helper("exit 1")
+        run(FULL, self.env)
+        self.assertEqual(Collector.received, [])
+
+    def test_sends_nothing_when_the_helper_prints_no_string_pairs(self):
+        self.write_helper("printf '{\"Authorization\": 5}'")
+        run(FULL, self.env)
+        self.assertEqual(Collector.received, [])
+
+    def test_sends_nothing_without_a_helper_setting(self):
+        with open(self.settings, "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        run(FULL, self.env)
+        self.assertEqual(Collector.received, [])
 
     def test_sends_once_per_interval_for_a_session(self):
         run(FULL, self.env)

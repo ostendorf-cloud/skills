@@ -62,6 +62,7 @@ Answer who used how much, with numbers from the transcripts and the metrics stor
 - A cache miss after an idle gap is expected. A miss with no gap points at a changed prefix.
 - Tool detail logging is on, so `agent.name` and `skill.name` carry real names. The same
   setting exports tool parameters, for example the command of a shell call, to the collector.
+  A secret in a command argument leaves the machine too.
   The local report has the agent type from the transcript as well.
 - Transcripts are deleted after `cleanupPeriodDays`. Older questions need the metrics store.
 - Other people's sessions are out of scope.
