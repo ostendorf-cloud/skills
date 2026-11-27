@@ -44,8 +44,8 @@ Judge one pushed pull request as a different agent than the one that built it.
    For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
    are `approve`, named in the verdict for the orchestrator to fix in the same pull request or
-   drop.
-8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
+   drop. A sound change that conflicts with the issue's Out of scope is `needs human`, unless an
+   owner decision comment on the issue accepts it.8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
    second thread for the same problem.
@@ -123,6 +123,5 @@ Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 ## References
 
-- GitHub CLI manual: <https://cli.github.com/manual/>
 - `pr` skill: the ready condition for leaving draft.
 - `implement` skill: the rework round a `changes requested` or `blocked` verdict hands off to.
