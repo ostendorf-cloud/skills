@@ -41,9 +41,8 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 
 ### Aliases
 
-- One `provider "github"` block per organisation this module manages.
-- The default organisation's block carries no `alias` and is declared first.
-- Every other block carries `alias = "<organisation>"`, declared after it, and its resources set
+- One `provider "github"` block per organisation. The default one has no `alias`, declared first.
+- Every other block carries `alias = "<organisation>"`, and its resources set
   `provider = github.<alias>`.
 
 ### Repositories
@@ -54,6 +53,10 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
   `allow_squash_merge = false`, `allow_rebase_merge = false`, `delete_branch_on_merge = true`.
 - Branch protection and required checks are ruleset input, not `github_repository` attributes.
 - `lifecycle { prevent_destroy = true }` on every repository: removing a map key fails first.
+- The `github` module may not yet manage the organisation's repositories and labels. Read it first.
+- A new repository starts as an issue in the infrastructure repository: name, visibility, label set.
+- The organisation's catalog differs from the personal one: `ai:`, `priority:`, `release:`, `stack:`
+  and the `base` types.
 
 ### Labels
 
@@ -88,10 +91,6 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 - `visibility = "selected"` plus `github_actions_organization_secret_repositories` scopes a
   secret to the repositories that need it. `all` only when every repository needs it.
 
-### Membership
-
-- Membership stays outside this code: no `github_membership` or `github_team_membership`.
-
 ### Import
 
 - A repository, a label set or a ruleset created by hand is imported, never deleted and recreated:
@@ -108,6 +107,7 @@ Repository, label, ruleset and organisation secret settings for GitHub as OpenTo
 - Never a secret value as a literal, and never printed with `tofu output` or `tofu state show`.
 - Never delete and recreate a resource that already exists by hand: import it.
 - Never a label removed from the catalog while a skill still matches on its old name.
+- Never `github_membership` or `github_team_membership`: membership stays outside this code.
 
 ## Config
 
