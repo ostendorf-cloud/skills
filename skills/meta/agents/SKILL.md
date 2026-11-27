@@ -65,10 +65,6 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   waits with one background command and continues the agent afterwards.
 - Spawn the review only once CI on the head commit has finished.
 
-### Briefs and reports
-
-- Load `agent-briefs` before writing a brief or asking an agent for its report.
-
 ### Monitoring
 
 - State an expected duration when spawning an agent.
@@ -92,7 +88,7 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
    subagent.
 2. An agent already holds the context: continue it. Otherwise split the work so results do not
    overlap, and name the output of each agent.
-3. Spawn with scope, files, style and a reporting instruction.
+3. Spawn with scope, files, style and a reporting instruction. Load `agent-briefs` first.
 4. Collect results, verify them, resolve conflicts between agents per the rule above.
 5. Terminate every agent, confirm the list is empty.
 6. Report outcome per agent, including what was rejected.
