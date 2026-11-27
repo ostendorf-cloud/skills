@@ -85,7 +85,10 @@ How branches, commits, pull requests and history stay consistent and reversible.
 
 - A parallel session on the same repository works from `.claude/worktrees/<branch>`, one branch
   and one checkout per session.
-- A session outside the repository pushes a worktree branch with `git -C <worktree path> push origin <branch>`, alone in the call. The path is a registered worktree under `.claude/worktrees/`, the branch is not the default branch.
+- A session outside the repository pushes a worktree branch with
+  `git -C <worktree path> push origin <branch>`, alone in the call.
+- The path is a registered worktree under `.claude/worktrees/`. The branch is not the default
+  branch.
 - Remove the worktree and delete the branch once its pull request merges.
 
 ## Guardrails
