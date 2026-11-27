@@ -349,6 +349,22 @@ class CommitMessageTest(unittest.TestCase):
         command = "git add -A && git commit -F - <<'EOF'\nadded some stuff\nEOF"
         self.assertEqual(decision(run_hook("commit_message.py", bash_payload(command))), "deny")
 
+    def test_denies_a_trailer_in_the_second_of_two_identical_heredoc_commits(self):
+        command = (
+            "git commit -F - <<'EOF'\nfeat: add thing\nEOF\n"
+            "git commit -F - <<'EOF'\nfeat: add thing\n\nCo-Authored-By: Claude <a@b.c>\nEOF"
+        )
+        output = run_hook("commit_message.py", bash_payload(command))
+        self.assertEqual(decision(output), "deny")
+        self.assertIn("attribution", reason(output))
+
+    def test_allows_two_identical_valid_heredoc_commits(self):
+        command = (
+            "git commit -F - <<'EOF'\nfeat: add thing\nEOF\n"
+            "git commit -F - <<'EOF'\nfeat: add thing\nEOF"
+        )
+        self.assertIsNone(decision(run_hook("commit_message.py", bash_payload(command))))
+
     def test_denies_attribution_in_the_second_commit_of_a_chain(self):
         command = (
             "git commit -m 'feat: add thing' && "
