@@ -31,10 +31,13 @@ File or update one GitHub issue with a clear outcome and testable criteria.
    `gh issue edit <number> --body-file <file>`.
 9. Add exactly one type label. Add the priority label from config `priority` when the user named
    one.
-10. Add `needs triage` on new issues, unless the user explicitly asks for `ai: ready`.
+10. Add `needs triage` on new issues, unless the user explicitly asks for `ai: ready` or the
+    issue came out of a discussion between the user and this session, see step 11.
 11. Never set `ai: ready` unless the user says so explicitly in this request. A request that
     names the work, such as "work on solobill" or "implement #12", is that instruction for the
-    issues it covers.
+    issues it covers. An issue that came out of a discussion between the user and this session
+    gets `ai: ready` at once, no triage step. An issue opened by someone else or by an
+    unattended run keeps `needs triage`. An unattended run never sets `ai: ready`.
 12. Reference related issues with `#<number>`. Link blocking or blocked issues with
     `gh issue edit --add-blocked-by`.
 13. A missing type, priority or state label on the tracker is reported, never created.
@@ -64,6 +67,7 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 - Exactly one type label per issue.
 - `ai: ready` and `needs triage` are set only on explicit instruction from the user, never
   guessed. A request that names the work is such an instruction, for the issues it covers only.
+  So is an issue discussed between the user and this session, for that issue only.
   A request that does not name the work, such as "what is open", never sets `ai: ready`.
 - A label absent on the tracker is named in the report, never created by this skill.
 - An unfixed security vulnerability in a public repository gets no exploit detail in an issue:
