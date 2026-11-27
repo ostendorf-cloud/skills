@@ -30,9 +30,11 @@ Turn the working tree into atomic, well described commits.
    Pass a multi paragraph message as one `-m` per paragraph, subject first. The hook judges
    the `git commit` segment only and reads the first `-m` as the subject.
 7. Commit. Never pass `--no-verify`. A hook that blocks a commit names a real problem, fix it.
-   Where the repository enforces a DCO check, commit with `git commit -s`. The sign-off is the
-   configured git identity. A commit on an own branch lacks it: `git rebase --signoff <base>`,
-   then `git push --force-with-lease`.
+   A repository enforces a DCO check when it has a required `signoff` check, a DCO section in
+   `CONTRIBUTING.md` or a pull request template checkbox. Then commit with `git commit -s`. The
+   sign-off is the configured git identity. A commit on an own branch lacks it:
+   `git rebase --signoff origin/<default>`, the remote-tracking default branch and never the
+   local one, then `git push --force-with-lease`.
 8. Report what was committed, one line per commit, and what is left unstaged and why.
 
 ## Guardrails
