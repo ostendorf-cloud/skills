@@ -742,12 +742,15 @@ class ValidateTestCase(unittest.TestCase):
         ):
             self.assertEqual(modes.get(name), "deny")
 
+    def test_profile_exports_tool_details_for_real_skill_names(self) -> None:
+        env = self._laptop_profile()["env"]
+        self.assertEqual(env["OTEL_LOG_TOOL_DETAILS"], "1")
+
     def test_profile_keeps_content_export_off(self) -> None:
         env = self._laptop_profile()["env"]
         for name in (
             "OTEL_LOG_USER_PROMPTS",
             "OTEL_LOG_ASSISTANT_RESPONSES",
-            "OTEL_LOG_TOOL_DETAILS",
             "OTEL_LOG_TOOL_CONTENT",
             "OTEL_LOG_RAW_API_BODIES",
             "ENABLE_BETA_TRACING_DETAILED",

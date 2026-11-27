@@ -60,8 +60,9 @@ Answer who used how much, with numbers from the transcripts and the metrics stor
 - Compare shares, not only totals: main session against subagents, cache read against cache
   create, output against input.
 - A cache miss after an idle gap is expected. A miss with no gap points at a changed prefix.
-- `agent.name` and `skill.name` show `custom` for user defined names unless tool detail
-  logging is on. The local report has the agent type from the transcript instead.
+- Tool detail logging is on, so `agent.name` and `skill.name` carry real names. The same
+  setting exports tool parameters, for example the command of a shell call, to the collector.
+  The local report has the agent type from the transcript as well.
 - Transcripts are deleted after `cleanupPeriodDays`. Older questions need the metrics store.
 - Other people's sessions are out of scope.
 

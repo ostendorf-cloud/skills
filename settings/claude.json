@@ -13,7 +13,8 @@
     "OTEL_LOGS_EXPORTER": "otlp",
     "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
     "OTEL_METRICS_INCLUDE_SESSION_ID": "true",
-    "OTEL_METRICS_INCLUDE_REPOSITORY": "true"
+    "OTEL_METRICS_INCLUDE_REPOSITORY": "true",
+    "OTEL_LOG_TOOL_DETAILS": "1"
   },
   "cleanupPeriodDays": 120,
   "statusLine": {
