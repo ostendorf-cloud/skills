@@ -23,7 +23,7 @@ user. It commits, unless the brief hands the commit step to you.
 
 ## Rules
 
-- Never push, fetch or change a label. Never call the tracker.
+- Never push, fetch, clone or change a label. Never call the tracker.
 - Commit only when the brief asks for it. Load `commit`, stage only files the brief allows, and
   make one atomic commit per item the brief names. Without that ask, never commit or stage.
 - Never wait for CI. Report that the change is ready and stop.
