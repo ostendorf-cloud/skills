@@ -282,6 +282,11 @@ TRIGGERS = (
         r"agent report shape|brief f(ü|ue)r (den |einen )?agent\w*)\b",
     ),
     (
+        "usage-review",
+        r"\b(token (use|usage)|usage review|plan limit|weekly limit|rate limit usage|"
+        r"verbrauch auswerten|limit verbraucht)\b",
+    ),
+    (
         "agents",
         r"\b(subagent\w*|spawn (an? )?agents?|terminate (the )?agents?|agent routing|"
         r"run this in parallel|clean up the agents|agenten aufr(ä|ae)umen)\b",

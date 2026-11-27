@@ -38,6 +38,15 @@ here only on the next run. Personal values go into `~/.config/agent-skills/local
 `settings/local.example.json`. `--link` symlinks the skills into this checkout instead, for a
 live view while editing them.
 
+The usage export needs a collector endpoint and credentials in the overlay. The overlay sets
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `otelHeadersHelper`, never a header value. The helper is a
+script you write outside this repository. It reads the credential from the secret manager at run
+time and prints one JSON object of string pairs, for example `{"Authorization": "..."}`. It must
+exit 0 on success. Claude Code runs it for its own export, and the status line runs the same
+command for its gauges. The helper applies to the `http/protobuf` and `http/json` protocols only.
+`OTEL_LOG_TOOL_DETAILS` is on, so shell commands and tool input leave the machine for the
+collector. Keep secrets out of command arguments.
+
 A second, independent installation, for example a work profile at `~/.claude-work`, runs
 `python3 scripts/install.py install --claude-dir ~/.claude-work --target work` directly. The
 directory is the identity of an installation and the `--target` name namespaces the shared

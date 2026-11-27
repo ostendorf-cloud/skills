@@ -7,7 +7,20 @@
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
     "CLAUDE_CODE_PLUGIN_DIRS": "{{claude_dir}}/.agent-skills-mods/self-clear",
     "pnpm_config_store_dir": "~/.cache/pnpm/store",
-    "XDG_RUNTIME_DIR": "/tmp/claude"
+    "XDG_RUNTIME_DIR": "/tmp/claude",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_METRICS_INCLUDE_SESSION_ID": "true",
+    "OTEL_METRICS_INCLUDE_REPOSITORY": "true",
+    "OTEL_LOG_TOOL_DETAILS": "1"
+  },
+  "cleanupPeriodDays": 120,
+  "statusLine": {
+    "type": "command",
+    "command": "python3 {{claude_dir}}/.agent-skills-hooks/usage_statusline.py",
+    "refreshInterval": 60
   },
   "fileCheckpointingEnabled": true,
   "attribution": {
@@ -289,7 +302,10 @@
         { "name": "BAO_TOKEN", "mode": "deny" },
         { "name": "VAULT_TOKEN", "mode": "deny" },
         { "name": "BWS_ACCESS_TOKEN", "mode": "deny" },
-        { "name": "BW_SESSION", "mode": "deny" }
+        { "name": "BW_SESSION", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_HEADERS", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_METRICS_HEADERS", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "mode": "deny" }
       ],
       "files": [
         { "path": "~/.ssh", "mode": "deny" },

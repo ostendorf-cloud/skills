@@ -7,6 +7,11 @@
       "Protected IaC scopes: every OpenTofu root module that manages servers, clusters or DNS; apply only when the user names the change"
     ]
   },
+  "env": {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "https://<collector-host>",
+    "OTEL_RESOURCE_ATTRIBUTES": "host.name=<laptop-name>"
+  },
+  "otelHeadersHelper": "<path to your helper script>",
   "sandbox": {
     "network": {
       "allowUnixSockets": ["~/.bitwarden-ssh-agent.sock"]

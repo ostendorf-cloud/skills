@@ -165,6 +165,13 @@ PHRASES = {
         "Talos Node aktualisieren",
         "Node neu starten",
     ),
+    "usage-review": (
+        "usage review",
+        "token usage",
+        "plan limit",
+        "weekly limit",
+        "Verbrauch auswerten",
+    ),
     "agents": (
         "spawn an agent",
         "run this in parallel",
