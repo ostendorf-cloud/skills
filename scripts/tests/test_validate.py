@@ -722,6 +722,39 @@ class ValidateTestCase(unittest.TestCase):
         for dirname in (".agent-skills-hooks", ".agent-skills-mods"):
             self.assertIn("Edit({{claude_dir}}/" + dirname + "/**)", deny)
 
+    def test_profile_enables_usage_export_without_endpoint_or_credentials(self) -> None:
+        env = self._laptop_profile()["env"]
+        self.assertEqual(env["CLAUDE_CODE_ENABLE_TELEMETRY"], "1")
+        self.assertEqual(env["OTEL_METRICS_EXPORTER"], "otlp")
+        self.assertEqual(env["OTEL_LOGS_EXPORTER"], "otlp")
+        self.assertEqual(env["OTEL_METRICS_INCLUDE_REPOSITORY"], "true")
+        for name in env:
+            if name.startswith("OTEL_EXPORTER_OTLP_"):
+                self.assertEqual(name, "OTEL_EXPORTER_OTLP_PROTOCOL")
+
+    def test_profile_keeps_content_export_off(self) -> None:
+        env = self._laptop_profile()["env"]
+        for name in (
+            "OTEL_LOG_USER_PROMPTS",
+            "OTEL_LOG_ASSISTANT_RESPONSES",
+            "OTEL_LOG_TOOL_DETAILS",
+            "OTEL_LOG_TOOL_CONTENT",
+            "OTEL_LOG_RAW_API_BODIES",
+            "ENABLE_BETA_TRACING_DETAILED",
+        ):
+            self.assertNotIn(name, env)
+
+    def test_profile_keeps_ninety_days_of_transcripts_and_wires_the_status_line(self) -> None:
+        profile = self._laptop_profile()
+        self.assertGreaterEqual(profile["cleanupPeriodDays"], 90)
+        status_line = profile["statusLine"]
+        self.assertEqual(status_line["type"], "command")
+        self.assertIn(
+            "{{claude_dir}}/.agent-skills-hooks/usage_statusline.py", status_line["command"]
+        )
+        hooks_dir = Path(__file__).resolve().parents[2] / "hooks"
+        self.assertTrue((hooks_dir / "usage_statusline.py").is_file())
+
     def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
         env = self._laptop_profile()["env"]
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/tmp/claude")

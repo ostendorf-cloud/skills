@@ -7,7 +7,19 @@
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
     "CLAUDE_CODE_PLUGIN_DIRS": "{{claude_dir}}/.agent-skills-mods/self-clear",
     "pnpm_config_store_dir": "~/.cache/pnpm/store",
-    "XDG_RUNTIME_DIR": "/tmp/claude"
+    "XDG_RUNTIME_DIR": "/tmp/claude",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_METRICS_EXPORTER": "otlp",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+    "OTEL_METRICS_INCLUDE_SESSION_ID": "true",
+    "OTEL_METRICS_INCLUDE_REPOSITORY": "true"
+  },
+  "cleanupPeriodDays": 120,
+  "statusLine": {
+    "type": "command",
+    "command": "python3 {{claude_dir}}/.agent-skills-hooks/usage_statusline.py",
+    "refreshInterval": 60
   },
   "fileCheckpointingEnabled": true,
   "attribution": {
