@@ -16,7 +16,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 ## Rules
 
 - The orchestrator does itself: plan, verify a claim, run the verify command, route
-  labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one
+  labels, commit, push, open and update a pull request. A brief may hand the commit to the
+  `implementer`, never the push. Also directly: a read, a lookup, a one
   line nit, and a change of about five lines or fewer with no logic: text, configuration, a
   single value. Such a change still goes through review like any other.
 - Everything else that changes behaviour runs in a subagent: an implementation, a review fix at
@@ -24,8 +25,12 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   test always run in a subagent.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
-- A subagent cannot fetch, no exception. Fetch in the orchestrator first and give it the
-  result; a brief that tells it to fetch gets stale refs reported back as current.
+- A subagent does not fetch the repository it works in. Fetch in the orchestrator first and
+  give it the result; a brief that tells it to fetch gets stale refs reported back as current.
+- The fetch hook denies `cd` and `-C`, so an agent in one repository cannot fetch another.
+  A researcher or reviewer that must read another repository's remote state uses a throwaway
+  clone of it. The implementer never fetches and makes no clone, the orchestrator supplies
+  what it needs.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
 - The session collects the agents' baseline feedback and raises what is worth a change through

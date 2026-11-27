@@ -19,6 +19,7 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
    Whether a commit's checks run, passed or failed is read from
    `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, or `gh pr checks <number>` for a
    pull request.
+   `gh pr checks` can fail with a GraphQL server error. Read the check-runs endpoint instead.
    A runs listing filtered by branch can stay empty for minutes while checks run. Never read
    it as absence of CI.
    Call `gh` once per command, never inside a shell loop: several calls in a loop can fail
@@ -63,6 +64,14 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
   change, and never worth investigating per repository.
 - `mise x` provisions every pinned tool before running anything, so one tool the sandbox cannot
   fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
+- A Taskfile with a remote include writes its cache under the user cache directory, which the
+  sandbox blocks. Create `$TMPDIR/home` and point `HOME` at it for that one call:
+  `HOME="$TMPDIR/home" task --trusted-hosts github.com <target>`.
+- `--remote-cache-dir` does not help for a git include: task 3.54.0 still writes
+  `task-git-repos` under the user cache directory.
+- Run on macOS with task 3.54.0: `task --list` through the `HOME` route. No target was run
+  through it. `HOME` also hides mise trust state. Other platforms and `XDG_CACHE_HOME` are
+  unverified.
 
 ## References
 

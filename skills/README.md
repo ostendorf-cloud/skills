@@ -45,26 +45,31 @@ A label missing on the tracker is reported. Skills never create labels, infrastr
 Moving the state means exactly one `ai:` state label remains afterwards. This snippet reads the
 eight state labels named in `defaults` below, with the config's override, and prints one
 complete `gh issue edit` command: one `--add-label` for the new state and one `--remove-label`
-per other state label, quoted with jq's `@sh`. A disabled or unknown target state aborts instead
-of printing a command that would remove every state label. The snippet never runs `gh` itself.
-Run the printed command as it is, then list the labels with `gh issue view <number> --json
-labels --jq '.labels[].name'` to confirm the result. That way the literal `gh issue edit
---add-label ...` text is what the CI profile's prefix rule in `settings/claude-ci.json` sees,
-not a shell expansion. On a pull request, swap `gh issue edit` for `gh pr edit`, and
-`gh issue view` for `gh pr view`.
+per other state label, then the number and `--repo`, quoted with jq's `@sh`. A disabled or
+unknown target state aborts instead of printing a command that would remove every state label.
+The snippet never runs `gh` itself.
+Run the printed command as it is, then list the labels with `gh issue view <number> --repo
+<owner>/<repo> --json labels --jq '.labels[].name'` to confirm the result. That way the
+literal `gh issue edit --add-label ...` text is what the CI profile's prefix rule in
+`settings/claude-ci.json` sees, not a shell expansion. On a pull request, swap `gh issue edit`
+for `gh pr edit`, and `gh issue view` for `gh pr view`.
 
 ```sh
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=.
+config="$root/.agent-skills.json"
+[ -f "$config" ] && cfg=$(cat "$config") || cfg='{}'
 defaults='{"ready":"ai: ready","working":"ai: working","reviewRequested":"ai: review requested","reviewing":"ai: reviewing","changesRequested":"ai: changes requested","needsHuman":"ai: needs human","done":"ai: done","blocked":"ai: blocked"}'
 new=working        # the target state's config key
 number="<number>"  # the issue or pull request number
-result=$(jq -n --argjson d "$defaults" --argjson c "$cfg" --arg new "$new" --arg number "$number" '
+repo="<owner>/<repo>"  # the repository the number belongs to
+result=$(jq -n --argjson d "$defaults" --argjson c "$cfg" --arg new "$new" --arg number "$number" --arg repo "$repo" '
   ($d * (($c.labels // {}) | with_entries(select(.key | in($d))))) as $l
   | ($l[$new] // false) as $target
   | if $target == false then {target: false, line: ""} else
       {target: $target, line: (
         "gh issue edit --add-label \($target|@sh)"
         + ([$l | to_entries[] | select(.key != $new and .value != false) | " --remove-label \(.value|@sh)"] | join(""))
-        + " \($number|@sh)"
+        + " \($number|@sh) --repo \($repo|@sh)"
       )}
     end
 ')
@@ -76,9 +81,9 @@ else
 fi
 ```
 
-- `cfg` comes from the config snippet above. `defaults` names the eight state keys explicitly,
-  so `needsTriage` and `dependencies` never enter the merge and are never removed by this
-  snippet.
+- The first three lines read `cfg` the same way as the config snippet above. `defaults` names
+  the eight state keys explicitly, so `needsTriage` and `dependencies` never enter the merge
+  and are never removed by this snippet.
 - A state disabled with `false`, or a `new` key that is not one of the eight, makes `target`
   `false` and aborts instead of printing a command that removes every state label.
 - Pure POSIX: `sh`, `bash` and `zsh` all run it unchanged.

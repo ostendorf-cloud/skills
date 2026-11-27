@@ -22,6 +22,8 @@ Give an agent a brief it can act on, and ask for a report that stays short.
   the change is right.
 - The dispatching session verifies every precondition a brief asserts before it sends the brief:
   a file exists where the brief says, a branch is where it says, a tool is installed.
+- One account posts agent and owner comments, so an agent cannot tell them apart. A brief that
+  relies on an owner decision quotes the owner's answer and its date.
 - A brief that depends on work not merged yet says so plainly and gives the path to read it
   from. It never describes that work as present.
 - A statement in a brief about how a tool behaves is an assumption until someone runs it. The

@@ -44,7 +44,8 @@ Judge one pushed pull request as a different agent than the one that built it.
    For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
    are `approve`, named in the verdict for the orchestrator to fix in the same pull request or
-   drop.
+   drop. A sound change that conflicts with the issue's Out of scope is `needs human`, unless an
+   owner decision comment on the issue accepts it. A pull request body alone does not count.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
@@ -75,8 +76,8 @@ Judge one pushed pull request as a different agent than the one that built it.
 15. Verdict needs human, or config `work.reviewRounds` is set and the round count reaches it:
     move the label to `needs human`. The round count is this skill's own verdict comments and
     formal reviews on the pull request, the one just posted included. Unset means no limit.
-16. Label now `needs human`: mark the pull request ready with `gh pr ready` when the `pr`
-    skill's ready condition holds and only a human decision is left, otherwise leave it a draft.
+16. Label now `needs human`: run `gh pr ready` when the `pr` skill's ready condition holds and
+    only a human decision is left, otherwise (should findings included) leave it a draft.
 17. Verdict blocked: move the label to `blocked`.
 18. Changes requested or blocked: end the verdict with a line that names `implement` as the
     next step. The rework round starts there and reads this verdict.
@@ -123,6 +124,5 @@ Reads `.agent-skills.json` through the snippet in `~/.claude/skills/README.md`.
 
 ## References
 
-- GitHub CLI manual: <https://cli.github.com/manual/>
 - `pr` skill: the ready condition for leaving draft.
 - `implement` skill: the rework round a `changes requested` or `blocked` verdict hands off to.
