@@ -6,10 +6,8 @@ on:
   workflow_dispatch:
   issues:
     types: [edited]
-  pull_request:
-    types: [edited]
   # A pull request with a merge conflict starts no pull_request run, so a
-  # rebase tick on it needs this trigger.
+  # rebase tick on it needs this trigger. It also covers clean pull requests.
   pull_request_target:
     types: [edited]
   # Renovate runs when the checks of a Renovate branch have finished. The
