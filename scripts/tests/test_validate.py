@@ -717,6 +717,11 @@ class ValidateTestCase(unittest.TestCase):
         reads = [entry for entry in permissions["allow"] if "agent-skills" in entry]
         self.assertEqual(reads, ["Read(~/.config/agent-skills/state.json)"])
 
+    def test_profile_denies_editing_every_directory_the_installer_owns(self) -> None:
+        deny = self._laptop_profile()["permissions"]["deny"]
+        for dirname in (".agent-skills-hooks", ".agent-skills-mods"):
+            self.assertIn("Edit({{claude_dir}}/" + dirname + "/**)", deny)
+
     def test_profile_sets_xdg_runtime_dir_to_the_harness_temp_dir(self) -> None:
         env = self._laptop_profile()["env"]
         self.assertEqual(env["XDG_RUNTIME_DIR"], "/tmp/claude")

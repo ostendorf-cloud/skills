@@ -102,6 +102,35 @@ npx skills add ostendorf-cloud/skills -g
 | `file-parses` | context | A YAML, JSON or TOML file that no longer parses after a write. |
 | `tofu-fmt` | context | Reports when a written `.tf` or `.tfvars` file is not formatted. |
 
+## Self-clear mod
+
+`mods/self-clear` is a Claude Code mod, TypeScript that runs inside the Claude Code process with
+the permissions of the user. It is not sandboxed. It clears or compacts the orchestrator context
+at a work package boundary, without a `/clear` typed by hand.
+
+- Needs Claude Code 2.1.293 or newer. On an older version the mod stays silent.
+- `task install` copies it to `~/.claude/.agent-skills-mods` and sets `CLAUDE_CODE_PLUGIN_DIRS`
+  in `~/.claude/settings.json` to the mod. A `CLAUDE_CODE_PLUGIN_DIRS` of
+  your own is replaced, and `task uninstall` removes the key without restoring your value.
+  Note your own value before you install and set it again after an uninstall.
+  Start a new session after the first install.
+- At the end of a turn it reads the context usage. At the nudge level the owner gets a toast.
+  At the wrap up level and the force level the model is asked to run `handoff` and call the
+  `request_rotation` tool.
+- `request_rotation` takes the URL of the handoff comment on the issue or pull request. Without
+  a valid comment URL the call is refused and no rotation happens. The mod does not check that
+  the comment exists, the URL is the proof the skill ran.
+- The tool only sets a flag. After the turn ends the mod runs `/clear`, with `/compact` as the
+  fallback, and submits a prompt that points to the handoff comment, not to the conversation.
+- Silent when `CI` is set, in a subagent and on a version below the minimum. Any error disables
+  the mod for the session and shows one toast.
+- At most five rotations per session.
+- Settings in `/config` under the plugin `self-clear`: `nudgePercent` 60, `wrapUpPercent` 70,
+  `forcePercent` 80, `maxRotations` 5. Thresholds that are not strictly rising up to 100 fall back
+  to the defaults. They are percent of the context window and independent of `context-size`.
+- Tests: `task test:mods` runs the logic tests on the pinned node, `task test:mods-engine`
+  validates the mod and runs its engine tests with the installed `claude`.
+
 ## Per repository
 
 An optional `.agent-skills.json` at the repository root sets verify command, labels, models and

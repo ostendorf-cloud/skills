@@ -36,7 +36,8 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 - One work package per context: one issue, or one batch of small issues in one repository.
 - A work package is done: write the state to the issue with `handoff`, then start the next package from the queue or stop. Never make `/clear` by the user the only way on.
 - The context warning names the size. Finish the current step, hand off, then continue from the handoff. The next context starts there. Do not start a new work package above the warning.
-- Interactive session: offer `/clear` as a choice in one line. Unattended session (`CI=true`): never ask, continue from the handoff or stop with the state recorded.
+- The tool `request_rotation` exists: after `handoff` posted the comment, call it with the comment URL and end the turn. The context is cleared and restarts from that comment. Never call it without a posted handoff.
+- No such tool, interactive session: offer `/clear` as a choice in one line. Unattended session (`CI=true`): never ask, continue from the handoff or stop with the state recorded.
 - Post an agent report as an issue or pull request comment before relying on it. A successor reads it there. A report on an unfixed security vulnerability in a public repository goes to a draft security advisory instead.
 - Never clear in the middle of a step that is not written down yet.
 - State lives in the issue, the pull request and the memory, never in the conversation alone.

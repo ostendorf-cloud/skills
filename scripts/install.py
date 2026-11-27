@@ -51,6 +51,11 @@ AGENTS_MARKER_NAME = ".agent-skills-agents"
 # Rules for the session that talks to the user. Copied next to the installed hooks, where
 # the session start hook reads it, and appended to the exported AGENTS.md.
 MAIN_SESSION_RULES = "main-session.md"
+# Claude Code mods, one folder each under mods/ in the source. Copied into
+# claude_dir/MODS_DIRNAME, which the laptop profile names in CLAUDE_CODE_PLUGIN_DIRS.
+# The checksum marker works as for the hooks directory.
+MODS_DIRNAME = ".agent-skills-mods"
+MOD_SKIP_DIRS = ("tests", "types")
 
 
 @dataclass
@@ -630,6 +635,58 @@ def install_hooks_dir(source: Path, claude_dir: Path, dry_run: bool) -> tuple[st
     return ("updated" if state == "owned" else "created"), target_dir
 
 
+def mod_source_files(source: Path) -> list[Path]:
+    """Every file of every mod under mods/, tests and engine written types left out."""
+    root = source / "mods"
+    if not root.is_dir():
+        return []
+    files = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).parts
+        if not path.is_file() or path.is_symlink() or path.name == ".DS_Store":
+            continue
+        if any(part in MOD_SKIP_DIRS for part in relative[1:]):
+            continue
+        files.append(path)
+    return files
+
+
+def install_mods_dir(source: Path, claude_dir: Path, dry_run: bool) -> tuple[str, Path]:
+    """Copy the mods into claude_dir/MODS_DIRNAME. Returns (action, dir), action one of
+    "unchanged", "created", "updated" or "conflict". Same marker and refusal rules as
+    install_hooks_dir: a directory this installer did not write is never deleted.
+    """
+    files = mod_source_files(source)
+    target_dir = claude_dir / MODS_DIRNAME
+    if not files:
+        return "unchanged", target_dir
+
+    state = inspect_hooks_dir(target_dir)
+    if state == "conflict":
+        return "conflict", target_dir
+
+    root = source / "mods"
+    digest = hashlib.sha256()
+    for file in files:
+        digest.update(file.relative_to(root).as_posix().encode())
+        digest.update(file.read_bytes())
+    marker = target_dir / MARKER_NAME
+    if state == "owned":
+        current = marker.read_text().strip() if marker.is_file() else None
+        if current == digest.hexdigest():
+            return "unchanged", target_dir
+
+    if not dry_run:
+        if state == "owned":
+            shutil.rmtree(target_dir)
+        for file in files:
+            dest = target_dir / file.relative_to(root)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file, dest)
+        marker.write_text(digest.hexdigest() + "\n")
+    return ("updated" if state == "owned" else "created"), target_dir
+
+
 def export_agents(source: Path, home: Path, target: str, dry_run: bool) -> None:
     """Write the AGENTS.md export: the baseline, then the main session rules. An agent
     without hooks has no other way to get the second part."""
@@ -1099,6 +1156,11 @@ def cmd_install(args: argparse.Namespace) -> tuple[list[str], int]:
     if hooks_action == "conflict":
         conflicts = True
 
+    mods_action, _ = install_mods_dir(args.source, args.claude_dir, args.dry_run)
+    lines.append(f"mods    {mods_action}")
+    if mods_action == "conflict":
+        conflicts = True
+
     rules_action, rules_backup = install_rules(args.source, args.claude_dir, args.dry_run)
     lines.append(f"rules   {rules_action}")
     if rules_backup:
@@ -1397,6 +1459,15 @@ def cmd_uninstall(args: argparse.Namespace) -> tuple[list[str], int]:
             shutil.rmtree(hooks_dir)
     elif hooks_dir_state == "conflict":
         lines.append("hooks   left untouched, not ours")
+
+    mods_dir = claude_dir / MODS_DIRNAME
+    mods_dir_state = inspect_hooks_dir(mods_dir)
+    if mods_dir_state == "owned":
+        lines.append("mods    removed")
+        if not args.dry_run:
+            shutil.rmtree(mods_dir)
+    elif mods_dir_state == "conflict":
+        lines.append("mods    left untouched, not ours")
 
     claude_md = claude_dir / "CLAUDE.md"
     claude_backup = Path(str(claude_md) + BACKUP_SUFFIX)

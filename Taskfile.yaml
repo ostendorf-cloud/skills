@@ -75,6 +75,17 @@ tasks:
     cmds:
       - python3 -m unittest discover -s hooks/tests -p "test_*.py"
 
+  test:mods:
+    desc: Self-clear mod logic tests on the pinned node
+    cmds:
+      - node --test mods/self-clear/tests/logic.spec.ts
+
+  test:mods-engine:
+    desc: Self-clear mod tests against the Claude Code engine, needs claude 2.1.293 or newer, not run in CI
+    cmds:
+      - claude plugin validate mods/self-clear
+      - claude plugin test mods/self-clear
+
   test:scripts:
     desc: Installer and validator tests
     cmds:
@@ -98,6 +109,8 @@ tasks:
       - task: lint:renovate
       - task: lint:agents-md
       - task: test:hooks
+      - task: test:mods
+      - task: test:mods-engine
       - task: test:scripts
       - task: validate
 
