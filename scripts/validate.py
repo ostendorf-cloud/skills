@@ -38,7 +38,7 @@ KNOWN_EVENTS = {
     "PreCompact",
     "Notification",
 }
-KNOWN_DECISIONS = {"deny", "context"}
+KNOWN_DECISIONS = {"deny", "context", "block"}
 # The values Claude Code takes for a command hook's onFailure, from v2.1.295 on.
 KNOWN_ON_FAILURE = {"continue", "block"}
 # Only Edit(path) and Read(path) rules are consulted for file access. A path rule on one of

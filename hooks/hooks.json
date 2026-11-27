@@ -156,6 +156,15 @@
       "description": "Warns once per 50000 token band when the context reaches 150000 tokens, or the value of AGENT_SKILLS_CONTEXT_WARN, and asks for a handoff, then to continue from it. /clear is never the only way on. Nothing for a subagent."
     },
     {
+      "id": "ask-owner",
+      "script": "ask_owner.py",
+      "event": "Stop",
+      "matcher": "",
+      "timeout": 10,
+      "decision": "block",
+      "description": "Blocks the end of a turn whose last message has a bold owner step, in a table row or at the start of a line, when the turn made no question tool call. Silent for unattended runs (CI=true), subagents and a second stop."
+    },
+    {
       "id": "skill-reminder",
       "script": "skill_reminder.py",
       "event": "UserPromptSubmit",

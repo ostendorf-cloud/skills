@@ -117,7 +117,7 @@ task doctor
 
 - Standard library only. Python 3.9 compatible. Exit 0 always, decisions go through the JSON
   protocol on stdout.
-- A hook denies or adds context. It asks only when the manifest says so.
+- A hook denies, adds context or blocks a `Stop`. It asks only when the manifest says so.
 - A deny names the rule and what to do instead in one or two sentences.
 - Unparseable input or an internal error prints `{}` and exits 0. A hook never blocks by
   accident.
