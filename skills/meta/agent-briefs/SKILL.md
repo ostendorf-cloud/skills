@@ -30,6 +30,8 @@ Give an agent a brief it can act on, and ask for a report that stays short.
   brief labels it as one.
 - An agent that finds a stated precondition false stops and reports it. It does not reconstruct
   what is missing. An unattended agent records it on the issue and stops that task.
+- A commit subject written into a brief is counted first and has at most 72 characters. Or the
+  brief gives the type, scope and intent and leaves the exact subject to the implementer.
 
 ### Report shape
 
