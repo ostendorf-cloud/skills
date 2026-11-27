@@ -110,7 +110,9 @@ at a work package boundary, without a `/clear` typed by hand.
 
 - Needs Claude Code 2.1.293 or newer. On an older version the mod stays silent.
 - `task install` copies it to `~/.claude/.agent-skills-mods` and sets `CLAUDE_CODE_PLUGIN_DIRS`
-  in `~/.claude/settings.json` to the mod. A `CLAUDE_CODE_PLUGIN_DIRS` of your own is replaced.
+  in `~/.claude/settings.json` to the mod as an absolute path. A `CLAUDE_CODE_PLUGIN_DIRS` of
+  your own is replaced, and `task uninstall` removes the key without restoring your value.
+  Note your own value before you install and set it again after an uninstall.
   Start a new session after the first install.
 - At the end of a turn it reads the context usage. At the nudge level the owner gets a toast.
   At the wrap up level and the force level the model is asked to run `handoff` and call the

@@ -1329,6 +1329,17 @@ class InstallTestCase(unittest.TestCase):
         self.assertNotIn("Edit(~/.claude/CLAUDE.md)", deny)
         self.assertFalse(any(install.CLAUDE_DIR_PLACEHOLDER in entry for entry in deny))
 
+    def test_absolute_placeholder_is_written_as_an_absolute_path_not_a_tilde_path(self) -> None:
+        profile = json.loads((self.source / "settings" / "claude.json").read_text())
+        profile["env"] = {"PLUGIN_DIRS": "{{claude_dir_abs}}/.agent-skills-mods/demo"}
+        write(self.source / "settings" / "claude.json", json.dumps(profile))
+        work_dir = self.home / ".claude-work"
+        self._install("--claude-dir", str(work_dir), "--target", "work")
+
+        env = json.loads((work_dir / "settings.json").read_text())["env"]
+        self.assertEqual(env["PLUGIN_DIRS"], f"{work_dir}/.agent-skills-mods/demo")
+        self.assertFalse(env["PLUGIN_DIRS"].startswith("~"))
+
     def test_relative_claude_dir_is_made_absolute_in_command_and_deny_rule(self) -> None:
         # A relative --claude-dir used to reach the wired command and the deny rule
         # verbatim, correct only for a session whose working directory happened to

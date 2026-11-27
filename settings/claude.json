@@ -5,7 +5,7 @@
   "env": {
     "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "200000",
-    "CLAUDE_CODE_PLUGIN_DIRS": "{{claude_dir}}/.agent-skills-mods/self-clear",
+    "CLAUDE_CODE_PLUGIN_DIRS": "{{claude_dir_abs}}/.agent-skills-mods/self-clear",
     "pnpm_config_store_dir": "~/.cache/pnpm/store",
     "XDG_RUNTIME_DIR": "/tmp/claude"
   },
@@ -189,6 +189,7 @@
       "Edit({{claude_dir}}/skills/**)",
       "Edit({{claude_dir}}/agents/**)",
       "Edit({{claude_dir}}/.agent-skills-hooks/**)",
+      "Edit({{claude_dir}}/.agent-skills-mods/**)",
       "Edit(~/.config/agent-skills/**)"
     ]
   },
