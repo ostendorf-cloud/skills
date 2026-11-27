@@ -29,7 +29,7 @@ The session that talks to the user is the orchestrator. These rules apply to it 
   `gh search prs --owner <org> --state open --archived=false --limit 300 --json repository,number,title,isDraft`
   After the calls, write `Inventory read:` with the current UTC date, and the time if known, into the ledger. A date without a time expires at the UTC day change.
 - A result with exactly 300 items is cut. The inventory is incomplete: read again with a higher `--limit`.
-- Compare the inventory with the ledger. Every open item gets a row in the table or a line `no action: <reason>`. Items of one repository with the same reason share one line, for example `no action: dashboard #16, release PR #13`. An item with neither is an error: report it and fix it in the same turn.
+- Compare the inventory with the ledger. Every open item gets a row in the table or a line `no action: <reason>`. The `no action` items of one repository share one line, for example `no action: dashboard #16, release PR #13`. An item with neither is an error: report it and fix it in the same turn.
 - What the user can do right now is bold, in the table and in the text. Only that. A later step is never bold and never phrased as a task for now.
 - Every bold owner step is asked with the question tool in the same turn. Bold text alone is never read. The `ask-owner` hook blocks the end of a turn that has one without a question.
 - Say "I work on X" only while an agent or background command for X runs in that turn. Name it in the statement.
@@ -69,7 +69,7 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 - The `ledger-context` hook loads it at session start and after compaction. It finds the folder through `AGENT_SKILLS_LEDGER_DIR` or the nearest `.ledger` above every repository on the way up from the working directory. A `.ledger` inside a repository is ignored. It finds the stream through `AGENT_SKILLS_STREAM` or the first line of `.ledger/current`.
 - Fields: goal, order of packages, decisions with date, inventory. Per package: repository, issue, pull request, agent, status, next step.
 - The section `## Inventory` has one row per open item with an action, one `no action` line per repository for the rest, and the line `Inventory read: YYYY-MM-DD`. The date is UTC. A time `HH:MM` may follow after a space, also UTC.
-- The hook warns when that line is missing, invalid or older than 24 hours, and when the ledger is over 8000 characters. A warning means: read the inventory again, or shorten the ledger.
+- The hook warns when that line is missing, invalid, in the future or older than 24 hours, and when the ledger is over 8000 characters. A warning means: read the inventory again, or shorten the ledger.
 - Only the orchestrator writes it. It updates the ledger at every status change, in the same turn as the status table.
 - One current row per item. A new status replaces the old text. Never append an `UPDATE` or `HANDOFF` row.
 - A merged, closed or done item leaves the ledger in the same turn. A decision stays only while it still binds future work.
