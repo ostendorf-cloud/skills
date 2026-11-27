@@ -19,6 +19,7 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
    Whether a commit's checks run, passed or failed is read from
    `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`, or `gh pr checks <number>` for a
    pull request.
+   `gh pr checks` can fail with a GraphQL server error. Read the check-runs endpoint instead.
    A runs listing filtered by branch can stay empty for minutes while checks run. Never read
    it as absence of CI.
    Call `gh` once per command, never inside a shell loop: several calls in a loop can fail
