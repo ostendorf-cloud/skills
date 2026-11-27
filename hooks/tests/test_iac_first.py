@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from helper import bash_payload, decision, run_hook
+from helper import bash_payload, decision, reason, run_hook
 
 
 def git_repo(with_release_please: bool = False, with_release_me: bool = False) -> str:
@@ -48,6 +48,17 @@ class IacFirstTest(unittest.TestCase):
             self.assertEqual(
                 decision(run_hook("iac_first.py", bash_payload(command))), "deny", command
             )
+
+    def test_refusal_names_the_github_module_and_an_issue(self):
+        for command in [
+            "gh repo create ostendorf-cloud/new-repo --private",
+            "gh label clone ostendorf-cloud/skills",
+            "gh repo create --help",
+        ]:
+            output = run_hook("iac_first.py", bash_payload(command))
+            self.assertEqual(decision(output), "deny", command)
+            self.assertIn("issue in the infrastructure repository", reason(output), command)
+            self.assertIn("github module", reason(output), command)
 
     def test_allows_label_ruleset_secret_and_variable_reads(self):
         for command in [

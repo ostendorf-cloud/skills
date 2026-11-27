@@ -75,8 +75,8 @@ ALLOWED_MUTATION = "resolveReviewThread"
 
 IAC_REASON = (
     "Repository and organisation settings, labels, rulesets and secrets are "
-    "infrastructure as code. Propose the change in the infrastructure repository "
-    "instead of changing it with gh."
+    "infrastructure as code. Open an issue in the infrastructure repository for the "
+    "github module instead of changing it with gh."
 )
 RELEASE_REASON = (
     "The repository's release tool (release-me or release-please) owns releases "
