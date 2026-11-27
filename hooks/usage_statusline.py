@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -166,7 +167,8 @@ def build_payload(
 
 def post(payload: dict[str, Any], endpoint: str, env: dict[str, str]) -> bool:
     headers = {"Content-Type": "application/json"}
-    headers.update(parse_pairs(env.get("OTEL_EXPORTER_OTLP_HEADERS", "")))
+    for name, value in parse_pairs(env.get("OTEL_EXPORTER_OTLP_HEADERS", "")).items():
+        headers[name] = urllib.parse.unquote(value)
     request = urllib.request.Request(
         endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
     )

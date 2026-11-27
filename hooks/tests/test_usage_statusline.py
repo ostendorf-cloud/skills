@@ -171,6 +171,12 @@ class SendTest(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "Basic fake-test-value")
         self.assertEqual(len(points(body)), 3)
 
+    def test_decodes_percent_encoded_header_values(self):
+        env = dict(self.env, OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20fake-test-value")
+        run(FULL, env)
+        self.assertEqual(len(Collector.received), 1)
+        self.assertEqual(Collector.received[0][1]["Authorization"], "Basic fake-test-value")
+
     def test_sends_once_per_interval_for_a_session(self):
         run(FULL, self.env)
         run(FULL, self.env)

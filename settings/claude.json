@@ -300,7 +300,10 @@
         { "name": "BAO_TOKEN", "mode": "deny" },
         { "name": "VAULT_TOKEN", "mode": "deny" },
         { "name": "BWS_ACCESS_TOKEN", "mode": "deny" },
-        { "name": "BW_SESSION", "mode": "deny" }
+        { "name": "BW_SESSION", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_HEADERS", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_METRICS_HEADERS", "mode": "deny" },
+        { "name": "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "mode": "deny" }
       ],
       "files": [
         { "path": "~/.ssh", "mode": "deny" },

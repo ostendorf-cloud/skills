@@ -732,6 +732,16 @@ class ValidateTestCase(unittest.TestCase):
             if name.startswith("OTEL_EXPORTER_OTLP_"):
                 self.assertEqual(name, "OTEL_EXPORTER_OTLP_PROTOCOL")
 
+    def test_profile_denies_collector_header_variables_to_sandboxed_commands(self) -> None:
+        entries = self._laptop_profile()["sandbox"]["credentials"]["envVars"]
+        modes = {entry["name"]: entry["mode"] for entry in entries}
+        for name in (
+            "OTEL_EXPORTER_OTLP_HEADERS",
+            "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+            "OTEL_EXPORTER_OTLP_LOGS_HEADERS",
+        ):
+            self.assertEqual(modes.get(name), "deny")
+
     def test_profile_keeps_content_export_off(self) -> None:
         env = self._laptop_profile()["env"]
         for name in (
