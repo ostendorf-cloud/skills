@@ -43,7 +43,8 @@ Judge one pushed pull request as a different agent than the one that built it.
    need a human. Formatting, naming taste and wording belong to the linters and are no finding.
    For every open thread from step 3, decide whether its finding is now fixed.
 7. Decide the verdict: `approve`, `changes requested`, `needs human` or `blocked`; nits alone
-   are `approve`, named in the verdict for the orchestrator to fix.
+   are `approve`, named in the verdict for the orchestrator to fix in the same pull request or
+   drop.
 8. Resolve every open thread from step 3 whose finding is now fixed, one GraphQL
    `resolveReviewThread` mutation per thread, before posting the new verdict. A finding that
    still stands keeps its thread open and is restated in this round's verdict instead of a
