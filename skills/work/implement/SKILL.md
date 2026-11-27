@@ -43,8 +43,9 @@ Take one issue from label to a pushed, reviewable pull request.
    gate: `testing-conventions`'s comparison requirement holds before this counts as green.
 8. Verify fails and is not fixable, or the issue is ambiguous: move the label to `blocked`,
    comment the reason, stop.
-9. Commit via the `commit` skill, referencing the issue. A brief may hand the commit step to
-   the `implementer`. Then check its commits before the push.
+9. Commit via the `commit` skill, referencing the issue, signed off where a DCO check applies.
+   A brief may hand the commit step to the `implementer`. Then check its commits before the
+   push, the sign-off included.
 10. Push the branch.
 11. Open a draft pull request via the `pr` skill, body includes `Closes #<number>`. Re-working
     an existing pull request: update it instead of opening a second one.
