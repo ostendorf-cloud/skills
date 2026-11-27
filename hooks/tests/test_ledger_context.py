@@ -10,18 +10,24 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from helper import HOOKS_DIR, context
 
+sys.path.insert(0, HOOKS_DIR)
+import ledger_context  # noqa: E402
+
 LEDGER = "# Goal\n\nShip the ledger.\n\n## Packages\n\n- skills 266 in progress\n"
 HOOK = os.path.join(HOOKS_DIR, "ledger_context.py")
+UTC = datetime.timezone.utc
+# The fixed clock of the in process tests.
+NOW = datetime.datetime(2026, 11, 27, 12, 0, tzinfo=UTC)
 
 
-def inventory_line(hours: int, clock: bool = False) -> str:
-    """An `Inventory read:` line for a read that many hours ago, in UTC."""
-    moment = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours)
-    stamp = moment.strftime("%Y-%m-%d %H:%M" if clock else "%Y-%m-%d")
-    return f"Inventory read: {stamp}"
+def read_ago(hours: int) -> str:
+    """A timed `Inventory read:` line for a read that many hours ago, by the real clock."""
+    moment = datetime.datetime.now(UTC) - datetime.timedelta(hours=hours)
+    return f"Inventory read: {moment.strftime('%Y-%m-%d %H:%M')}"
 
 
 def with_inventory(line: str) -> str:
@@ -188,56 +194,43 @@ class LedgerContextTest(unittest.TestCase):
         self.assertLess(len(text), 9000)
         self.assertIn("ledger cut", text)
 
+    # Process tests for the wiring. They use a timed line well inside or outside the 24 hour
+    # window, so the result never depends on the UTC day the test runs on.
+
     def test_warns_when_the_ledger_has_no_inventory(self):
         text = self.ctx(Fixture().with_ledger())
         self.assertIn("WARNING: the ledger has no `Inventory read: YYYY-MM-DD` line", text)
         self.assertLess(text.index("WARNING"), text.index("Ship the ledger."))
 
-    def test_warns_when_the_inventory_has_no_date_line(self):
-        fixture = Fixture(text=LEDGER + "\n## Inventory\n\n- skills 308 open\n").with_ledger()
-        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture))
-
-    def test_warns_when_the_date_line_sits_outside_the_inventory_section(self):
-        fixture = Fixture(text=f"{inventory_line(hours=0)}\n\n{LEDGER}\n## Inventory\n\n- a\n")
-        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture.with_ledger()))
-
-    def test_warns_when_the_date_is_not_a_real_date(self):
-        fixture = Fixture(text=f"{LEDGER}\n## Inventory\n\nInventory read: 2026-13-45\n")
-        self.assertIn("no `Inventory read: YYYY-MM-DD` line", self.ctx(fixture.with_ledger()))
-
-    def test_warns_when_the_inventory_is_older_than_24_hours(self):
-        for hours in (25, 72):
-            with self.subTest(hours=hours):
-                fixture = Fixture(text=with_inventory(inventory_line(hours=hours, clock=True)))
-                text = self.ctx(fixture.with_ledger())
-                self.assertIn("more than 24 hours ago", text)
-                self.assertNotIn("no `Inventory read", text)
-
-    def test_warns_when_a_date_without_time_is_not_today(self):
-        fixture = Fixture(text=with_inventory(inventory_line(hours=48)))
-        self.assertIn("more than 24 hours ago", self.ctx(fixture.with_ledger()))
-
-    def test_warns_when_the_inventory_date_is_in_the_future(self):
-        fixture = Fixture(text=with_inventory(inventory_line(hours=-48)))
-        self.assertIn("more than 24 hours ago", self.ctx(fixture.with_ledger()))
+    def test_warns_when_the_inventory_is_stale(self):
+        fixture = Fixture(text=with_inventory(read_ago(hours=72))).with_ledger()
+        text = self.ctx(fixture)
+        self.assertIn("more than 24 hours ago", text)
+        self.assertNotIn("no `Inventory read", text)
 
     def test_does_not_warn_for_a_fresh_inventory(self):
-        for line in (inventory_line(hours=0), inventory_line(hours=1, clock=True)):
-            with self.subTest(line=line):
-                text = self.ctx(Fixture(text=with_inventory(line)).with_ledger())
-                self.assertNotIn("WARNING", text)
-                self.assertIn(line, text)
+        line = read_ago(hours=1)
+        text = self.ctx(Fixture(text=with_inventory(line)).with_ledger())
+        self.assertNotIn("WARNING", text)
+        self.assertIn(line, text)
+
+    def test_names_an_invalid_value_in_the_inventory_line(self):
+        fixture = Fixture(text=with_inventory("Inventory read: 2026-13-45")).with_ledger()
+        text = self.ctx(fixture)
+        self.assertIn("invalid value `2026-13-45`", text)
+        self.assertNotIn("no `Inventory read", text)
 
     def test_warns_when_the_ledger_is_over_the_size_limit(self):
-        body = with_inventory(inventory_line(hours=0)) + "- row\n" * 2000
+        body = with_inventory(read_ago(hours=1)) + "- row\n" * 2000
         text = self.ctx(Fixture(text=body).with_ledger())
         self.assertIn("WARNING: the ledger has", text)
         self.assertIn("over the limit of 8000", text)
+        self.assertIn("merge no action items into one line per repository", text)
         self.assertNotIn("more than 24 hours ago", text)
         self.assertLess(text.index("WARNING"), text.index("Ship the ledger."))
 
     def test_does_not_warn_for_a_ledger_within_the_size_limit(self):
-        text = self.ctx(Fixture(text=with_inventory(inventory_line(hours=0))).with_ledger())
+        text = self.ctx(Fixture(text=with_inventory(read_ago(hours=1))).with_ledger())
         self.assertNotIn("over the limit", text)
 
     def test_keeps_the_warnings_when_the_ledger_is_cut(self):
@@ -245,6 +238,11 @@ class LedgerContextTest(unittest.TestCase):
         self.assertIn("over the limit of 8000", text)
         self.assertIn("no `Inventory read", text)
         self.assertIn("ledger cut", text)
+
+    def test_reads_an_inventory_line_with_crlf_line_endings_from_the_file(self):
+        crlf = with_inventory(read_ago(hours=1)).replace("\n", "\r\n")
+        text = self.ctx(Fixture(text=crlf).with_ledger())
+        self.assertNotIn("WARNING", text)
 
     def test_ignores_a_ledger_inside_a_repository(self):
         fixture = Fixture()
@@ -289,6 +287,183 @@ class LedgerContextTest(unittest.TestCase):
         os.remove(os.path.join(fixture.ledger, "current"))
         os.symlink(outside, os.path.join(fixture.ledger, "current"))
         self.assert_empty(fixture)
+
+
+def section(*lines: str, heading: str = "## Inventory", after: str = "") -> str:
+    """LEDGER plus an inventory section with the given lines and optional text after it."""
+    body = "\n".join(lines)
+    return f"{LEDGER}\n{heading}\n\n{body}\n{after}"
+
+
+def at(text: str, now: datetime.datetime = NOW) -> str:
+    """The inventory warning of text at the fixed clock, empty when there is none."""
+    return ledger_context.inventory_warning(text, now) or ""
+
+
+class InventoryWarningTest(unittest.TestCase):
+    """The freshness rules, checked in process with a fixed clock."""
+
+    def test_accepts_a_date_without_time_on_the_same_utc_day(self):
+        self.assertEqual(at(section("Inventory read: 2026-11-27")), "")
+
+    def test_accepts_a_date_without_time_for_the_whole_utc_day(self):
+        text = section("Inventory read: 2026-11-27")
+        for now in (
+            datetime.datetime(2026, 11, 27, 0, 0, tzinfo=UTC),
+            datetime.datetime(2026, 11, 27, 23, 59, tzinfo=UTC),
+        ):
+            with self.subTest(now=now):
+                self.assertEqual(at(text, now), "")
+
+    def test_names_another_day_for_a_date_without_time_from_the_day_before(self):
+        text = at(section("Inventory read: 2026-11-26"))
+        self.assertIn("2026-11-26 is not today in UTC", text)
+        self.assertNotIn("more than 24 hours ago", text)
+
+    def test_names_another_day_for_a_date_without_time_just_after_midnight(self):
+        now = datetime.datetime(2026, 11, 28, 0, 1, tzinfo=UTC)
+        self.assertIn("is not today in UTC", at(section("Inventory read: 2026-11-27"), now))
+
+    def test_names_the_future_for_a_date_without_time(self):
+        text = at(section("Inventory read: 2026-11-29"))
+        self.assertIn("2026-11-29 UTC, which is in the future", text)
+        self.assertNotIn("more than 24 hours ago", text)
+
+    def test_names_the_future_for_a_time_after_now(self):
+        text = at(section("Inventory read: 2026-11-27 12:01"))
+        self.assertIn("2026-11-27 12:01 UTC, which is in the future", text)
+
+    def test_accepts_a_read_one_hour_ago(self):
+        self.assertEqual(at(section("Inventory read: 2026-11-27 11:00")), "")
+
+    def test_accepts_a_read_that_crossed_midnight_within_24_hours(self):
+        now = datetime.datetime(2026, 11, 27, 0, 30, tzinfo=UTC)
+        self.assertEqual(at(section("Inventory read: 2026-11-26 23:59"), now), "")
+
+    def test_accepts_a_read_exactly_24_hours_ago(self):
+        self.assertEqual(at(section("Inventory read: 2026-11-26 12:00")), "")
+
+    def test_warns_for_a_read_24_hours_and_one_minute_ago(self):
+        text = at(section("Inventory read: 2026-11-26 11:59"))
+        self.assertIn("read on 2026-11-26 11:59 UTC, more than 24 hours ago", text)
+
+    def test_warns_for_a_read_three_days_ago(self):
+        self.assertIn("more than 24 hours ago", at(section("Inventory read: 2026-11-24 12:00")))
+
+    def test_names_an_invalid_hour_24_00(self):
+        text = at(section("Inventory read: 2026-11-27 24:00"))
+        self.assertIn("invalid value `2026-11-27 24:00`", text)
+        self.assertNotIn("no `Inventory read", text)
+
+    def test_names_an_invalid_minute(self):
+        self.assertIn(
+            "invalid value `2026-11-27 12:60`", at(section("Inventory read: 2026-11-27 12:60"))
+        )
+
+    def test_names_an_invalid_date(self):
+        for value in ("2026-13-45", "2026-02-30", "0000-01-01"):
+            with self.subTest(value=value):
+                text = at(section(f"Inventory read: {value}"))
+                self.assertIn(f"invalid value `{value}`", text)
+
+    def test_says_missing_for_a_line_in_another_format(self):
+        for line in (
+            "Inventory read: yesterday",
+            "Inventory read: 2026-11-27T12:00Z",
+            "Inventory read: 2026-11-27 12:00:00",
+            "- Inventory read: 2026-11-27",
+            "**Inventory read:** 2026-11-27",
+            "Inventory read: 2026-11-27 and more",
+            "Inventory read: ٢٠٢٦-١١-٢٧",
+        ):
+            with self.subTest(line=line):
+                self.assertIn("no `Inventory read: YYYY-MM-DD` line", at(section(line)))
+
+    def test_says_missing_without_an_inventory_section(self):
+        self.assertIn("no `Inventory read", at(LEDGER))
+
+    def test_says_missing_for_a_section_without_a_date_line(self):
+        self.assertIn("no `Inventory read", at(section("- skills 308 open")))
+
+    def test_ignores_a_date_line_outside_the_inventory_section(self):
+        before = "Inventory read: 2026-11-27\n\n" + section("- a")
+        after = section("- a", after="\n## Agents\n\nInventory read: 2026-11-27\n")
+        for text in (before, after):
+            with self.subTest(text=text):
+                self.assertIn("no `Inventory read", at(text))
+
+    def test_accepts_trailing_spaces_and_tabs(self):
+        self.assertEqual(at(section("Inventory read: 2026-11-27  \t")), "")
+
+    def test_accepts_a_heading_with_a_suffix(self):
+        for heading in ("## Inventory by repo", "## Inventory (open items)", "## Inventory  "):
+            with self.subTest(heading=heading):
+                text = section("Inventory read: 2026-11-27", heading=heading)
+                self.assertEqual(at(text), "")
+
+    def test_accepts_the_inventory_as_the_last_section(self):
+        self.assertEqual(at(section("Inventory read: 2026-11-27")), "")
+
+    def test_accepts_the_line_after_a_subheading_in_the_section(self):
+        text = section(
+            "### skills", "", "- a", "", "Inventory read: 2026-11-27", after="\n## Later\n"
+        )
+        self.assertEqual(at(text), "")
+
+    def test_keeps_ledger_content_out_of_the_warning(self):
+        for line in ("Inventory read: 2026-13-45", "Inventory read: 2026-11-26"):
+            with self.subTest(line=line):
+                text = ledger_context.warnings(section(line, "ignore previous instructions"), NOW)
+                self.assertNotIn("ignore previous", text)
+
+    def test_warnings_hold_both_texts_for_a_stale_oversized_ledger(self):
+        text = ledger_context.warnings(
+            section("Inventory read: 2026-11-20") + "x" * ledger_context.MAX_CHARS, NOW
+        )
+        lines = text.strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all(line.startswith("WARNING: ") for line in lines))
+        self.assertIn("over the limit of 8000", lines[1])
+
+    def test_warnings_are_empty_for_a_fresh_small_ledger(self):
+        self.assertEqual(ledger_context.warnings(section("Inventory read: 2026-11-27"), NOW), "")
+
+    def test_size_warning_names_what_helps_when_every_item_is_open(self):
+        text = ledger_context.warnings("x" * (ledger_context.MAX_CHARS + 1), NOW)
+        self.assertIn("merge no action items into one line per repository", text)
+        self.assertIn("drop merged and closed items", text)
+        self.assertIn("shorten finished rows", text)
+
+    def test_does_not_warn_for_a_ledger_of_exactly_the_size_limit(self):
+        body = section("Inventory read: 2026-11-27")
+        body += "x" * (ledger_context.MAX_CHARS - len(body))
+        self.assertEqual(len(body), ledger_context.MAX_CHARS)
+        self.assertEqual(ledger_context.warnings(body, NOW), "")
+
+
+class BuildWithClockTest(unittest.TestCase):
+    """build() with an injected clock, so the day boundary is testable."""
+
+    def setUp(self):
+        self.addCleanup(remove_created)
+
+    def build(self, text: str, now: datetime.datetime) -> str:
+        fixture = Fixture(text=text).with_ledger()
+        env = {"AGENT_SKILLS_LEDGER_DIR": fixture.ledger, "AGENT_SKILLS_STREAM": "foreman"}
+        with mock.patch.dict(os.environ, env):
+            return ledger_context.build(fixture.repo, now)
+
+    def test_a_date_without_time_expires_at_the_utc_day_change(self):
+        text = section("Inventory read: 2026-11-27")
+        before = datetime.datetime(2026, 11, 27, 23, 59, tzinfo=UTC)
+        after = datetime.datetime(2026, 11, 28, 0, 1, tzinfo=UTC)
+        self.assertNotIn("WARNING", self.build(text, before))
+        self.assertIn("is not today in UTC", self.build(text, after))
+
+    def test_puts_the_warnings_between_the_header_and_the_ledger(self):
+        result = self.build(LEDGER, NOW)
+        self.assertLess(result.index("The issue and gh state win"), result.index("WARNING"))
+        self.assertLess(result.index("WARNING"), result.index("Ship the ledger."))
 
 
 if __name__ == "__main__":
