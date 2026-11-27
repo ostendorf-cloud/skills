@@ -64,6 +64,11 @@ Find the real cause of a failing run and fix it, instead of rerunning the job.
   change, and never worth investigating per repository.
 - `mise x` provisions every pinned tool before running anything, so one tool the sandbox cannot
   fetch blocks every target. Run the mise-pinned binary directly, which is equivalent.
+- A review cannot run a blocked `task` target. It runs the underlying tool of each target
+  directly, for example `markdownlint-cli2` or `swift test`, and reads the CI result on the
+  head commit.
+- The report lists each blocked `task` target as not run, with the reason, and the substitute
+  that ran.
 - A Taskfile with a remote include writes its cache under the user cache directory, which the
   sandbox blocks. Create `$TMPDIR/home` and point `HOME` at it for that one call:
   `HOME="$TMPDIR/home" task --trusted-hosts github.com <target>`.

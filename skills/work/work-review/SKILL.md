@@ -39,6 +39,7 @@ Judge one pushed pull request as a different agent than the one that built it.
    waits with `gh pr checks <number> --watch` as one background call and continues this reviewer.
 5. Run config `verify` against the pushed branch, unless a CI job ran each of its targets green
    on the head commit. The verdict then names those jobs. A target without a job: run verify.
+   `task` blocked by the sandbox: follow the substitute and report rule in `fix-ci`.
 6. Judge in order: does the diff meet the acceptance criteria, is it correct and safe, does it
    need a human. Formatting, naming taste and wording belong to the linters and are no finding.
    For every open thread from step 3, decide whether its finding is now fixed.
@@ -81,8 +82,7 @@ Judge one pushed pull request as a different agent than the one that built it.
 17. Verdict blocked: move the label to `blocked`.
 18. Changes requested or blocked: end the verdict with a line that names `implement` as the
     next step. The rework round starts there and reads this verdict.
-19. Never merge the pull request. Never approve one implemented in this same session, formal
-    review included.
+19. Never merge. Never approve a pull request implemented in this session, formal review included.
 
 ## Guardrails
 
