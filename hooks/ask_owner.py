@@ -91,10 +91,14 @@ def reversed_lines(path: str) -> Iterator[bytes]:
 def is_real_user_message(record: dict[str, Any]) -> bool:
     """A user record the person wrote.
 
-    A tool_result, a meta record, a record with an origin and text the harness injected
-    (a task notification, a system reminder) arrive mid-turn and start no turn.
+    A tool_result, a meta record, a record whose origin is not human and text the harness
+    injected (a task notification, a system reminder) arrive mid-turn and start no turn.
+    A typed prompt carries origin {"kind": "human"} and starts a turn.
     """
-    if record.get("type") != "user" or record.get("isMeta") is True or record.get("origin"):
+    if record.get("type") != "user" or record.get("isMeta") is True:
+        return False
+    origin = record.get("origin")
+    if origin and not (isinstance(origin, dict) and origin.get("kind") == "human"):
         return False
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None

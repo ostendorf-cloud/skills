@@ -138,6 +138,19 @@ class AskOwnerTest(unittest.TestCase):
         records = [user(), assistant(ASK), tool_result(), peer, assistant(TEXT)]
         self.assertEqual(self.stop(STATUS_TABLE, records), {})
 
+    def test_a_typed_prompt_with_a_human_origin_starts_a_turn(self):
+        typed = user("next question")
+        typed["origin"] = {"kind": "human"}
+        records = [user(), assistant(ASK), tool_result(), assistant(TEXT), typed, assistant(TEXT)]
+        output = self.stop(STATUS_TABLE, records)
+        self.assertEqual(output.get("decision"), "block")
+
+    def test_a_task_notification_origin_does_not_start_a_turn(self):
+        notice = user("finished")
+        notice["origin"] = {"kind": "task-notification", "producer": "bash", "runId": "r1"}
+        records = [user(), assistant(ASK), tool_result(), notice, assistant(TEXT)]
+        self.assertEqual(self.stop(STATUS_TABLE, records), {})
+
     def test_blocks_a_bold_step_in_a_list_item_or_quote(self):
         records = [user(), assistant(TEXT)]
         for line in (
