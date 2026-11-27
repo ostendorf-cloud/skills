@@ -51,6 +51,7 @@ Applies to every session, every subagent and every repository. Conventions live 
   - `gh` in a `for` loop returns empty. Call `gh` once per Bash invocation.
   - `gh ... --body "<multi-line>"` fails with `operation not permitted` on the config file. A one line body with backticks fails too. Use `--body-file`.
   - `gh api` rejects `--repo`. Use the path form `repos/<owner>/<repo>/...`.
+  - zsh globs `?` in a `gh api` path and `*` in an unquoted `--include=*.go`, then fails with `no matches found`. Quote the path and the flag value.
   - `python3 -c` one liners are denied. Write a probe fixture with the Write tool.
   - A redirect in a scratch fixture needs an absolute target, or the directory created in a separate call and the `cd` as the first part of the command. A `cd` into a path that does not exist yet leaves the directory unknown, and a relative redirect is denied.
   - A `mise.toml` trust prompt makes the `python3` shim fail in an exported tree.
