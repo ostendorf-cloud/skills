@@ -119,6 +119,43 @@ class AskOwnerTest(unittest.TestCase):
         ]
         self.assertEqual(self.stop(STATUS_TABLE, records), {})
 
+    def test_a_task_notification_after_the_question_does_not_start_a_turn(self):
+        notice = user("<task-notification>\n<task-id>b1</task-id>\n</task-notification>")
+        records = [user(), assistant(ASK), tool_result(), notice, assistant(TEXT)]
+        self.assertEqual(self.stop(STATUS_TABLE, records), {})
+
+    def test_a_task_notification_in_a_text_item_does_not_start_a_turn(self):
+        notice = user()
+        notice["message"]["content"] = [
+            {"type": "text", "text": "<task-notification>x</task-notification>"}
+        ]
+        records = [user(), assistant(ASK), tool_result(), notice, assistant(TEXT)]
+        self.assertEqual(self.stop(STATUS_TABLE, records), {})
+
+    def test_a_record_with_an_origin_does_not_start_a_turn(self):
+        peer = user("[Subagent hand-back] report")
+        peer["origin"] = {"kind": "peer"}
+        records = [user(), assistant(ASK), tool_result(), peer, assistant(TEXT)]
+        self.assertEqual(self.stop(STATUS_TABLE, records), {})
+
+    def test_blocks_a_bold_step_in_a_list_item_or_quote(self):
+        records = [user(), assistant(TEXT)]
+        for line in (
+            "- **Merge PR 298**",
+            "* **Merge PR 298**",
+            "+ **Merge PR 298**",
+            "1. **Merge PR 298**",
+            "> **Merge PR 298**",
+            "  - **Merge PR 298**",
+        ):
+            with self.subTest(line=line):
+                output = self.stop(f"For you now:\n{line}\n", records)
+                self.assertEqual(output.get("decision"), "block")
+
+    def test_allows_a_list_item_with_bold_in_the_middle(self):
+        message = "- Check that **CI** is green.\n"
+        self.assertEqual(self.stop(message, [user(), assistant(TEXT)]), {})
+
     def test_a_subagent_record_is_ignored(self):
         records = [user(), assistant(ASK, sidechain=True), assistant(TEXT)]
         output = self.stop(STATUS_TABLE, records)

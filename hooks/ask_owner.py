@@ -8,13 +8,15 @@ owner step that stands only as bold text is never read. The hook looks at
 last_assistant_message from the payload. It counts as a bold owner step when:
 
 - a markdown table row holds a bold span, the header row of a table excepted, or
-- a line starts with a bold span, after leading whitespace.
+- a line starts with a bold span, after leading whitespace and an optional list or quote
+  marker (`-`, `*`, `+`, `1.`, `>`).
 
 Bold in the middle of a sentence and headings do not count. Fenced code blocks and inline
 code spans are removed first.
 
 When such a step exists, the hook reads the transcript from its end, back to the last real
-user message: a user record that is neither a tool_result nor a meta record. The turn made
+user message: a user record the person wrote. Tool results, meta records and text the
+harness injects mid-turn, such as a task notification, do not start a turn. The turn made
 a question tool call when an assistant record in that range holds a tool_use block named
 AskUserQuestion. Without one, the hook answers {"decision": "block", "reason": ...}.
 
@@ -39,7 +41,9 @@ QUESTION_TOOL = "AskUserQuestion"
 CHUNK_SIZE = 64 * 1024
 MAX_SCAN_BYTES = 16 * 1024 * 1024
 BOLD_SPAN = re.compile(r"\*\*[^*\n]+\*\*")
-BOLD_LINE_START = re.compile(r"^\s*\*\*[^*\n]+\*\*")
+BOLD_LINE_START = re.compile(r"^\s*(?:(?:>|[-*+]|\d+[.)])\s+)*\*\*[^*\n]+\*\*")
+# Text a harness injects as a user record, for example a finished background task.
+INJECTED_PREFIXES = ("<task-notification>", "<system-reminder>", "<local-command")
 TABLE_ROW = re.compile(r"^\s*\|")
 TABLE_SEPARATOR = re.compile(r"^\s*\|[\s:|-]*-[\s:|-]*$")
 
@@ -85,18 +89,27 @@ def reversed_lines(path: str) -> Iterator[bytes]:
 
 
 def is_real_user_message(record: dict[str, Any]) -> bool:
-    """A user record that is neither a tool_result nor a meta record."""
-    if record.get("type") != "user" or record.get("isMeta") is True:
+    """A user record the person wrote.
+
+    A tool_result, a meta record, a record with an origin and text the harness injected
+    (a task notification, a system reminder) arrive mid-turn and start no turn.
+    """
+    if record.get("type") != "user" or record.get("isMeta") is True or record.get("origin"):
         return False
     message = record.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
-        return True
-    if isinstance(content, list):
-        return not any(
-            isinstance(item, dict) and item.get("type") == "tool_result" for item in content
-        )
-    return False
+        return not content.lstrip().startswith(INJECTED_PREFIXES)
+    if not isinstance(content, list):
+        return False
+    texts = []
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") == "tool_result":
+            return False
+        text = item.get("text")
+        if isinstance(text, str):
+            texts.append(text)
+    return not any(text.lstrip().startswith(INJECTED_PREFIXES) for text in texts)
 
 
 def calls_question_tool(record: dict[str, Any]) -> bool:
