@@ -1,5 +1,31 @@
 # Changelog
 
+## [v0.5.0](https://github.com/ostendorf-cloud/skills/compare/v0.4.0...v0.5.0) (2026-11-27)
+
+### Features
+
+- **rules:** require an open item inventory and ledger pruning ([#309](https://github.com/ostendorf-cloud/skills/pull/309))
+- **settings:** record token use and plan limit per session ([#305](https://github.com/ostendorf-cloud/skills/pull/305))
+- **mods:** rotate the orchestrator context through a mod ([#304](https://github.com/ostendorf-cloud/skills/pull/304))
+- **hooks:** block a bold owner step without a question call ([#298](https://github.com/ostendorf-cloud/skills/pull/298))
+- **skills:** add a grill-me skill that closes open assumptions ([#284](https://github.com/ostendorf-cloud/skills/pull/284))
+- **agents:** add a researcher agent that stores sources and results ([#283](https://github.com/ostendorf-cloud/skills/pull/283))
+- **hooks:** inject the workstream ledger at session start ([#273](https://github.com/ostendorf-cloud/skills/pull/273))
+- **skills:** add agents-md skill and nested AGENTS.md scan ([#270](https://github.com/ostendorf-cloud/skills/pull/270))
+- **rules:** never make clear the only way on ([#272](https://github.com/ostendorf-cloud/skills/pull/272))
+- **work:** allow ai ready when the request names the work ([#271](https://github.com/ostendorf-cloud/skills/pull/271))
+
+### Bug Fixes
+
+- **commit:** sign off commits where a DCO check applies ([#315](https://github.com/ostendorf-cloud/skills/pull/315))
+- **hooks:** allow a worktree branch push through git -C ([#302](https://github.com/ostendorf-cloud/skills/pull/302))
+- **skills:** close the baseline gaps found in the rollout ([#306](https://github.com/ostendorf-cloud/skills/pull/306))
+- **hooks:** name the github module in the IaC refusal ([#303](https://github.com/ostendorf-cloud/skills/pull/303))
+- **hooks:** read each commit segment's own heredoc ([#294](https://github.com/ostendorf-cloud/skills/pull/294))
+- **hooks:** judge only the git commit segment of a commit command ([#287](https://github.com/ostendorf-cloud/skills/pull/287))
+- **settings:** allow reads of installed skills and agents ([#278](https://github.com/ostendorf-cloud/skills/pull/278))
+- **settings:** allow reading the installer state file ([#269](https://github.com/ostendorf-cloud/skills/pull/269))
+
 ## [v0.4.0](https://github.com/ostendorf-cloud/skills/compare/v0.3.0...v0.4.0) (2026-11-24)
 
 ### Features
