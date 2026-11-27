@@ -36,9 +36,9 @@ File or update one GitHub issue with a clear outcome and testable criteria.
 11. Never set `ai: ready` unless the user says so explicitly in this request. A request that
     names the work, such as "work on solobill" or "implement #12", is that instruction for the
     issues it covers. An issue the user discussed and decided in this session gets `ai: ready`
-    at once, no triage step. Decided means the user named a decision on that issue here, a
-    mention is not enough. Any other issue from others or an unattended run keeps
-    `needs triage`. An unattended run never sets `ai: ready`.
+    at once, no triage step. Decided means the user named a decision to do that issue here, a
+    mention is not enough. Any other issue from others keeps `needs triage`. An unattended
+    run never sets `ai: ready`.
 12. Reference related issues with `#<number>`. Link blocking or blocked issues with
     `gh issue edit --add-blocked-by`.
 13. A missing type, priority or state label on the tracker is reported, never created.
