@@ -859,7 +859,49 @@ def network_shape_violation(
     )
     subcommand_next = sub_index == git_index + 1
     alone = command_alone and git_path is None and prefix_ok and subcommand_next
-    return None if alone else RUN_NETWORK_ALONE
+    if alone:
+        return None
+    if command_alone and prefix_ok and is_worktree_push(words, git_index, sub_index):
+        return None
+    return RUN_NETWORK_ALONE
+
+
+WORKTREE_DIR = "/.claude/worktrees/"
+BRANCH_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+
+
+def is_worktree_push(words: list[str], git_index: int, sub_index: int) -> bool:
+    """Whether words are exactly `git -C <path> push [-u] origin <branch>`, with <path>
+    a linked worktree under a `.claude/worktrees/` directory and <branch> a plain
+    branch name other than the default branch. The path is read literally: a variable,
+    a substitution or a `~` in it is not followed. Such a push is let through the shape
+    check, ADR 0005. The default branch check of the push itself runs before this."""
+    if sub_index != git_index + 3 or words[git_index + 1] != "-C":
+        return False
+    path = words[git_index + 2]
+    if not os.path.isabs(path) or re.search(r"[$`~*?\[\]{}\\]", path):
+        return False
+    rest = words[sub_index + 1 :]
+    if rest[:1] in (["-u"], ["--set-upstream"]):
+        rest = rest[1:]
+    if len(rest) != 2 or rest[0] != "origin" or not BRANCH_NAME.match(rest[1]):
+        return False
+    real = os.path.realpath(path)
+    if WORKTREE_DIR not in real + "/":
+        return False
+    listing = QUERIES.run(["worktree", "list", "--porcelain"], real)
+    if listing is None:
+        return False
+    entries = [
+        os.path.realpath(line[len("worktree ") :])
+        for line in listing.splitlines()
+        if line.startswith("worktree ")
+    ]
+    # The first entry is the main worktree. A standalone repository lists only itself
+    # there, so only a linked worktree counts.
+    if real not in entries[1:]:
+        return False
+    return rest[1] != QUERIES.default_branch(real)
 
 
 RUN_GO_GET_ALONE = (
