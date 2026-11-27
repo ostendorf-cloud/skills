@@ -59,7 +59,10 @@ def extract_messages(command: str) -> list[str]:
 
 
 def extract_message(
-    command: str, cwd: Optional[str], segment: Optional[str] = None
+    command: str,
+    cwd: Optional[str],
+    segment: Optional[str] = None,
+    offset: Optional[int] = None,
 ) -> Optional[str]:
     """The commit message the command would write, or None when it carries none.
 
@@ -67,11 +70,13 @@ def extract_message(
     is ignored. A heredoc body sits on the lines after its segment, so it is searched in
     the command from the segment on. Every -m/--message value of the segment is
     concatenated in order: the first is the subject, the rest become the body, the same
-    way git itself joins multiple -m flags.
+    way git itself joins multiple -m flags. The caller passes the offset of the segment
+    in the command, so a repeated identical segment reads its own heredoc and not the
+    first one.
     """
     if segment is None:
         segment = command
-    start = command.find(segment)
+    start = command.find(segment) if offset is None else offset
     if "<<" in segment and start >= 0:
         heredoc = HEREDOC_MESSAGE.search(command, start)
         if heredoc:
@@ -142,7 +147,13 @@ def main() -> int:
 
     # Every `git commit` segment is judged on its own message. A part that is not a
     # commit, such as `git tag -m` or `echo -m`, is ignored.
+    cursor = 0
     for raw_part, directory in _common.part_dirs(command, cwd):
+        # Parts come in command order, so searching from the end of the previous part
+        # finds this part's own position even when an identical part came before.
+        offset = command.find(raw_part, cursor)
+        if offset >= 0:
+            cursor = offset + len(raw_part)
         part = _common.normalize_command_part(raw_part)
         normalized, path = _common.strip_global_git_options(part)
         if not (normalized.startswith("git commit") or normalized == "git commit"):
@@ -156,7 +167,7 @@ def main() -> int:
         if "--amend" in raw_part and not MESSAGE_SOURCE.search(raw_part):
             continue
 
-        message = extract_message(command, path or cwd, raw_part)
+        message = extract_message(command, path or cwd, raw_part, offset)
         if message is None:
             continue
 
