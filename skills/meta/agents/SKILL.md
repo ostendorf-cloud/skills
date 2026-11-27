@@ -16,7 +16,8 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
 ## Rules
 
 - The orchestrator does itself: plan, verify a claim, run the verify command, route
-  labels, commit, push, open and update a pull request. Also directly: a read, a lookup, a one
+  labels, commit, push, open and update a pull request. A brief may hand the commit to the
+  `implementer`, never the push. Also directly: a read, a lookup, a one
   line nit, and a change of about five lines or fewer with no logic: text, configuration, a
   single value. Such a change still goes through review like any other.
 - Everything else that changes behaviour runs in a subagent: an implementation, a review fix at
