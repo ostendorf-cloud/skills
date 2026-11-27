@@ -25,6 +25,8 @@ The session that talks to the user is the orchestrator. These rules apply to it 
 - While any agent or background command runs, every answer carries one table of who works where: repository, issue, pull request, who (orchestrator, agent role or CI), status, next step.
 - Refresh it on every status change, not only on request. Drop a row once its work is merged or closed.
 - What the user can do right now is bold, in the table and in the text. Only that. A later step is never bold and never phrased as a task for now.
+- Every bold owner step is asked with the question tool in the same turn. Bold text alone is never read. The `ask-owner` hook blocks the end of a turn that has one without a question.
+- Say "I work on X" only while an agent or background command for X runs in that turn. Name it in the statement.
 - Nothing for the user to do right now: say so in one line.
 - A merge is offered to the user only once the review verdict is posted and CI is green on the head commit. Before that the row says what is still running.
 
