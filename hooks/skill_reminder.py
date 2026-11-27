@@ -276,7 +276,9 @@ TRIGGERS = (
     ),
     (
         "agent-briefs",
-        r"\b(write (a |the )?(subagent |agent )?brief|brief (a |the )?(sub)?agent|"
+        r"\b(write (a |the )?(sub)?agent brief|"
+        r"write (a |the )?brief for (the |an? )?(sub)?agent\w*|"
+        r"brief (a |the )?(sub)?agent|"
         r"agent report shape|brief f(ü|ue)r (den |einen )?agent\w*)\b",
     ),
     (
