@@ -172,6 +172,12 @@ PHRASES = {
         "Subagenten einsetzen",
         "Agenten aufraeumen",
     ),
+    "agent-briefs": (
+        "write a brief for the agent",
+        "write the agent brief",
+        "agent report shape",
+        "Brief fuer den Agenten",
+    ),
     "skills-config": (
         "set up the skills config",
         "validate agent-skills.json",
@@ -550,6 +556,14 @@ class SkillReminderTest(unittest.TestCase):
         ]
         for prompt in cases:
             self.assertNotIn("website-conventions", skill_reminder.matches(prompt), prompt)
+
+    def test_stays_quiet_on_a_brief_that_is_no_agent_brief(self):
+        cases = [
+            "write a brief summary of the PR",
+            "write a brief note on the issue",
+        ]
+        for prompt in cases:
+            self.assertNotIn("agent-briefs", skill_reminder.matches(prompt), prompt)
 
     def test_words_the_hint_without_ordering_a_load(self):
         message = context(run_hook("skill_reminder.py", prompt_payload("open a pull request")))

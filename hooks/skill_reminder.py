@@ -275,6 +275,13 @@ TRIGGERS = (
         r"webseite (bauen|erstellen|pr(ü|ue)fen))\b",
     ),
     (
+        "agent-briefs",
+        r"\b(write (a |the )?(sub)?agent brief|"
+        r"write (a |the )?brief for (the |an? )?(sub)?agent\w*|"
+        r"brief (a |the )?(sub)?agent|"
+        r"agent report shape|brief f(ü|ue)r (den |einen )?agent\w*)\b",
+    ),
+    (
         "agents",
         r"\b(subagent\w*|spawn (an? )?agents?|terminate (the )?agents?|agent routing|"
         r"run this in parallel|clean up the agents|agenten aufr(ä|ae)umen)\b",
