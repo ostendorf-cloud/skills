@@ -25,8 +25,10 @@ Delegate only where it pays, scope it tightly, and never leave an agent running.
   test always run in a subagent.
 - One bounded scope per agent: the goal, the files it may touch, the house style, what it must
   not do.
-- A subagent cannot fetch, no exception. Fetch in the orchestrator first and give it the
-  result; a brief that tells it to fetch gets stale refs reported back as current.
+- A subagent does not fetch the repository it works in. Fetch in the orchestrator first and
+  give it the result; a brief that tells it to fetch gets stale refs reported back as current.
+- The fetch hook denies `cd` and `-C`, so an agent in one repository cannot fetch another.
+  An agent that must read another repository's remote state uses a throwaway clone of it.
 - Parallel spawning only for independent work. One agent waiting on another is sequential work
   pretending to be parallel.
 - The session collects the agents' baseline feedback and raises what is worth a change through
