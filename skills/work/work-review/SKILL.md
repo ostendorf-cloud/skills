@@ -56,9 +56,8 @@ Judge one pushed pull request as a different agent than the one that built it.
    formal review,
    `POST /repos/{owner}/{repo}/pulls/{number}/reviews` through `gh api`, with `event` from the
    verdict, `commit_id` the pull request's full 40 character head SHA (a short SHA fails with
-   422), `body` naming the commit CI was green on, and `comments`: one entry per finding,
-   `{path, line, side: "RIGHT", body: "<Blocker|Should|Nit>: <problem and fix>"}`. This formal
-   review is the verdict; post no separate comment.
+   422), `body` naming the commit CI was green on, and `comments`: one entry per finding, `{path,
+   line, side: "RIGHT", body: "<Blocker|Should|Nit>: <problem and fix>"}`. This is the verdict.
 10. Config `review.token` is unset, or the pull request's author is this review's own identity:
     GitHub refuses the review call. The comment path is the normal route for a single account
     setup, not a failure. Post the verdict with `gh pr comment`: first line `Verdict: <verdict>`,
@@ -68,9 +67,10 @@ Judge one pushed pull request as a different agent than the one that built it.
     the nearest changed line in the same file and name the real location in its body, or, with
     no changed line in that file at all, put the finding in the top level review or comment body.
 12. Verdict approve, independent per Independence: mark the pull request ready (`gh pr ready`).
-    It closes its issue by default: move the label to `done`. A body saying `Part of #N` leaves
-    the issue open: move the label to `ready` when agent work is left, else `needs human`, and
-    comment what is left.
+    It closes its issue by default: move the label to `done`. Whoever moves the label also runs
+    `gh pr ready`. A brief that keeps the routing with the orchestrator means the reviewer runs
+    neither, and the report names that. A body saying `Part of #N` leaves the issue open: move
+    the label to `ready` when agent work is left, else `needs human`, and comment what is left.
 13. Verdict approve, not independent: treat it like step 15, `needs human`, naming in the
     report that the judgment was approve but independence was missing.
 14. Verdict changes requested: move the label to `changes requested`. Never undo `ready`.
